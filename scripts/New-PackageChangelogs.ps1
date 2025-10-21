@@ -24,6 +24,12 @@ function Get-RelativePath {
   param([Parameter(Mandatory=$true)][string]$Path)
   [System.IO.Path]::GetRelativePath($repoRoot, (Resolve-Path $Path).Path)
 }
+function ConvertTo-GitPath {
+  param([Parameter(Mandatory=$true)][string]$Path)
+  # převeď backslashes na forward slashes, bez úvodního ./
+  return (($Path -replace '\\','/') -replace '^\./','')
+}
+
 function Test-PureSubmodulePointer {
   param(
     [Parameter(Mandatory=$true)][string]$Sha,
@@ -34,9 +40,10 @@ function Test-PureSubmodulePointer {
   foreach($line in $raw){
     # :<mode1> <mode2> <sha1> <sha2> <status>\t<path>
     if ($line -match '^\:(?<m1>\d{6})\s+(?<m2>\d{6})\s+[0-9a-f]{40}\s+[0-9a-f]{40}\s+\w+\s+(?<p>.+)$') {
-      if ($matches.p -eq $RelPath -and $matches.m1 -eq '160000' -and $matches.m2 -eq '160000') {
-        return $true   # čistě změna ukazatele submodulu (GITLINK→GITLINK)
-      }
+    $pGit = ($matches.p -replace '\\','/')
+    if ($pGit -eq $RelPath -and $matches.m1 -eq '160000' -and $matches.m2 -eq '160000') {
+        return $true
+    }
     }
   }
   return $false
@@ -69,7 +76,7 @@ foreach ($t in $tables) {
   try {
     $slug    = Get-PackageSlug $t
     $pkgPath = Join-Path $PackagesDir $slug
-    $pathRel = Get-RelativePath $pkgPath
+    $pathRel = ConvertTo-GitPath (Get-RelativePath $pkgPath)
     if (!(Test-Path -LiteralPath $pkgPath)) {
       Write-Warning ("SKIP [{0}] – package not found: {1}" -f $t, $pkgPath)
       continue
@@ -98,9 +105,8 @@ foreach ($t in $tables) {
       $date    = $parts[1].Trim()
       $subject = $parts[2].Trim()
       $body    = if ($parts.Count -ge 4) { $parts[3] } else { '' }
-        # Auto-commity z umbrella, které pouze mění ukazatel submodulu (žádná skutečná změna obsahu)
-        $autoSubmodule = ($subject -match '(?i)\bsubmodule(s)?\b') -or ($subject -match '(?i)\bbump (pointers?|submodules?)\b')
-        if ($autoSubmodule -and (Test-PureSubmodulePointer -Sha $hash -RelPath $pathRel)) {
+        # ignoruj čisté změny ukazatele submodulu pro náš balíček
+        if (Test-PureSubmodulePointer -Sha $hash -RelPath $pathRel) {
         continue
         }
 
