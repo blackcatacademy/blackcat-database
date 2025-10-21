@@ -1,0 +1,100 @@
+name: DB Docs CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: db-docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Generate & verify docs
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Show environment
+        shell: pwsh
+        run: |
+          $PSVersionTable
+          git --version
+
+      # 1) Validace schématu vs. mapa
+      - name: Validate schema output matches map
+        shell: pwsh
+        run: |
+          pwsh ./scripts/Test-SchemaOutput.ps1 `
+            -MapPath ./scripts/schema-map.psd1 `
+            -SchemaDir ./schema
+
+      # 2) Regenerace balíčků + dokumentace
+      - name: Split schema into packages
+        shell: pwsh
+        run: |
+          pwsh ./scripts/Split-SchemaToPackages.ps1 `
+            -MapPath ./scripts/schema-map.psd1 `
+            -PackagesDir ./packages
+
+      - name: Build READMEs
+        shell: pwsh
+        run: |
+          pwsh ./scripts/New-PackageReadmes.ps1 `
+            -MapPath ./scripts/schema-map.psd1 `
+            -PackagesDir ./packages `
+            -Force
+
+      - name: Build column definitions
+        shell: pwsh
+        run: |
+          pwsh ./scripts/Build-Definitions.ps1 `
+            -MapPath ./scripts/schema-map.psd1 `
+            -DefsPath ./scripts/schema-defs.psd1 `
+            -PackagesDir ./packages `
+            -Force
+
+      - name: Build changelogs
+        shell: pwsh
+        run: |
+          pwsh ./scripts/New-PackageChangelogs.ps1 `
+            -MapPath ./scripts/schema-map.psd1 `
+            -PackagesDir ./packages `
+            -Force
+
+      - name: Build packages index
+        shell: pwsh
+        run: |
+          pwsh ./scripts/New-DocsIndex.ps1 `
+            -MapPath ./scripts/schema-map.psd1 `
+            -PackagesDir ./packages `
+            -OutPath ./PACKAGES.md `
+            -Force
+
+      # 3) Lint (jen chyby)
+      - name: Lint PowerShell (errors only)
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -ErrorAction Stop
+          Invoke-ScriptAnalyzer -Path ./scripts -Recurse -Severity Error
+
+      # 4) Změny? -> failni s diffem
+      - name: Verify no uncommitted changes
+        shell: pwsh
+        run: |
+          $diff = git status --porcelain
+          if ($diff) {
+            Write-Host "Files changed after generation:`n$diff"
+            git --no-pager diff --unified=0 | Out-Host
+            throw "Generated artifacts are out of date. Run generators locally and commit the results."
+          }

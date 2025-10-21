@@ -1,0 +1,63 @@
+# BlackCat Database – Packages
+
+> Generated from ./scripts/schema-map.psd1 on 2025-10-21 22:18:41.
+
+| Table | Package | README | Definition | Changelog |
+|-----:|:--------|:------:|:----------:|:---------:|
+| app_settings | app-settings | [README](./packages/app-settings/README.md) | [Definition](./packages/app-settings/docs/definition.md) | [Changelog](./packages/app-settings/CHANGELOG.md) |
+| audit_log | audit-log | [README](./packages/audit-log/README.md) | [Definition](./packages/audit-log/docs/definition.md) | [Changelog](./packages/audit-log/CHANGELOG.md) |
+| auth_events | auth-events | [README](./packages/auth-events/README.md) | [Definition](./packages/auth-events/docs/definition.md) | [Changelog](./packages/auth-events/CHANGELOG.md) |
+| authors | authors | [README](./packages/authors/README.md) | [Definition](./packages/authors/docs/definition.md) | [Changelog](./packages/authors/CHANGELOG.md) |
+| book_assets | book-assets | [README](./packages/book-assets/README.md) | [Definition](./packages/book-assets/docs/definition.md) | [Changelog](./packages/book-assets/CHANGELOG.md) |
+| book_categories | book-categories | [README](./packages/book-categories/README.md) | [Definition](./packages/book-categories/docs/definition.md) | [Changelog](./packages/book-categories/CHANGELOG.md) |
+| books | books | [README](./packages/books/README.md) | [Definition](./packages/books/docs/definition.md) | [Changelog](./packages/books/CHANGELOG.md) |
+| cart_items | cart-items | [README](./packages/cart-items/README.md) | [Definition](./packages/cart-items/docs/definition.md) | [Changelog](./packages/cart-items/CHANGELOG.md) |
+| carts | carts | [README](./packages/carts/README.md) | [Definition](./packages/carts/docs/definition.md) | [Changelog](./packages/carts/CHANGELOG.md) |
+| categories | categories | [README](./packages/categories/README.md) | [Definition](./packages/categories/docs/definition.md) | [Changelog](./packages/categories/CHANGELOG.md) |
+| countries | countries | [README](./packages/countries/README.md) | [Definition](./packages/countries/docs/definition.md) | [Changelog](./packages/countries/CHANGELOG.md) |
+| coupon_redemptions | coupon-redemptions | [README](./packages/coupon-redemptions/README.md) | [Definition](./packages/coupon-redemptions/docs/definition.md) | [Changelog](./packages/coupon-redemptions/CHANGELOG.md) |
+| coupons | coupons | [README](./packages/coupons/README.md) | [Definition](./packages/coupons/docs/definition.md) | [Changelog](./packages/coupons/CHANGELOG.md) |
+| crypto_keys | crypto-keys | [README](./packages/crypto-keys/README.md) | [Definition](./packages/crypto-keys/docs/definition.md) | [Changelog](./packages/crypto-keys/CHANGELOG.md) |
+| email_verifications | email-verifications | [README](./packages/email-verifications/README.md) | [Definition](./packages/email-verifications/docs/definition.md) | [Changelog](./packages/email-verifications/CHANGELOG.md) |
+| encrypted_fields | encrypted-fields | [README](./packages/encrypted-fields/README.md) | [Definition](./packages/encrypted-fields/docs/definition.md) | [Changelog](./packages/encrypted-fields/CHANGELOG.md) |
+| encryption_events | encryption-events | [README](./packages/encryption-events/README.md) | [Definition](./packages/encryption-events/docs/definition.md) | [Changelog](./packages/encryption-events/CHANGELOG.md) |
+| encryption_policies | encryption-policies | [README](./packages/encryption-policies/README.md) | [Definition](./packages/encryption-policies/docs/definition.md) | [Changelog](./packages/encryption-policies/CHANGELOG.md) |
+| idempotency_keys | idempotency-keys | [README](./packages/idempotency-keys/README.md) | [Definition](./packages/idempotency-keys/docs/definition.md) | [Changelog](./packages/idempotency-keys/CHANGELOG.md) |
+| inventory_reservations | inventory-reservations | [README](./packages/inventory-reservations/README.md) | [Definition](./packages/inventory-reservations/docs/definition.md) | [Changelog](./packages/inventory-reservations/CHANGELOG.md) |
+| invoice_items | invoice-items | [README](./packages/invoice-items/README.md) | [Definition](./packages/invoice-items/docs/definition.md) | [Changelog](./packages/invoice-items/CHANGELOG.md) |
+| invoices | invoices | [README](./packages/invoices/README.md) | [Definition](./packages/invoices/docs/definition.md) | [Changelog](./packages/invoices/CHANGELOG.md) |
+| jwt_tokens | jwt-tokens | [README](./packages/jwt-tokens/README.md) | [Definition](./packages/jwt-tokens/docs/definition.md) | [Changelog](./packages/jwt-tokens/CHANGELOG.md) |
+| key_events | key-events | [README](./packages/key-events/README.md) | [Definition](./packages/key-events/docs/definition.md) | [Changelog](./packages/key-events/CHANGELOG.md) |
+| key_rotation_jobs | key-rotation-jobs | [README](./packages/key-rotation-jobs/README.md) | [Definition](./packages/key-rotation-jobs/docs/definition.md) | [Changelog](./packages/key-rotation-jobs/CHANGELOG.md) |
+| key_usage | key-usage | [README](./packages/key-usage/README.md) | [Definition](./packages/key-usage/docs/definition.md) | [Changelog](./packages/key-usage/CHANGELOG.md) |
+| kms_keys | kms-keys | [README](./packages/kms-keys/README.md) | [Definition](./packages/kms-keys/docs/definition.md) | [Changelog](./packages/kms-keys/CHANGELOG.md) |
+| kms_providers | kms-providers | [README](./packages/kms-providers/README.md) | [Definition](./packages/kms-providers/docs/definition.md) | [Changelog](./packages/kms-providers/CHANGELOG.md) |
+| login_attempts | login-attempts | [README](./packages/login-attempts/README.md) | [Definition](./packages/login-attempts/docs/definition.md) | [Changelog](./packages/login-attempts/CHANGELOG.md) |
+| newsletter_subscribers | newsletter-subscribers | [README](./packages/newsletter-subscribers/README.md) | [Definition](./packages/newsletter-subscribers/docs/definition.md) | [Changelog](./packages/newsletter-subscribers/CHANGELOG.md) |
+| notifications | notifications | [README](./packages/notifications/README.md) | [Definition](./packages/notifications/docs/definition.md) | [Changelog](./packages/notifications/CHANGELOG.md) |
+| order_item_downloads | order-item-downloads | [README](./packages/order-item-downloads/README.md) | [Definition](./packages/order-item-downloads/docs/definition.md) | [Changelog](./packages/order-item-downloads/CHANGELOG.md) |
+| order_items | order-items | [README](./packages/order-items/README.md) | [Definition](./packages/order-items/docs/definition.md) | [Changelog](./packages/order-items/CHANGELOG.md) |
+| orders | orders | [README](./packages/orders/README.md) | [Definition](./packages/orders/docs/definition.md) | [Changelog](./packages/orders/CHANGELOG.md) |
+| payment_gateway_notifications | payment-gateway-notifications | [README](./packages/payment-gateway-notifications/README.md) | [Definition](./packages/payment-gateway-notifications/docs/definition.md) | [Changelog](./packages/payment-gateway-notifications/CHANGELOG.md) |
+| payment_logs | payment-logs | [README](./packages/payment-logs/README.md) | [Definition](./packages/payment-logs/docs/definition.md) | [Changelog](./packages/payment-logs/CHANGELOG.md) |
+| payment_webhooks | payment-webhooks | [README](./packages/payment-webhooks/README.md) | [Definition](./packages/payment-webhooks/docs/definition.md) | [Changelog](./packages/payment-webhooks/CHANGELOG.md) |
+| payments | payments | [README](./packages/payments/README.md) | [Definition](./packages/payments/docs/definition.md) | [Changelog](./packages/payments/CHANGELOG.md) |
+| permissions | permissions | [README](./packages/permissions/README.md) | [Definition](./packages/permissions/docs/definition.md) | [Changelog](./packages/permissions/CHANGELOG.md) |
+| policy_kms_keys | policy-kms-keys | [README](./packages/policy-kms-keys/README.md) | [Definition](./packages/policy-kms-keys/docs/definition.md) | [Changelog](./packages/policy-kms-keys/CHANGELOG.md) |
+| refunds | refunds | [README](./packages/refunds/README.md) | [Definition](./packages/refunds/docs/definition.md) | [Changelog](./packages/refunds/CHANGELOG.md) |
+| register_events | register-events | [README](./packages/register-events/README.md) | [Definition](./packages/register-events/docs/definition.md) | [Changelog](./packages/register-events/CHANGELOG.md) |
+| reviews | reviews | [README](./packages/reviews/README.md) | [Definition](./packages/reviews/docs/definition.md) | [Changelog](./packages/reviews/CHANGELOG.md) |
+| session_audit | session-audit | [README](./packages/session-audit/README.md) | [Definition](./packages/session-audit/docs/definition.md) | [Changelog](./packages/session-audit/CHANGELOG.md) |
+| sessions | sessions | [README](./packages/sessions/README.md) | [Definition](./packages/sessions/docs/definition.md) | [Changelog](./packages/sessions/CHANGELOG.md) |
+| system_errors | system-errors | [README](./packages/system-errors/README.md) | [Definition](./packages/system-errors/docs/definition.md) | [Changelog](./packages/system-errors/CHANGELOG.md) |
+| system_jobs | system-jobs | [README](./packages/system-jobs/README.md) | [Definition](./packages/system-jobs/docs/definition.md) | [Changelog](./packages/system-jobs/CHANGELOG.md) |
+| tax_rates | tax-rates | [README](./packages/tax-rates/README.md) | [Definition](./packages/tax-rates/docs/definition.md) | [Changelog](./packages/tax-rates/CHANGELOG.md) |
+| two_factor | two-factor | [README](./packages/two-factor/README.md) | [Definition](./packages/two-factor/docs/definition.md) | [Changelog](./packages/two-factor/CHANGELOG.md) |
+| user_consents | user-consents | [README](./packages/user-consents/README.md) | [Definition](./packages/user-consents/docs/definition.md) | [Changelog](./packages/user-consents/CHANGELOG.md) |
+| user_identities | user-identities | [README](./packages/user-identities/README.md) | [Definition](./packages/user-identities/docs/definition.md) | [Changelog](./packages/user-identities/CHANGELOG.md) |
+| user_profiles | user-profiles | [README](./packages/user-profiles/README.md) | [Definition](./packages/user-profiles/docs/definition.md) | [Changelog](./packages/user-profiles/CHANGELOG.md) |
+| users | users | [README](./packages/users/README.md) | [Definition](./packages/users/docs/definition.md) | [Changelog](./packages/users/CHANGELOG.md) |
+| vat_validations | vat-validations | [README](./packages/vat-validations/README.md) | [Definition](./packages/vat-validations/docs/definition.md) | [Changelog](./packages/vat-validations/CHANGELOG.md) |
+| verify_events | verify-events | [README](./packages/verify-events/README.md) | [Definition](./packages/verify-events/docs/definition.md) | [Changelog](./packages/verify-events/CHANGELOG.md) |
+| webhook_outbox | webhook-outbox | [README](./packages/webhook-outbox/README.md) | [Definition](./packages/webhook-outbox/docs/definition.md) | [Changelog](./packages/webhook-outbox/CHANGELOG.md) |
+| worker_locks | worker-locks | [README](./packages/worker-locks/README.md) | [Definition](./packages/worker-locks/docs/definition.md) | [Changelog](./packages/worker-locks/CHANGELOG.md) |
