@@ -47,8 +47,21 @@ foreach($d in $dirs){
   $branch = Get-DefaultBranch -Path $path
   Write-Host "== [$($d.Name)] -> branch: $branch"
 
-  # ensure we're on a branch (not detached)
-  git -C $path checkout -B $branch | Out-Null
+  $hasLocal  = ($null -ne (git -C $path rev-parse --verify $branch 2>$null))
+  $hasRemote = -not [string]::IsNullOrWhiteSpace((git -C $path ls-remote --heads origin $branch))
+
+  if ($hasLocal) {
+    git -C $path switch $branch | Out-Null
+  } elseif ($hasRemote) {
+    git -C $path switch -c $branch --track origin/$branch | Out-Null
+  } else {
+    git -C $path switch -c $branch | Out-Null
+  }
+
+  if ($hasRemote) {
+    git -C $path fetch origin $branch --prune | Out-Null
+    git -C $path pull --rebase origin $branch | Out-Null
+  }
 
   if (Test-GitDirty -Path $path) {
     git -C $path add -A
@@ -65,6 +78,7 @@ foreach($d in $dirs){
 if (-not $SkipUmbrella) {
   Write-Host "== Umbrella repo =="
   # přidá změněné ukazatele submodulů + skripty a mapu
+  git submodule status
   git add -A
   if (Test-GitDirty -Path $root) {
     git commit -m "chore(submodules): bump pointers after schema & README generation"
