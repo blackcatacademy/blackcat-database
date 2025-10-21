@@ -110,7 +110,7 @@ foreach($t in ($map.Tables.Keys | Sort-Object)){
     if((Test-Path $outPath) -and -not $Force){
       Write-Host "SKIP [$t] – docs/definition.md exists (use -Force)"
     } else {
-      Set-Content -Path $outPath -Value ($content -join [Environment]::NewLine) -Encoding UTF8
+      Set-Content -Path $readmePath -Value ($readme -join "`n") -Encoding UTF8
       Write-Host "WROTE [$t] -> $outPath"
     }
   } catch {

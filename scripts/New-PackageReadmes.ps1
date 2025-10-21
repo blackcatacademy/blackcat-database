@@ -321,7 +321,7 @@ foreach ($t in $tables) {
     if ((Test-Path -LiteralPath $readmePath) -and -not $Force) {
       Write-Host "SKIP [$t] – README exists (use -Force to overwrite)"
     } else {
-      Set-Content -Path $readmePath -Value ($readme -join [Environment]::NewLine) -Encoding UTF8
+      Set-Content -Path $readmePath -Value ($readme -join "`n") -Encoding UTF8
       Write-Host "WROTE [$t] -> $readmePath"
     }
   }
