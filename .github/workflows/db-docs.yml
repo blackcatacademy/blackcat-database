@@ -92,9 +92,11 @@ jobs:
       - name: Verify no uncommitted changes
         shell: pwsh
         run: |
-          $diff = git status --porcelain
-          if ($diff) {
-            Write-Host "Files changed after generation:`n$diff"
-            git --no-pager diff --unified=0 | Out-Host
+          git update-index -q --refresh
+          $dirty = git status --porcelain
+          if ($dirty) {
+            Write-Host "Dirty files:`n$dirty"
+            git --no-pager diff --name-only
+            git --no-pager diff --ignore-cr-at-eol -- . | Out-Host
             throw "Generated artifacts are out of date. Run generators locally and commit the results."
           }
