@@ -136,12 +136,82 @@ foreach ($t in $tables) {
     $create = $tbl['create']
     $idxArr = ConvertTo-Array ($tbl['indexes'])
     $fkArr  = ConvertTo-Array ($tbl['foreign_keys'])
+    $cols = Get-ColumnsFromCreate -CreateSql $create
+    $rels = Get-Relations -FkArray $fkArr
 
     $has020 = @( $idxArr | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } ).Count -gt 0
     $has030 = @( $fkArr  | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } ).Count -gt 0
 
-    $cols = Get-ColumnsFromCreate -CreateSql $create
-    $rels = Get-Relations -FkArray $fkArr
+    # -- helper pro bezpečný popisek hrany v Mermaid (bez závorek, v uvozovkách)
+    function ConvertTo-MermaidLabel {
+      param([string]$Text)
+      if ([string]::IsNullOrWhiteSpace($Text)) { return '""' }
+      $t = $Text -replace '[`()]','' -replace '\s*,\s*', ', ' -replace '\s+',' '
+      return '"' + $t.Trim() + '"'
+    }
+    function Get-MermaidType {
+      param([string]$DbType)
+
+      if ([string]::IsNullOrWhiteSpace($DbType)) { return 'COL' }
+
+      # odstraň závorky a enum hodnoty v uvozovkách
+      $t = $DbType -replace '\(.*?\)', ''   # VARCHAR(100) -> VARCHAR
+      $t = $t -replace "'.*?'", ''          # ENUM('a','b') -> ENUM
+      $t = ($t -split '\s+')[0]             # první token
+      $t = $t -replace '[^A-Za-z0-9_]', ''  # jen bezpečné znaky
+
+      if ([string]::IsNullOrWhiteSpace($t)) { $t = 'COL' }
+
+      # volitelné zjednodušení typů do několika rodin
+      switch -Regex ($t.ToUpperInvariant()) {
+        '^(VARCHAR|CHAR|TEXT|LONGTEXT|MEDIUMTEXT)$' { return 'VARCHAR' }
+        '^(TINYINT|SMALLINT|MEDIUMINT|INT|BIGINT)$' { return 'INT' }
+        '^(DECIMAL|NUMERIC|FLOAT|DOUBLE)$'          { return 'DECIMAL' }
+        '^(DATETIME|TIMESTAMP|DATE|TIME)$'          { return 'DATETIME' }
+        '^(BOOLEAN|BOOL)$'                          { return 'BOOLEAN' }
+        '^(BINARY|VARBINARY|BLOB|LONGBLOB|MEDIUMBLOB)$' { return 'BLOB' }
+        '^(ENUM|SET)$'                              { return 'ENUM' }
+        default { return $t }
+      }
+    }
+
+    # -- Relationships text: vždy inicializovat
+    $relText = @()
+    if (@($rels).Count -eq 0) {
+      $relText += '- No outgoing foreign keys.'
+    } else {
+      foreach($r in $rels){
+        $relText += "- FK → **$($r.RefTable)** via `($($r.Columns))` (ON DELETE $($r.OnDelete))."
+      }
+    }
+
+    # -- Mermaid ER diagram (entita + odchozí FKs)
+    $tUp = $t.ToUpperInvariant()
+    $merm = @()
+    $merm += '```mermaid'
+    $merm += 'erDiagram'
+
+    # entita + sloupce (bez závorek/uvozovek v typech, PK označeno)
+    $merm += "  $tUp {"
+    foreach ($c in $cols) {
+      $firstType = Get-MermaidType $c.Type
+      $pk = if ($c.IsPK) { ' PK' } else { '' }
+
+      # názvy sloupců většinou bezpečné (např. meta_email). Pro jistotu odstraň netypické znaky:
+      $colName = $c.Name -replace '[^A-Za-z0-9_]', '_'
+
+      $merm += "    $firstType $colName$pk"
+    }
+    $merm += '  }'
+
+    # hrany (label musí být v uvozovkách a bez závorek)
+    foreach ($r in $rels) {
+      $refUp = $r.RefTable.ToUpperInvariant()
+      $label = ConvertTo-MermaidLabel $r.Columns
+      # many-to-one vizuál }o--|| ; label = sloupce
+      $merm += "  $tUp }o--|| $refUp : $label"
+    }
+    $merm += '```'
 
     # ---- header & badges
     $title = ConvertTo-TitleCase $t
@@ -175,27 +245,24 @@ foreach ($t in $tables) {
     $merm = @()
     $merm += '```mermaid'
     $merm += 'erDiagram'
+
+    # entita + sloupce
     $merm += "  $tUp {"
-    foreach($c in $cols){
+    foreach ($c in $cols) {
       $firstType = if ([string]::IsNullOrWhiteSpace($c.Type)) { 'COL' } else { ($c.Type -split '\s+')[0] }
       $pk = if ($c.IsPK) { ' PK' } else { '' }
       $merm += "    $firstType $($c.Name)$pk"
     }
     $merm += '  }'
-    foreach($r in $rels){
+
+    # hrany (label musí být v uvozovkách a bez závorek)
+    foreach ($r in $rels) {
       $refUp = $r.RefTable.ToUpperInvariant()
-      # many-to-one visual: }o--|| ; label is column list
-      $merm += "  $tUp }o--|| $refUp : ($($r.Columns))"
+      $label = ConvertTo-MermaidLabel $r.Columns   # <<< tady kouzlo
+      # many-to-one vizuál }o--||  ; label je sloupec/sloupce
+      $merm += "  $tUp }o--|| $refUp : $label"
     }
     $merm += '```'
-    if (@($rels).Count -eq 0) {
-      $relText = @('- No outgoing foreign keys.')
-    } else {
-      $relText = @()
-      foreach($r in $rels){
-        $relText += "- FK → **$($r.RefTable)** via `($($r.Columns))` (ON DELETE $($r.OnDelete))."
-      }
-    }
 
     # ---- indexes summary
     $indexCount = @( $idxArr | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } ).Count
