@@ -13,7 +13,7 @@ param(
 function Add-SemicolonIfMissing {
   param([Parameter(Mandatory)][string]$Text)
   $t = $Text.Trim()
-  if ($t -notmatch ';$') { return "$t;`r`n" } else { return "$t`r`n" }
+  if ($t -notmatch ';$') { return "$t;`n" } else { return "$t`n" }
 }
 
 function New-DirectoryIfMissing {
@@ -56,8 +56,10 @@ if (!(Test-Path -LiteralPath $MapPath)) { throw "Schema map not found at '$MapPa
 $map = Import-PowerShellDataFile -Path $MapPath
 $tables = $map.Tables.Keys | Sort-Object
 
-$genStamp = Get-Date -Format s
-$mapLeaf  = Split-Path -Leaf $MapPath
+$mapLeaf    = Split-Path -Leaf $MapPath
+$mapRev     = (git log -1 --format=%h -- $MapPath) 2>$null
+$mapRevDate = (git log -1 --date=iso-strict --format=%cd -- $MapPath) 2>$null
+if (-not $mapRev) { $mapRev = 'working-tree'; $mapRevDate = (Get-Date).ToString('s') }
 
 foreach ($t in $tables) {
   $pkgPath = Resolve-PackagePath -PackagesDir $PackagesDir -Table $t -Mode $NameResolution
@@ -82,31 +84,25 @@ foreach ($t in $tables) {
   if (-not $create) { Write-Warning "SKIP [$t] – chybí 'create' v mapě."; continue }
 
   $header = @"
--- Auto-generated from $mapLeaf on $genStamp
+-- Auto-generated from $mapLeaf @ $mapRev ($mapRevDate)
 -- table: $t
 "@
 
   # 001
-  $content001 = $header + "`r`n" + (Add-SemicolonIfMissing $create)
+  $content001 = $header + "`n" + (Add-SemicolonIfMissing $create)
   Set-Content -Path $file001 -Value $content001 -NoNewline -Encoding UTF8
 
   # 020
   if ($indexes.Count -gt 0 -or $Force) {
-    $content020 = $header + "`r`n" +
-      (($indexes | ForEach-Object { Add-SemicolonIfMissing $_ }) -join [Environment]::NewLine)
+    $content020 = $header + "`n" + (($indexes | ForEach-Object { Add-SemicolonIfMissing $_ }) -join "`n")
     Set-Content -Path $file020 -Value $content020 -NoNewline -Encoding UTF8
-  } elseif (Test-Path -LiteralPath $file020) {
-    Remove-Item -LiteralPath $file020 -Force
-  }
+  } elseif (Test-Path -LiteralPath $file020) { Remove-Item -LiteralPath $file020 -Force }
 
   # 030
   if ($fks.Count -gt 0 -or $Force) {
-    $content030 = $header + "`r`n" +
-      (($fks | ForEach-Object { Add-SemicolonIfMissing $_ }) -join [Environment]::NewLine)
+    $content030 = $header + "`n" + (($fks | ForEach-Object { Add-SemicolonIfMissing $_ }) -join "`n")
     Set-Content -Path $file030 -Value $content030 -NoNewline -Encoding UTF8
-  } elseif (Test-Path -LiteralPath $file030) {
-    Remove-Item -LiteralPath $file030 -Force
-  }
+  } elseif (Test-Path -LiteralPath $file030) { Remove-Item -LiteralPath $file030 -Force }
 
   if ($CommitPush) {
     git -C $pkgPath add schema/*.sql | Out-Null

@@ -24,6 +24,11 @@ if (!(Test-Path -LiteralPath $PackagesDir)) { throw "Packages dir not found: $Pa
 
 $map    = Import-PowerShellDataFile -Path $MapPath
 $tables = $map.Tables.Keys | Sort-Object
+$mapLeaf    = Split-Path -Leaf $MapPath
+$mapRev     = (git log -1 --format=%h -- $MapPath) 2>$null
+$mapRevDate = (git log -1 --date=iso-strict --format=%cd -- $MapPath) 2>$null
+if (-not $mapRev) { $mapRev='working-tree'; $mapRevDate=(Get-Date).ToString('s') }
+$GenTag = "<!-- Auto-generated from $mapLeaf @ $mapRev ($mapRevDate) -->"
 
 function Get-PackageSlug {
   param([string]$Table)
@@ -280,6 +285,8 @@ foreach ($t in $tables) {
     $readme += "# 📦 $title"
     $readme += ""
     $readme += ($badges -join " ")
+    $readme += ""
+    $readme += $GenTag
     $readme += ""
     $readme += ('> Schema package for table **{0}** (repo: `{1}`).' -f $t, $slug)
     $readme += ""

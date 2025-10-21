@@ -19,6 +19,11 @@ if(!(Test-Path -LiteralPath $PackagesDir)){throw "PackagesDir not found: $Packag
 
 $map  = Import-PowerShellDataFile -Path $MapPath
 $defs = Import-PowerShellDataFile -Path $DefsPath
+$mapLeaf    = Split-Path -Leaf $MapPath
+$mapRev     = (git log -1 --format=%h -- $MapPath) 2>$null
+$mapRevDate = (git log -1 --date=iso-strict --format=%cd -- $MapPath) 2>$null
+if (-not $mapRev) { $mapRev='working-tree'; $mapRevDate=(Get-Date).ToString('s') }
+$GenTag = "<!-- Auto-generated from $mapLeaf @ $mapRev ($mapRevDate) -->"
 
 function ConvertTo-Array { param($v)
   if($null -eq $v){ return @() }
@@ -98,6 +103,7 @@ foreach($t in ($map.Tables.Keys | Sort-Object)){
     }
 
     $content=@()
+    $content += $GenTag
     $content += "# Definition – $t"
     if($summary){ $content += ""; $content += $summary }
     $content += ""
