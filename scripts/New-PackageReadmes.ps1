@@ -234,35 +234,12 @@ foreach ($t in $tables) {
       $colPreview += '| Column | Type | Null | Default | Extra |'
       $colPreview += '|-------:|:-----|:----:|:--------|:------|'
       foreach($c in $cols){
-        $colPreview += ("| `{0}` | {1} | {2} | {3} | {4} |" -f $c.Name,$c.Type,$c.Null,$c.Default,$c.Extra)
+        $niceType = if ($c.Type) { $c.Type -replace "''","'" } else { $c.Type }
+        $colPreview += ("| `{0}` | {1} | {2} | {3} | {4} |" -f $c.Name,$niceType,$c.Null,$c.Default,$c.Extra)
       }
     } else {
       $colPreview += '_No columns parsed (the generator could not extract them from CREATE TABLE)._'
     }
-
-    # ---- Mermaid ER diagram (outgoing FKs)
-    $tUp = $t.ToUpperInvariant()
-    $merm = @()
-    $merm += '```mermaid'
-    $merm += 'erDiagram'
-
-    # entita + sloupce
-    $merm += "  $tUp {"
-    foreach ($c in $cols) {
-      $firstType = if ([string]::IsNullOrWhiteSpace($c.Type)) { 'COL' } else { ($c.Type -split '\s+')[0] }
-      $pk = if ($c.IsPK) { ' PK' } else { '' }
-      $merm += "    $firstType $($c.Name)$pk"
-    }
-    $merm += '  }'
-
-    # hrany (label musí být v uvozovkách a bez závorek)
-    foreach ($r in $rels) {
-      $refUp = $r.RefTable.ToUpperInvariant()
-      $label = ConvertTo-MermaidLabel $r.Columns   # <<< tady kouzlo
-      # many-to-one vizuál }o--||  ; label je sloupec/sloupce
-      $merm += "  $tUp }o--|| $refUp : $label"
-    }
-    $merm += '```'
 
     # ---- indexes summary
     $indexCount = @( $idxArr | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } ).Count
@@ -304,7 +281,7 @@ foreach ($t in $tables) {
     $readme += ""
     $readme += ($badges -join " ")
     $readme += ""
-    $readme += "> Schema package for table **$t** (repo: `$slug`)."
+    $readme += ('> Schema package for table **{0}** (repo: `{1}`).' -f $t, $slug)
     $readme += ""
     $readme += "## Files"
     $readme += ($structureLines -join [Environment]::NewLine)
