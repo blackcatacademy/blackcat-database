@@ -26,9 +26,12 @@ function Set-FileContentSafe {
     [Parameter(Mandatory)] [string]$Content,
     [switch]$Force
   )
-  if ((Test-Path $Path) -and -not $Force) { return $false }
-  New-Item -ItemType Directory -Force -Path (Split-Path $Path) | Out-Null
-  Set-Content -Encoding UTF8 -NoNewline -Path $Path -Value $Content
+  $parent = Split-Path -Parent $Path
+  if ($parent -and -not (Test-Path -LiteralPath $parent)) {
+    New-Item -ItemType Directory -Force -Path $parent | Out-Null
+  }
+  if ((Test-Path -LiteralPath $Path) -and -not $Force) { return $false }
+  Set-Content -Encoding UTF8 -LiteralPath $Path -Value $Content   # LiteralPath a standardní newline
   return $true
 }
 
@@ -206,10 +209,26 @@ foreach ($m in $modules) {
   }
 }
 
-if (-not $DryRun -and $changed.Count -gt 0) {
+# --- umbrella (root) files ---
+$umbrellaRoot = (Get-Item $PSScriptRoot).Parent.FullName   # robustnější než Resolve-Path .. 
+
+# zapiš jednotlivě a ulož si výsledky
+$u1 = Set-FileContentSafe -Path (Join-Path $umbrellaRoot 'LICENSE')  -Content $LicenseText -Force:$Force
+$u2 = Set-FileContentSafe -Path (Join-Path $umbrellaRoot 'NOTICE')   -Content $NoticeText  -Force:$Force
+$u3 = Set-FileContentSafe -Path (Join-Path $umbrellaRoot 'LEGAL.md') -Content $LegalMd     -Force:$Force
+
+# malý log a agregace změn
+Write-Host "Umbrella writes → $umbrellaRoot  | LICENSE=$u1 NOTICE=$u2 LEGAL=$u3"
+$umbrellaChanged = ($u1 -or $u2 -or $u3)
+
+if (-not $DryRun -and $umbrellaChanged) {
+  git -C $umbrellaRoot add LICENSE NOTICE LEGAL.md
+}
+
+if (-not $DryRun -and ($changed.Count -gt 0 -or $umbrellaChanged)) {
   git add $Packages
-  git commit -m "chore: bump submodules after license enforcement ($($changed.Count))" 2>$null
-  if ($Push) { git push 2>$null }
+  git commit -m "legal: add/enforce proprietary LICENSE, NOTICE & LEGAL.md in submodules and umbrella"
+  if ($Push) { git push }
 }
 
 Write-Host "Hotovo. Změněné moduly: $($changed -join ', ')"
