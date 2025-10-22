@@ -1,6 +1,6 @@
 # BlackCat Database – Packages
 
-> Generated from ./scripts/schema-map.psd1 (map@1e83bb6).
+> Generated from ./scripts/schema-map.psd1 (map@6cefe8e).
 
 | Table | Package | README | Definition | Changelog |
 |-----:|:--------|:------:|:----------:|:---------:|
