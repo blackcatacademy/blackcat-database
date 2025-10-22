@@ -55,11 +55,16 @@ function Resolve-PackagePath {
 if (!(Test-Path -LiteralPath $MapPath)) { throw "Schema map not found at '$MapPath'." }
 $map = Import-PowerShellDataFile -Path $MapPath
 $tables = $map.Tables.Keys | Sort-Object
-
-$mapLeaf    = Split-Path -Leaf $MapPath
-$mapRev     = (git log -1 --format=%h -- $MapPath) 2>$null
-$mapRevDate = (git log -1 --date=iso-strict --format=%cd -- $MapPath) 2>$null
-if (-not $mapRev) { $mapRev = 'working-tree'; $mapRevDate = (Get-Date).ToString('s') }
+$mapLeaf  = Split-Path -Leaf $MapPath
+function Get-StableMapStamp {
+  param([Parameter(Mandatory=$true)][string]$MapPath)
+  try {
+    $sha = (& git log -1 --format=%h -- $MapPath 2>$null).Trim()
+    if ($sha) { return "map@$sha" }
+  } catch {}
+  $mt = (Get-Item -LiteralPath $MapPath).LastWriteTimeUtc.ToString('yyyy-MM-ddTHH:mm:ssZ')
+  return "map@mtime:$mt"
+}
 
 foreach ($t in $tables) {
   $pkgPath = Resolve-PackagePath -PackagesDir $PackagesDir -Table $t -Mode $NameResolution
@@ -82,9 +87,10 @@ foreach ($t in $tables) {
   $fks     = @($map.Tables[$t].foreign_keys | Where-Object { $_ -and $_.Trim() -ne '' })
 
   if (-not $create) { Write-Warning "SKIP [$t] – chybí 'create' v mapě."; continue }
+  $stamp = Get-StableMapStamp -MapPath $MapPath
 
-  $header = @"
--- Auto-generated from $mapLeaf @ $mapRev ($mapRevDate)
+$header = @"
+-- Auto-generated from $mapLeaf ($stamp)
 -- table: $t
 "@
 

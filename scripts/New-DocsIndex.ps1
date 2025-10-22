@@ -43,7 +43,19 @@ function Get-Rel {
 $lines = New-Object System.Collections.Generic.List[string]
 $lines.Add('# BlackCat Database – Packages') | Out-Null
 $lines.Add('') | Out-Null
-$lines.Add(("> Generated from `{0}` on {1:yyyy-MM-dd HH:mm:ss}." -f $MapPath, (Get-Date))) | Out-Null
+function Get-StableMapStamp {
+  param([Parameter(Mandatory=$true)][string]$MapPath)
+  try {
+    $sha = (& git log -1 --format=%h -- $MapPath 2>$null).Trim()
+    if ($sha) { return "map@$sha" }
+  } catch {}
+  $mt = (Get-Item -LiteralPath $MapPath).LastWriteTimeUtc.ToString('yyyy-MM-dd HH:mm:ss') + 'Z'
+  return "map@mtime:$mt"
+}
+
+$stamp = Get-StableMapStamp -MapPath $MapPath
+$lines.Add(("> Generated from `{0}` ({1})." -f $MapPath, $stamp)) | Out-Null
+
 $lines.Add('') | Out-Null
 
 $lines.Add('| Table | Package | README | Definition | Changelog |') | Out-Null
