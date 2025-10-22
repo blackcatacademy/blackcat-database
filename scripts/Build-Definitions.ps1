@@ -33,6 +33,66 @@ function ConvertTo-Array { param($v)
 }
 
 function Get-PackageSlug([string]$t){ $t -replace '_','-' }
+function Split-ByTopLevelComma {
+  param([Parameter(Mandatory=$true)][string]$Text)
+  $res = @()
+  $sb  = New-Object System.Text.StringBuilder
+  $depth = 0
+  $quote = $null
+  for($i=0; $i -lt $Text.Length; $i++){
+    $ch = $Text[$i]
+
+    if($quote){
+      [void]$sb.Append($ch)
+      if($ch -eq $quote -and ($i -eq 0 -or $Text[$i-1] -ne '\')){ $quote=$null }
+      continue
+    }
+
+    if($ch -eq "'" -or $ch -eq '"'){ $quote=$ch; [void]$sb.Append($ch); continue }
+    if($ch -eq '('){ $depth++; [void]$sb.Append($ch); continue }
+    if($ch -eq ')'){ if($depth -gt 0){$depth--}; [void]$sb.Append($ch); continue }
+
+    if($ch -eq ',' -and $depth -eq 0){
+      $seg = $sb.ToString().Trim()
+      if($seg){ $res += $seg }
+      [void]$sb.Clear()
+      continue
+    }
+
+    [void]$sb.Append($ch)
+  }
+  $last = $sb.ToString().Trim()
+  if($last){ $res += $last }
+  return $res
+}
+function Split-ByTopLevelComma {
+  param([Parameter(Mandatory=$true)][string]$Text)
+  $res = @()
+  $sb  = New-Object System.Text.StringBuilder
+  $depth = 0
+  $quote = $null
+  for($i=0; $i -lt $Text.Length; $i++){
+    $ch = $Text[$i]
+    if($quote){
+      [void]$sb.Append($ch)
+      if($ch -eq $quote -and ($i -eq 0 -or $Text[$i-1] -ne '\')){ $quote=$null }
+      continue
+    }
+    if($ch -eq "'" -or $ch -eq '"'){ $quote=$ch; [void]$sb.Append($ch); continue }
+    if($ch -eq '('){ $depth++; [void]$sb.Append($ch); continue }
+    if($ch -eq ')'){ if($depth -gt 0){$depth--}; [void]$sb.Append($ch); continue }
+    if($ch -eq ',' -and $depth -eq 0){
+      $seg = $sb.ToString().Trim()
+      if($seg){ $res += $seg }
+      [void]$sb.Clear()
+      continue
+    }
+    [void]$sb.Append($ch)
+  }
+  $last = $sb.ToString().Trim()
+  if($last){ $res += $last }
+  return $res
+}
 
 function Get-ColumnsFromCreate([string]$CreateSql){
   $out=@()
@@ -43,12 +103,13 @@ function Get-ColumnsFromCreate([string]$CreateSql){
     if($start -ge 0 -and $end -gt $start){ $CreateSql.Substring($start+1,$end-$start-1) } else { $null }
   }
   if(-not $block){ return $out }
-  $lines = [regex]::Split($block,'(?:\r\n|\n|\r)')
-  foreach($raw in $lines){
+  $parts = Split-ByTopLevelComma $block
+  foreach($raw in $parts){
     $line = ($raw -replace '--.*$','').Trim()
     if(!$line){ continue }
     if($line -match '^(PRIMARY|UNIQUE|KEY|INDEX|CONSTRAINT|CHECK|FOREIGN)\b'){ continue }
-    $m2=[regex]::Match($line,'^[`"]?(?<name>[A-Za-z0-9_]+)[`"]?\s+(?<rest>.+?)(,)?$')
+    # čárka na konci už tam nebude – split ji odřízl
+    $m2 = [regex]::Match($line,'^[`"]?(?<name>[A-Za-z0-9_]+)[`"]?\s+(?<rest>.+)$')
     if(-not $m2.Success){ continue }
     $name=$m2.Groups['name'].Value
     $rest=$m2.Groups['rest'].Value.Trim()
@@ -59,7 +120,7 @@ function Get-ColumnsFromCreate([string]$CreateSql){
     $isNotNull= $rest -match '\bNOT\s+NULL\b'
     $isNull   = $rest -match '(^|[\s,])NULL\b' -and -not $isNotNull
     $nullTxt = if($isNotNull){'NO'} elseif($isNull){'YES'} else {'—'}
-    $defM=[regex]::Match($rest,"DEFAULT\s+((?:''[^'']*'')|(?:'[^']*')|(?:[A-Za-z0-9_\.\(\)-]+))",'IgnoreCase')
+    $defM=[regex]::Match($rest,"DEFAULT\s+((?:'[^']*')|(?:[A-Za-z0-9_\.\(\)-]+))",'IgnoreCase')
     $default= if($defM.Success){ $defM.Groups[1].Value } else {'—'}
     $out += [pscustomobject]@{ Name=$name; Type=$type; Null=$nullTxt; Default=$default }
   }

@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS app_settings (
   setting_key VARCHAR(100) PRIMARY KEY,
   setting_value TEXT NULL,
-  type ENUM(''string'',''int'',''bool'',''json'',''secret'') NOT NULL,
+  type ENUM('string','int','bool','json','secret') NOT NULL,
   section VARCHAR(100) NULL,
   description TEXT NULL,
   is_protected BOOLEAN NOT NULL DEFAULT FALSE,
@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
   table_name VARCHAR(100) NOT NULL,
   record_id BIGINT UNSIGNED NOT NULL,
   changed_by BIGINT UNSIGNED NULL,
-  change_type ENUM(''INSERT'',''UPDATE'',''DELETE'') NOT NULL,
+  change_type ENUM('INSERT','UPDATE','DELETE') NOT NULL,
   old_value JSON NULL,
   new_value JSON NULL,
   changed_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -29,13 +29,13 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE TABLE IF NOT EXISTS auth_events (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT UNSIGNED NULL,
-  type ENUM(''login_success'',''login_failure'',''logout'',''password_reset'',''lockout'') NOT NULL,
+  type ENUM('login_success','login_failure','logout','password_reset','lockout') NOT NULL,
   ip_hash BINARY(32) NULL,
   ip_hash_key_version VARCHAR(64) NULL,
   user_agent VARCHAR(1024) NULL,
   occurred_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   meta JSON NULL,
-  meta_email VARCHAR(255) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(meta, ''$.email''))) STORED,
+  meta_email VARCHAR(255) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(meta, '$.email'))) STORED,
   INDEX idx_auth_meta_email (meta_email),
   INDEX idx_auth_user (user_id),
   INDEX idx_auth_time (occurred_at),
@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS authors (
 CREATE TABLE IF NOT EXISTS book_assets (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   book_id BIGINT UNSIGNED NOT NULL,
-  asset_type ENUM(''cover'',''pdf'',''epub'',''mobi'',''sample'',''extra'') NOT NULL,
+  asset_type ENUM('cover','pdf','epub','mobi','sample','extra') NOT NULL,
   filename VARCHAR(255) NOT NULL,
   mime_type VARCHAR(100) NOT NULL,
   size_bytes BIGINT NOT NULL,
@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS books (
   short_description VARCHAR(512) NULL,
   full_description LONGTEXT NULL,
   price DECIMAL(12,2) NOT NULL DEFAULT 0.00,
-  currency CHAR(3) NOT NULL DEFAULT ''EUR'',
+  currency CHAR(3) NOT NULL DEFAULT 'EUR',
   author_id BIGINT UNSIGNED NOT NULL,
   main_category_id BIGINT UNSIGNED NOT NULL,
   isbn VARCHAR(32) NULL,
@@ -122,7 +122,7 @@ CREATE TABLE IF NOT EXISTS books (
   INDEX idx_books_author_id (author_id),
   INDEX idx_books_main_category_id (main_category_id),
   INDEX idx_books_sku (sku),
-  CONSTRAINT chk_books_currency CHECK (currency REGEXP ''^[A-Z]{3}$'')
+  CONSTRAINT chk_books_currency CHECK (currency REGEXP '^[A-Z]{3}$')
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
 
 -- === cart_items ===
@@ -139,7 +139,7 @@ CREATE TABLE IF NOT EXISTS cart_items (
   meta JSON NULL,
   PRIMARY KEY (id),
   INDEX idx_cart_items_cart_id (cart_id),
-  CONSTRAINT chk_cart_currency CHECK (currency REGEXP ''^[A-Z]{3}$''),
+  CONSTRAINT chk_cart_currency CHECK (currency REGEXP '^[A-Z]{3}$'),
   CONSTRAINT chk_cart_qty CHECK (quantity > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -167,7 +167,7 @@ CREATE TABLE IF NOT EXISTS categories (
 CREATE TABLE IF NOT EXISTS countries (
   iso2 CHAR(2) PRIMARY KEY,
   name VARCHAR(100) NOT NULL,
-  CONSTRAINT chk_countries_iso2 CHECK (iso2 REGEXP ''^[A-Z]{2}$'')
+  CONSTRAINT chk_countries_iso2 CHECK (iso2 REGEXP '^[A-Z]{2}$')
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- === coupon_redemptions ===
@@ -184,7 +184,7 @@ CREATE TABLE IF NOT EXISTS coupon_redemptions (
 CREATE TABLE IF NOT EXISTS coupons (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   code VARCHAR(100) NOT NULL UNIQUE,
-  type ENUM(''percent'',''fixed'') NOT NULL,
+  type ENUM('percent','fixed') NOT NULL,
   value DECIMAL(12,2) NOT NULL,
   currency CHAR(3) NULL,
   starts_at DATE NOT NULL,
@@ -196,8 +196,8 @@ CREATE TABLE IF NOT EXISTS coupons (
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
   CONSTRAINT chk_coupon_percent_fixed CHECK (
-    (type=''percent'' AND value BETWEEN 0 AND 100 AND currency IS NULL)
-    OR (type=''fixed'' AND value >= 0 AND (currency REGEXP ''^[A-Z]{3}$'')))
+    (type='percent' AND value BETWEEN 0 AND 100 AND currency IS NULL)
+    OR (type='fixed' AND value >= 0 AND (currency REGEXP '^[A-Z]{3}$')))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- === crypto_keys ===
@@ -209,13 +209,13 @@ CREATE TABLE IF NOT EXISTS crypto_keys (
   file_path VARCHAR(1024) NULL,
   fingerprint CHAR(64) NULL,
   key_meta JSON NULL,
-  key_type ENUM(''dek'',''kek'',''hmac'',''pepper'') NULL,
+  key_type ENUM('dek','kek','hmac','pepper') NULL,
   algorithm VARCHAR(64) NULL,
   length_bits SMALLINT NULL,
-  origin ENUM(''local'',''kms'',''imported'') NULL,
-  usage SET(''encrypt'',''decrypt'',''sign'',''verify'',''wrap'',''unwrap'') NULL,
+  origin ENUM('local','kms','imported') NULL,
+  usage SET('encrypt','decrypt','sign','verify','wrap','unwrap') NULL,
   scope VARCHAR(100) NULL,
-  status ENUM(''active'',''retired'',''compromised'',''archived'') NOT NULL DEFAULT ''active'',
+  status ENUM('active','retired','compromised','archived') NOT NULL DEFAULT 'active',
   is_backup_encrypted BOOLEAN NOT NULL DEFAULT 0,
   backup_blob LONGBLOB NULL,
   created_by BIGINT UNSIGNED NULL,
@@ -263,11 +263,11 @@ CREATE TABLE IF NOT EXISTS encryption_events (
   entity_table VARCHAR(64) NOT NULL,
   entity_pk VARCHAR(64) NOT NULL,
   field_name VARCHAR(64) NOT NULL,
-  op ENUM(''encrypt'',''decrypt'',''rotate'',''rehash'',''unwrap'',''wrap'') NOT NULL,
+  op ENUM('encrypt','decrypt','rotate','rehash','unwrap','wrap') NOT NULL,
   policy_id BIGINT UNSIGNED NULL,
   local_key_version VARCHAR(64) NULL,
   layers JSON NULL,
-  outcome ENUM(''success'',''failure'') NOT NULL,
+  outcome ENUM('success','failure') NOT NULL,
   error_code VARCHAR(64) NULL,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   INDEX idx_enc_events_entity (entity_table, entity_pk, created_at)
@@ -277,8 +277,8 @@ CREATE TABLE IF NOT EXISTS encryption_events (
 CREATE TABLE IF NOT EXISTS encryption_policies (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   policy_name VARCHAR(100) NOT NULL UNIQUE,
-  mode ENUM(''local'',''kms'',''multi-kms'') NOT NULL,
-  layer_selection ENUM(''defined'',''round_robin'',''random'',''hash_mod'') NOT NULL DEFAULT ''defined'',
+  mode ENUM('local','kms','multi-kms') NOT NULL,
+  layer_selection ENUM('defined','round_robin','random','hash_mod') NOT NULL DEFAULT 'defined',
   min_layers TINYINT UNSIGNED NOT NULL DEFAULT 1,
   max_layers TINYINT UNSIGNED NOT NULL DEFAULT 3,
   aad_template JSON NULL,
@@ -307,7 +307,7 @@ CREATE TABLE IF NOT EXISTS inventory_reservations (
   book_id BIGINT UNSIGNED NOT NULL,
   quantity INT UNSIGNED NOT NULL,
   reserved_until DATETIME(6) NOT NULL,
-  status ENUM(''pending'',''confirmed'',''expired'',''cancelled'') NOT NULL DEFAULT ''pending'',
+  status ENUM('pending','confirmed','expired','cancelled') NOT NULL DEFAULT 'pending',
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   INDEX idx_res_book (book_id),
   INDEX idx_res_order (order_id),
@@ -328,7 +328,7 @@ CREATE TABLE IF NOT EXISTS invoice_items (
   line_total DECIMAL(12,2) NOT NULL,
   currency CHAR(3) NOT NULL,
   UNIQUE KEY uq_invoice_line (invoice_id, line_no),
-  CONSTRAINT chk_invoice_items_currency CHECK (currency REGEXP ''^[A-Z]{3}$''),
+  CONSTRAINT chk_invoice_items_currency CHECK (currency REGEXP '^[A-Z]{3}$'),
   CONSTRAINT chk_invoice_items_qty CHECK (quantity > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -347,7 +347,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   currency CHAR(3) NOT NULL,
   qr_data LONGTEXT NULL,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  CONSTRAINT chk_invoices_currency CHECK (currency REGEXP ''^[A-Z]{3}$'')
+  CONSTRAINT chk_invoices_currency CHECK (currency REGEXP '^[A-Z]{3}$')
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- === jwt_tokens ===
@@ -358,7 +358,7 @@ CREATE TABLE IF NOT EXISTS jwt_tokens (
   token_hash BINARY(32) NOT NULL,
   token_hash_algo VARCHAR(50) NULL,
   token_hash_key_version VARCHAR(64) NULL,
-  type ENUM(''refresh'',''api'') NOT NULL DEFAULT ''refresh'',
+  type ENUM('refresh','api') NOT NULL DEFAULT 'refresh',
   scopes VARCHAR(255) NULL,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   expires_at DATETIME(6) NULL,
@@ -380,12 +380,12 @@ CREATE TABLE IF NOT EXISTS key_events (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   key_id BIGINT UNSIGNED NULL,
   basename VARCHAR(100) NULL,
-  event_type ENUM(''created'',''rotated'',''activated'',''retired'',''compromised'',''deleted'',''used_encrypt'',''used_decrypt'',''access_failed'',''backup'',''restore'') NOT NULL,
+  event_type ENUM('created','rotated','activated','retired','compromised','deleted','used_encrypt','used_decrypt','access_failed','backup','restore') NOT NULL,
   actor_id BIGINT UNSIGNED NULL,
   job_id BIGINT UNSIGNED NULL,
   note TEXT NULL,
   meta JSON NULL,
-  source ENUM(''cron'',''admin'',''api'',''manual'') NOT NULL DEFAULT ''admin'',
+  source ENUM('cron','admin','api','manual') NOT NULL DEFAULT 'admin',
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   INDEX idx_key_events_key_created (key_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
@@ -398,7 +398,7 @@ CREATE TABLE IF NOT EXISTS key_rotation_jobs (
   scheduled_at DATETIME(6) NULL,
   started_at DATETIME(6) NULL,
   finished_at DATETIME(6) NULL,
-  status ENUM(''pending'',''running'',''done'',''failed'',''cancelled'') NOT NULL DEFAULT ''pending'',
+  status ENUM('pending','running','done','failed','cancelled') NOT NULL DEFAULT 'pending',
   attempts INT NOT NULL DEFAULT 0,
   executed_by BIGINT UNSIGNED NULL,
   result TEXT NULL,
@@ -423,9 +423,9 @@ CREATE TABLE IF NOT EXISTS kms_keys (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   provider_id BIGINT UNSIGNED NOT NULL,
   external_key_ref VARCHAR(512) NOT NULL,
-  purpose ENUM(''wrap'',''encrypt'',''both'') NOT NULL DEFAULT ''wrap'',
+  purpose ENUM('wrap','encrypt','both') NOT NULL DEFAULT 'wrap',
   algorithm VARCHAR(64) NULL,
-  status ENUM(''active'',''retired'',''disabled'') NOT NULL DEFAULT ''active'',
+  status ENUM('active','retired','disabled') NOT NULL DEFAULT 'active',
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -433,7 +433,7 @@ CREATE TABLE IF NOT EXISTS kms_keys (
 CREATE TABLE IF NOT EXISTS kms_providers (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(100) NOT NULL,
-  provider ENUM(''gcp'',''aws'',''azure'',''vault'') NOT NULL,
+  provider ENUM('gcp','aws','azure','vault') NOT NULL,
   location VARCHAR(100) NULL,
   project_tenant VARCHAR(150) NULL,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -489,10 +489,10 @@ CREATE TABLE IF NOT EXISTS newsletter_subscribers (
 CREATE TABLE IF NOT EXISTS notifications (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT UNSIGNED NULL,
-  channel ENUM(''email'',''push'') NOT NULL,
+  channel ENUM('email','push') NOT NULL,
   template VARCHAR(100) NOT NULL,
   payload JSON NULL,
-  status ENUM(''pending'',''processing'',''sent'',''failed'') NOT NULL DEFAULT ''pending'',
+  status ENUM('pending','processing','sent','failed') NOT NULL DEFAULT 'pending',
   retries INT NOT NULL DEFAULT 0,
   max_retries INT NOT NULL DEFAULT 6,
   next_attempt_at DATETIME(6) NULL,
@@ -543,7 +543,7 @@ CREATE TABLE IF NOT EXISTS order_items (
   INDEX idx_order_items_order_id (order_id),
   INDEX idx_order_items_book_id (book_id),
   CONSTRAINT chk_order_items_qty CHECK (quantity > 0),
-  CONSTRAINT chk_order_items_currency CHECK (currency REGEXP ''^[A-Z]{3}$'')
+  CONSTRAINT chk_order_items_currency CHECK (currency REGEXP '^[A-Z]{3}$')
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- === orders ===
@@ -553,7 +553,7 @@ CREATE TABLE IF NOT EXISTS orders (
   uuid_bin BINARY(16) NULL,
   public_order_no VARCHAR(64) NULL,
   user_id BIGINT UNSIGNED NULL,
-  status ENUM(''pending'',''paid'',''failed'',''cancelled'',''refunded'',''completed'') NOT NULL DEFAULT ''pending'',
+  status ENUM('pending','paid','failed','cancelled','refunded','completed') NOT NULL DEFAULT 'pending',
   encrypted_customer_blob LONGBLOB NULL,
   encrypted_customer_blob_key_version VARCHAR(64) NULL,
   encryption_meta JSON NULL,
@@ -571,7 +571,7 @@ CREATE TABLE IF NOT EXISTS orders (
   INDEX idx_orders_user_status (user_id, status),
   INDEX idx_orders_uuid (uuid),
   UNIQUE KEY ux_orders_uuid_bin (uuid_bin),
-  CONSTRAINT chk_orders_currency CHECK (currency REGEXP ''^[A-Z]{3}$'')
+  CONSTRAINT chk_orders_currency CHECK (currency REGEXP '^[A-Z]{3}$')
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- === payment_gateway_notifications ===
@@ -583,7 +583,7 @@ CREATE TABLE IF NOT EXISTS payment_gateway_notifications (
   processing_until DATETIME(6) NULL,
   attempts INT UNSIGNED NOT NULL DEFAULT 0,
   last_error VARCHAR(255) NULL,
-  status ENUM(''pending'',''processing'',''done'',''failed'') NOT NULL DEFAULT ''pending'',
+  status ENUM('pending','processing','done','failed') NOT NULL DEFAULT 'pending',
   UNIQUE KEY ux_pg_notify_tx (transaction_id),
   INDEX idx_pg_notify_status_received (status, received_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
@@ -617,7 +617,7 @@ CREATE TABLE IF NOT EXISTS payments (
   gateway VARCHAR(100) NOT NULL,
   transaction_id VARCHAR(255) NULL,
   provider_event_id VARCHAR(255) NULL,
-  status ENUM(''initiated'',''pending'',''authorized'',''paid'',''cancelled'',''partially_refunded'',''refunded'',''failed'') NOT NULL,
+  status ENUM('initiated','pending','authorized','paid','cancelled','partially_refunded','refunded','failed') NOT NULL,
   amount DECIMAL(12,2) NOT NULL,
   currency CHAR(3) NOT NULL,
   details JSON NULL,
@@ -626,7 +626,7 @@ CREATE TABLE IF NOT EXISTS payments (
   UNIQUE KEY uq_payments_transaction_id (transaction_id),
   INDEX idx_payments_order (order_id),
   INDEX idx_payments_provider_event (provider_event_id),
-  CONSTRAINT chk_payments_currency CHECK (currency REGEXP ''^[A-Z]{3}$'')
+  CONSTRAINT chk_payments_currency CHECK (currency REGEXP '^[A-Z]{3}$')
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- === permissions ===
@@ -657,14 +657,14 @@ CREATE TABLE IF NOT EXISTS refunds (
   status VARCHAR(50) NOT NULL,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   details JSON NULL,
-  CONSTRAINT chk_refunds_currency CHECK (currency REGEXP ''^[A-Z]{3}$'')
+  CONSTRAINT chk_refunds_currency CHECK (currency REGEXP '^[A-Z]{3}$')
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- === register_events ===
 CREATE TABLE IF NOT EXISTS register_events (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT UNSIGNED NULL,
-  type ENUM(''register_success'',''register_failure'') NOT NULL,
+  type ENUM('register_success','register_failure') NOT NULL,
   ip_hash BINARY(32) NULL,
   ip_hash_key_version VARCHAR(64) NULL,
   user_agent VARCHAR(1024) NULL,
@@ -746,7 +746,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 -- === system_errors ===
 CREATE TABLE IF NOT EXISTS system_errors (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  level ENUM(''notice'',''warning'',''error'',''critical'') NOT NULL,
+  level ENUM('notice','warning','error','critical') NOT NULL,
   message TEXT NOT NULL,
   exception_class VARCHAR(255) NULL,
   file VARCHAR(1024) NULL,
@@ -783,7 +783,7 @@ CREATE TABLE IF NOT EXISTS system_jobs (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   job_type VARCHAR(100) NOT NULL,
   payload JSON NULL,
-  status ENUM(''pending'',''processing'',''done'',''failed'') NOT NULL DEFAULT ''pending'',
+  status ENUM('pending','processing','done','failed') NOT NULL DEFAULT 'pending',
   retries INT NOT NULL DEFAULT 0,
   scheduled_at DATETIME(6) NULL,
   started_at DATETIME(6) NULL,
@@ -798,7 +798,7 @@ CREATE TABLE IF NOT EXISTS system_jobs (
 CREATE TABLE IF NOT EXISTS tax_rates (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   country_iso2 CHAR(2) NOT NULL,
-  category ENUM(''ebook'',''physical'') NOT NULL,
+  category ENUM('ebook','physical') NOT NULL,
   rate DECIMAL(5,2) NOT NULL,
   valid_from DATE NOT NULL,
   valid_to DATE NULL
@@ -868,7 +868,7 @@ CREATE TABLE IF NOT EXISTS users (
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
   deleted_at DATETIME(6) NULL,
-  actor_role ENUM(''customer'',''admin'') NOT NULL DEFAULT ''customer'',
+  actor_role ENUM('customer','admin') NOT NULL DEFAULT 'customer',
   INDEX idx_users_last_login_at (last_login_at),
   INDEX idx_users_is_active (is_active),
   INDEX idx_users_actor_role (actor_role),
@@ -890,7 +890,7 @@ CREATE TABLE IF NOT EXISTS vat_validations (
 CREATE TABLE IF NOT EXISTS verify_events (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT UNSIGNED NULL,
-  type ENUM(''verify_success'',''verify_failure'') NOT NULL,
+  type ENUM('verify_success','verify_failure') NOT NULL,
   ip_hash BINARY(32) NULL,
   ip_hash_key_version VARCHAR(64) NULL,
   user_agent VARCHAR(1024) NULL,
@@ -907,7 +907,7 @@ CREATE TABLE IF NOT EXISTS webhook_outbox (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   event_type VARCHAR(100) NOT NULL,
   payload JSON NULL,
-  status ENUM(''pending'',''sent'',''failed'') NOT NULL DEFAULT ''pending'',
+  status ENUM('pending','sent','failed') NOT NULL DEFAULT 'pending',
   retries INT NOT NULL DEFAULT 0,
   next_attempt_at DATETIME(6) NULL,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),

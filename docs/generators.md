@@ -16,3 +16,5 @@ pwsh ./scripts/New-PackageReadmes.ps1      -MapPath ./scripts/schema-map.psd1 -P
 pwsh ./scripts/Build-Definitions.ps1       -MapPath ./scripts/schema-defs.psd1 -DefsPath ./scripts/schema-defs.psd1 -PackagesDir ./packages -Force
 pwsh ./scripts/New-PackageChangelogs.ps1   -MapPath ./scripts/schema-map.psd1 -PackagesDir ./packages -Force
 pwsh ./scripts/New-DocsIndex.ps1           -MapPath ./scripts/schema-map.psd1 -PackagesDir ./packages -OutPath ./PACKAGES.md -Force
+
+ pwsh ./scripts/mk-schema.ps1 -MapPath ./scripts/schema-map.psd1 -OutDir ./schema -Force
