@@ -13,7 +13,7 @@ Run order (umbrella root):
 ```bash
 pwsh ./scripts/Split-SchemaToPackages.ps1 -MapPath ./scripts/schema-map.psd1 -PackagesDir ./packages
 pwsh ./scripts/New-PackageReadmes.ps1      -MapPath ./scripts/schema-map.psd1 -PackagesDir ./packages -Force
-pwsh ./scripts/Build-Definitions.ps1       -MapPath ./scripts/schema-defs.psd1 -DefsPath ./scripts/schema-defs.psd1 -PackagesDir ./packages -Force
+pwsh ./scripts/Build-Definitions.ps1       -MapPath ./scripts/schema-map.psd1 -DefsPath ./scripts/schema-defs.psd1 -PackagesDir ./packages -Force
 pwsh ./scripts/New-PackageChangelogs.ps1   -MapPath ./scripts/schema-map.psd1 -PackagesDir ./packages -Force
 pwsh ./scripts/New-DocsIndex.ps1           -MapPath ./scripts/schema-map.psd1 -PackagesDir ./packages -OutPath ./PACKAGES.md -Force
 
