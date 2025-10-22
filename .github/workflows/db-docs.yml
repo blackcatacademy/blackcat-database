@@ -34,14 +34,6 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Git config (deterministic EOL & modes)
-        shell: pwsh
-        run: |
-          git config --global core.autocrlf false
-          git config --global core.eol lf
-          git config --global core.filemode false
-          git submodule sync --recursive
-
       - name: Show environment
         shell: pwsh
         run: |
@@ -101,10 +93,6 @@ jobs:
         run: |
           Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -ErrorAction Stop
           Invoke-ScriptAnalyzer -Path ./scripts -Recurse -Severity Error
-
-      - name: Show submodule status
-        shell: pwsh
-        run: git submodule status --recursive
 
       - name: Verify no uncommitted changes
         shell: pwsh
