@@ -65,7 +65,7 @@ foreach($d in $dirs){
 
   if (Test-GitDirty -Path $path) {
     git -C $path add -A
-    git -C $path commit -m "chore(schema): add/update generated schema + README (umbrella sync)"
+    git -C $path commit -m "chore(codegen): add/update generated PHP (Module, Joins, Repository, Mapper, Exceptions) from schema-map"#"chore(schema): add/update generated schema + README (umbrella sync)"
     git -C $path push -u origin $branch
     Write-Host "PUSHED [$($d.Name)]"
   } else {
@@ -81,7 +81,7 @@ if (-not $SkipUmbrella) {
   git submodule status
   git add -A
   if (Test-GitDirty -Path $root) {
-    git commit -m "chore(umbrella): update README (add DB Docs badge) + regenerate docs"
+    git commit -m "chore(umbrella): bump packages submodules after PHP codegen"#"chore(umbrella): update README (add DB Docs badge) + regenerate docs"
     git push
     Write-Host "PUSHED umbrella"
   } else {
