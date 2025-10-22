@@ -1,0 +1,25 @@
+name: Feature request
+description: Propose an improvement for the umbrella repo or a table package
+labels: [enhancement]
+body:
+  - type: input
+    id: package
+    attributes:
+      label: Package (submodule)
+      placeholder: e.g. packages/orders
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What problem would this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Outline the change. If schema, mention the table/columns.
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes / alternatives

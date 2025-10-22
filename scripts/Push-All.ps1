@@ -81,7 +81,7 @@ if (-not $SkipUmbrella) {
   git submodule status
   git add -A
   if (Test-GitDirty -Path $root) {
-    git commit -m "chore(submodules): bump pointers after schema & README generation"
+    git commit -m "chore: add GitHub templates (English) and project docs"
     git push
     Write-Host "PUSHED umbrella"
   } else {

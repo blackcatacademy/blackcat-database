@@ -1,0 +1,8 @@
+changelog:
+  categories:
+    - title: ✨ Features
+      labels: [enhancement, feature]
+    - title: 🐞 Fixes
+      labels: [bug, fix]
+    - title: 🧹 Chore & CI
+      labels: [chore, ci]
