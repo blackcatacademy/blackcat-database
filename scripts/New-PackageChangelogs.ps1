@@ -168,7 +168,7 @@ foreach ($t in $tables) {
     if ((Test-Path -LiteralPath $path) -and -not $Force) {
       Write-Host ("SKIP [{0}] – CHANGELOG exists (use -Force)" -f $t)
     } else {
-      Set-Content -Path $path -Value ($lines -join [Environment]::NewLine) -Encoding UTF8
+      Set-Content -Path $path -Value ($lines -join "`n") -Encoding UTF8 -NoNewline
       Write-Host ("WROTE [{0}] -> {1}" -f $t, $path)
     }
   }

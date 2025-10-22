@@ -80,6 +80,6 @@ foreach ($t in $tables) {
 if ((Test-Path -LiteralPath $OutPath) -and -not $Force) {
   Write-Host ("SKIP – {0} exists (use -Force)" -f $OutPath)
 } else {
-  Set-Content -Path $OutPath -Value ($lines -join [Environment]::NewLine) -Encoding UTF8
+  Set-Content -Path $OutPath -Value ($lines -join "`n") -Encoding UTF8 -NoNewline
   Write-Host ("WROTE -> {0}" -f $OutPath)
 }

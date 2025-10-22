@@ -291,23 +291,23 @@ foreach ($t in $tables) {
     $readme += ('> Schema package for table **{0}** (repo: `{1}`).' -f $t, $slug)
     $readme += ""
     $readme += "## Files"
-    $readme += ($structureLines -join [Environment]::NewLine)
+    $readme += ($structureLines -join "`n")
     $readme += ""
     $readme += "## Quick apply"
-    $readme += ($quickBash -join [Environment]::NewLine)
+    $readme += ($quickBash -join "`n")
     $readme += ""
-    $readme += ($quickPs -join [Environment]::NewLine)
+    $readme += ($quickPs -join "`n")
     $readme += ""
     $readme += "## Docker quickstart"
-    $readme += ($docker -join [Environment]::NewLine)
+    $readme += ($docker -join "`n")
     $readme += ""
     $readme += "## Columns"
-    $readme += ($colPreview -join [Environment]::NewLine)
+    $readme += ($colPreview -join "`n")
     $readme += ""
     $readme += "## Relationships"
-    $readme += ($relText -join [Environment]::NewLine)
+    $readme += ($relText -join "`n")
     $readme += ""
-    $readme += ($merm -join [Environment]::NewLine)
+    $readme += ($merm -join "`n")
     $readme += ""
     $readme += "## Indexes"
     $readme += "- $idxSummary"
@@ -328,7 +328,7 @@ foreach ($t in $tables) {
     if ((Test-Path -LiteralPath $readmePath) -and -not $Force) {
       Write-Host "SKIP [$t] – README exists (use -Force to overwrite)"
     } else {
-      Set-Content -Path $readmePath -Value ($readme -join [Environment]::NewLine) -Encoding UTF8
+      Set-Content -Path $readmePath -Value ($readme -join "`n") -Encoding UTF8 -NoNewline
       Write-Host "WROTE [$t] -> $readmePath"
     }
   }

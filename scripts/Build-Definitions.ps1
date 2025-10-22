@@ -108,7 +108,7 @@ foreach($t in ($map.Tables.Keys | Sort-Object)){
     if($summary){ $content += ""; $content += $summary }
     $content += ""
     $content += "## Columns"
-    $content += ($rows -join [Environment]::NewLine)
+    $content += ($rows -join "`n")
 
     $docDir = Join-Path $pkg 'docs'
     New-Item -ItemType Directory -Force -Path $docDir | Out-Null
@@ -116,7 +116,7 @@ foreach($t in ($map.Tables.Keys | Sort-Object)){
     if((Test-Path $outPath) -and -not $Force){
       Write-Host "SKIP [$t] – docs/definition.md exists (use -Force)"
     } else {
-      Set-Content -Path $outPath -Value ($content -join [Environment]::NewLine) -Encoding UTF8
+      Set-Content -Path $outPath -Value ($content -join "`n") -Encoding UTF8 -NoNewline
       Write-Host "WROTE [$t] -> $outPath"
     }
   } catch {
