@@ -1,14 +1,14 @@
-## What does this change?
--
+## Summary
+Describe the change and motivation.
 
-## Why?
--
+## Type
+- [ ] feat
+- [ ] fix
+- [ ] docs
+- [ ] chore
+- [ ] refactor
 
-## Affected packages (submodules)
-- [ ] none
-- [ ] packages/_____
-
-## Checks
-- [ ] Generators run locally: `pwsh ./scripts/Run-All.ps1` (or individual scripts)  
-- [ ] No `-dirty` in `git submodule status`
-- [ ] CI passes
+## Checklist
+- [ ] Ran generators locally (`Split`, `Readmes`, `Definitions`, `Changelogs`, `Index`)
+- [ ] Committed submodule changes (if any)
+- [ ] CI is green

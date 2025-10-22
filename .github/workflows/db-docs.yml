@@ -6,6 +6,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pull-requests: write
+
 concurrency:
   group: db-docs-${{ github.ref }}
   cancel-in-progress: true
@@ -14,8 +18,8 @@ jobs:
   verify:
     name: Generate & verify docs
     strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
+      matrix: { os: [ubuntu-latest, windows-latest] }
+      fail-fast: false
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -25,13 +29,25 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      - if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/labeler@v5
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Git config (deterministic EOL & modes)
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+          git config --global core.filemode false
+          git submodule sync --recursive
+
       - name: Show environment
         shell: pwsh
         run: |
           $PSVersionTable
           git --version
 
-      # 1) Validace schématu vs. mapa
       - name: Validate schema output matches map
         shell: pwsh
         run: |
@@ -39,7 +55,6 @@ jobs:
             -MapPath ./scripts/schema-map.psd1 `
             -SchemaDir ./schema
 
-      # 2) Regenerace balíčků + dokumentace
       - name: Split schema into packages
         shell: pwsh
         run: |
@@ -81,14 +96,16 @@ jobs:
             -OutPath ./PACKAGES.md `
             -Force
 
-      # 3) Lint (jen chyby)
       - name: Lint PowerShell (errors only)
         shell: pwsh
         run: |
           Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -ErrorAction Stop
           Invoke-ScriptAnalyzer -Path ./scripts -Recurse -Severity Error
 
-      # 4) Změny? -> failni s diffem
+      - name: Show submodule status
+        shell: pwsh
+        run: git submodule status --recursive
+
       - name: Verify no uncommitted changes
         shell: pwsh
         run: |
@@ -97,6 +114,6 @@ jobs:
           if ($dirty) {
             Write-Host "Dirty files:`n$dirty"
             git --no-pager diff --name-only
-            git --no-pager diff --ignore-cr-at-eol -- . | Out-Host
+            git --no-pager diff --ignore-cr-at-eol -- .
             throw "Generated artifacts are out of date. Run generators locally and commit the results."
           }
