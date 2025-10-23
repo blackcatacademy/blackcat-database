@@ -22,7 +22,7 @@
     "ext-pdo": "*",
     "ext-json": "*",
     "ext-sodium": "*",
-    "blackcat-apk/blackcat-core": "dev-main"
+    "blackcatblackcatacademy/blackcat-core": "dev-main"
   },
   "repositories": [
     {
