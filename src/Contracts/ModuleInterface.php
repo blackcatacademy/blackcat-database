@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace BlackCat\Database\Contracts;
 
-use BlackCat\Core\Database\Database;
+use BlackCat\Core\Database;
 use BlackCat\Database\SqlDialect;
 
 /**

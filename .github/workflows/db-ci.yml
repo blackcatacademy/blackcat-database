@@ -1,0 +1,116 @@
+name: CI (DB)
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test-mysql:
+    name: php-8.2 • mysql
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        ports: ['3306:3306']
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: test
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: composer
+
+      - name: Composer install (with cache)
+        uses: ramsey/composer-install@v3
+        with:
+          composer-options: --no-interaction --prefer-dist
+
+      - name: Validate codegen (WhatIf)
+        shell: pwsh
+        run: |
+          pwsh -File ./scripts/Generate-PhpFromSchema.ps1 `
+            -MapPath ./scripts/schema-map.psd1 `
+            -TemplatesRoot ./scripts/templates/php `
+            -ModulesRoot ./packages `
+            -NameResolution detect `
+            -StrictSubmodules `
+            -WhatIf
+
+      - name: PHP lint
+        run: |
+          find . -type f -name "*.php" -print0 | xargs -0 -n1 -P4 php -l
+
+      - name: Run DB integration (MySQL)
+        env:
+          BC_DB: mysql
+          MYSQL_DSN: "mysql:host=127.0.0.1;port=3306;dbname=test;charset=utf8mb4"
+          MYSQL_USER: "root"
+          MYSQL_PASS: "root"
+        run: php ./tests/ci/run.php
+
+  test-postgres:
+    name: php-8.2 • postgres
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        ports: ['5432:5432']
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: composer
+
+      - name: Composer install (with cache)
+        uses: ramsey/composer-install@v3
+        with:
+          composer-options: --no-interaction --prefer-dist
+
+      - name: Validate codegen (WhatIf)
+        shell: pwsh
+        run: |
+          pwsh -File ./scripts/Generate-PhpFromSchema.ps1 `
+            -MapPath ./scripts/schema-map.psd1 `
+            -TemplatesRoot ./scripts/templates/php `
+            -ModulesRoot ./packages `
+            -NameResolution detect `
+            -StrictSubmodules `
+            -WhatIf
+
+      - name: PHP lint
+        run: |
+          find . -type f -name "*.php" -print0 | xargs -0 -n1 -P4 php -l
+
+      - name: Run DB integration (Postgres)
+        env:
+          BC_DB: postgres
+          PG_DSN: "pgsql:host=127.0.0.1;port=5432;dbname=test"
+          PG_USER: "postgres"
+          PG_PASS: "postgres"
+        run: php ./tests/ci/run.php

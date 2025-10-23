@@ -1,6 +1,7 @@
 # BlackCat Database (umbrella)
 
 [![DB Docs](https://github.com/blackcatacademy/blackcat-database/actions/workflows/db-docs.yml/badge.svg?branch=main)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/db-docs.yml)
+[![CI (DB)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/db-ci.yml/badge.svg)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/db-ci.yml)
 
 ![MySQL](https://img.shields.io/badge/SQL-MySQL%208.0%2B-4479A1?logo=mysql&logoColor=white)
 ![Status](https://img.shields.io/badge/status-stable-informational)

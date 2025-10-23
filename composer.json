@@ -1,0 +1,62 @@
+{
+  "name": "blackcatacademy/blackcat-database",
+  "description": "Umbrella repo for modular database (packages as submodules) with PHP codegen + installer.",
+  "type": "project",
+  "license": "proprietary",
+  "homepage": "https://github.com/blackcatacademy/blackcat-database",
+  "keywords": ["database", "schema", "modular", "ecommerce", "installer", "codegen"],
+  "authors": [
+    {
+      "name": "Black Cat Academy s. r. o.",
+      "email": "backcatacademy@protonmail.com",
+      "role": "owner"
+    }
+  ],
+  "support": {
+    "email": "backcatacademy@protonmail.com",
+    "issues": "https://github.com/blackcatacademy/blackcat-database/issues",
+    "source": "https://github.com/blackcatacademy/blackcat-database"
+  },
+  "require": {
+    "php": "^8.1",
+    "ext-pdo": "*",
+    "ext-json": "*",
+    "ext-sodium": "*",
+    "blackcat-apk/blackcat-core": "dev-main"
+  },
+  "repositories": [
+    {
+      "type": "vcs",
+      "url": "https://github.com/blackcatacademy/blackcat-core"
+    }
+  ],
+  "autoload": {
+    "psr-4": {
+      "BlackCat\\Database\\": "src/"
+    },
+    "classmap": [
+      "packages/*/src"
+    ]
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "BlackCat\\Database\\Tests\\": "tests/"
+    }
+  },
+  "scripts": {
+    "test": "php tests/ci/run.php",
+    "codegen:php": "pwsh -NoLogo -NoProfile -File scripts/Generate-PhpFromSchema.ps1 -MapPath scripts/schema-map.psd1 -TemplatesRoot scripts/templates/php -ModulesRoot packages -NameResolution detect -StrictSubmodules",
+    "submodules:update": "git submodule sync --recursive && git submodule update --init --recursive",
+    "dump": "composer dump-autoload -o"
+  },
+  "config": {
+    "optimize-autoloader": true,
+    "sort-packages": true,
+    "preferred-install": "dist",
+    "platform": {
+      "php": "8.1.0"
+    }
+  },
+  "minimum-stability": "dev",
+  "prefer-stable": true
+}
