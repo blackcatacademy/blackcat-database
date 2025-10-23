@@ -18,3 +18,5 @@ pwsh ./scripts/New-PackageChangelogs.ps1   -MapPath ./scripts/schema-map.psd1 -P
 pwsh ./scripts/New-DocsIndex.ps1           -MapPath ./scripts/schema-map.psd1 -PackagesDir ./packages -OutPath ./PACKAGES.md -Force
 
  pwsh ./scripts/mk-schema.ps1 -MapPath ./scripts/schema-map.psd1 -OutDir ./schema -Force
+ pwsh .\scripts\Generate-PhpFromSchema.ps1 -MapPath .\scripts\schema-map.psd1 -TemplatesRoot .\scripts\templates\php -ModulesRoot .\packages -NameResolution detect -StrictSubmodules -WhatIf
+ pwsh -NoProfile -File .\scripts\Generate-PhpFromSchema.ps1 -MapPath .\scripts\schema-map.psd1 -TemplatesRoot .\scripts\templates\php -ModulesRoot .\packages -NameResolution detect -StrictSubmodules -Force

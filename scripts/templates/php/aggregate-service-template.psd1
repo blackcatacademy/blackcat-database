@@ -3,7 +3,7 @@
   Tokens = @(
     'NAMESPACE',        # např. BlackCat\Database\Packages\Orders
     'SERVICE_CLASS',    # např. OrdersAggregateService
-    'USES_ARRAY',       # pole plných use, např. ["use BlackCat\Core\Database\Database;","use BlackCat\Database\Packages\Orders\Repository as OrdersRepo;"]
+    'USES_ARRAY',       # pole plných use, např. ["use BlackCat\Core\Database;","use BlackCat\Database\Packages\Orders\Repository as OrdersRepo;"]
     'CTOR_PARAMS',      # např. "private Database $db, private OrdersRepo $orders, private OrderItemsRepo $orderItems"
     'AGGREGATE_METHODS' # vygenerované/kostra metod – může zůstat prázdné
   )

@@ -12,7 +12,7 @@ namespace [[NAMESPACE]];
 
 use BlackCat\Database\SqlDialect;
 use BlackCat\Database\Contracts\ModuleInterface;
-use BlackCat\Core\Database\Database;
+use BlackCat\Core\Database;
 
 final class [[CLASS]] implements ModuleInterface {
     public function name(): string { return 'table-[[TABLE]]'; }
@@ -24,11 +24,24 @@ final class [[CLASS]] implements ModuleInterface {
     public function dependencies(): array { return [[DEPENDENCIES_ARRAY]]; }
 
     public function install(Database $db, SqlDialect $d): void {
-        $dir = __DIR__ . '/../schema';
+        $dir  = __DIR__ . '/../schema';
         $dial = $d->isMysql() ? 'mysql' : 'postgres';
-        foreach (['001_table', '002_indexes_deferred', '003_foreign_keys', '004_views_contract', '005_seed'] as $part) {
-            $path = "$dir/$part.$dial.sql";
-            if (is_file($path)) { $db->exec(file_get_contents($path)); }
+
+        // Primární pořadí + fallback na alternativní názvosloví
+        $variants = [
+            ['001_table', '002_indexes_deferred', '003_foreign_keys', '004_views_contract', '005_seed'],
+            ['001_table', '020_indexes',          '030_foreign_keys', '040_view_contract',   '050_seed'],
+        ];
+
+        $seen = [];
+        foreach ($variants as $parts) {
+            foreach ($parts as $part) {
+                $path = "$dir/$part.$dial.sql";
+                if (isset($seen[$path]) || !is_file($path)) { continue; }
+                $sql = (string)file_get_contents($path);
+                if ($sql !== '') { $db->exec($sql); }
+                $seen[$path] = true;
+            }
         }
     }
 
@@ -50,20 +63,25 @@ final class [[CLASS]] implements ModuleInterface {
         $table = '[[TABLE]]';
         $view  = '[[VIEW]]';
 
-        $hasTable = (bool)$db->fetchOne(
+        // ---- existence table/view
+        $hasTable = (int)$db->fetchOne(
             $d->isMysql()
-              ? "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?"
-              : "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1",
-            $d->isMysql() ? [$table] : [$table]
-        );
-        $hasView = (bool)$db->fetchOne(
-            $d->isMysql()
-              ? "SELECT COUNT(*) FROM information_schema.VIEWS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?"
-              : "SELECT EXISTS (SELECT 1 FROM pg_views WHERE viewname = $1)",
-            $d->isMysql() ? [$view] : [$view]
-        );
+              ? "SELECT COUNT(*) FROM information_schema.TABLES
+                   WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t"
+              : "SELECT COUNT(*) FROM information_schema.tables
+                   WHERE table_schema = 'public' AND table_name = :t",
+            [':t' => $table]
+        ) > 0;
 
-        // Rychlé ověření přítomnosti indexů/FK podle názvů (pokud jsou poskytnuty tokeny)
+        $hasView = (int)$db->fetchOne(
+            $d->isMysql()
+              ? "SELECT COUNT(*) FROM information_schema.VIEWS
+                   WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :v"
+              : "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_views WHERE viewname = :v) THEN 1 ELSE 0 END",
+            [':v' => $view]
+        ) > 0;
+
+        // ---- rychlá kontrola indexů/FK (pokud generátor dodal názvy)
         $indexes = [[INDEX_NAMES_ARRAY]];
         $fks     = [[FK_NAMES_ARRAY]];
         $missingIdx = [];
@@ -72,26 +90,40 @@ final class [[CLASS]] implements ModuleInterface {
         if ($d->isMysql()) {
             foreach ($indexes as $ix) {
                 if ($ix === '') continue;
-                $cnt = (int)$db->fetchOne("SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?", [$table, $ix]);
+                $cnt = (int)$db->fetchOne(
+                    "SELECT COUNT(*) FROM information_schema.STATISTICS
+                     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND INDEX_NAME = :i",
+                    [':t'=>$table, ':i'=>$ix]
+                );
                 if ($cnt === 0) { $missingIdx[] = $ix; }
             }
             foreach ($fks as $fk) {
                 if ($fk === '') continue;
-                $cnt = (int)$db->fetchOne("SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE() AND CONSTRAINT_NAME = ?", [$fk]);
+                $cnt = (int)$db->fetchOne(
+                    "SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS
+                     WHERE CONSTRAINT_SCHEMA = DATABASE() AND CONSTRAINT_NAME = :c",
+                    [':c'=>$fk]
+                );
                 if ($cnt === 0) { $missingFk[] = $fk; }
             }
         } else {
             foreach ($indexes as $ix) {
                 if ($ix === '') continue;
-                $cnt = (int)$db->fetchOne("SELECT COUNT(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename = $1 AND indexname = $2", [$table, $ix]);
+                $cnt = (int)$db->fetchOne(
+                    "SELECT COUNT(*) FROM pg_indexes
+                     WHERE schemaname = 'public' AND tablename = :t AND indexname = :i",
+                    [':t'=>$table, ':i'=>$ix]
+                );
                 if ($cnt === 0) { $missingIdx[] = $ix; }
             }
             foreach ($fks as $fk) {
                 if ($fk === '') continue;
-                $cnt = (int)$db->fetchOne("
-                  SELECT COUNT(*) FROM information_schema.table_constraints
-                  WHERE table_schema = 'public' AND table_name = $1 AND constraint_name = $2 AND constraint_type='FOREIGN KEY'
-                ", [$table, $fk]);
+                $cnt = (int)$db->fetchOne(
+                    "SELECT COUNT(*) FROM information_schema.table_constraints
+                     WHERE table_schema = 'public' AND table_name = :t
+                       AND constraint_name = :c AND constraint_type='FOREIGN KEY'",
+                    [':t'=>$table, ':c'=>$fk]
+                );
                 if ($cnt === 0) { $missingFk[] = $fk; }
             }
         }

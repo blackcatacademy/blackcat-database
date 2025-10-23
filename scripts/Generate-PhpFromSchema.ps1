@@ -12,7 +12,7 @@ param(
   [switch]$StrictSubmodules,            # vyžaduj, aby cíl byl zapsaný v .gitmodules
 
   [string]$BaseNamespace = "BlackCat\Database\Packages", # základ pro NAMESPACE token
-  [string]$DatabaseFQN = "BlackCat\Core\Database\Database",
+  [string]$DatabaseFQN = "BlackCat\Core\Database",
   [string]$Timezone = "UTC",
 
   [switch]$Force,
