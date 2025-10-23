@@ -33,10 +33,10 @@ final class Criteria {
     public function search(?string $q): self {
         $this->search = $q !== null && $q !== '' ? $q : null; return $this;
     }
-    public function page(int $p): self {
+    public function setPage(int $p): self {
         $this->page = max(1, $p); return $this;
     }
-    public function perPage(int $n): self {
+    public function setPerPage(int $n): self {
         $n = max(1, min([[MAX_PER_PAGE]], $n));
         $this->perPage = $n; return $this;
     }
