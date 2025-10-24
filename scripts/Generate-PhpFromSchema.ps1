@@ -1,7 +1,9 @@
 param(
   [Alias('Map','MapFile')]
-  [Parameter(Mandatory=$true)]
-  [string]$MapPath,                           # ./schema-map.psd1
+  [string]$MapPath,                           # volitelné; když chybí, hledá se v -SchemaDir
+  [string]$SchemaDir = "./schema",            # kde hledat schema-map-*.psd1
+  [ValidateSet('auto','postgres','mysql','both')]
+  [string]$EnginePreference = 'auto',
 
   [Parameter(Mandatory=$true)]
   [string]$TemplatesRoot,                     # ./templates/php (obsahuje *.psd1 šablony)
@@ -177,7 +179,8 @@ function ConvertFrom-CreateSql([string]$tableName, [string]$sql) {
   foreach ($ln in $lines) {
     if ($ln -match '^\s*CREATE\s+TABLE') { $collect = $true; continue }
     if (-not $collect) { continue }
-    if ($ln -match '^\)\s*ENGINE=') { break }
+    if ($ln -match '^\)\s*ENGINE=') { break }   # MySQL
+    if ($ln -match '^\)\s*;')       { break }   # Postgres
     # skip čisté index/constraint řádky
     if ($ln -match '^(INDEX|UNIQUE\s+KEY|CONSTRAINT)\b') { continue }
     $colLines += $ln.Trim().TrimEnd(',')
@@ -186,6 +189,16 @@ function ConvertFrom-CreateSql([string]$tableName, [string]$sql) {
   $cols = @()
 
   foreach ($raw in $colLines) {
+    # 1) přeskoč zjevné ne-sloupce
+    if ($raw -match '^(PRIMARY\s+KEY|UNIQUE\s+KEY|INDEX|CONSTRAINT|CHECK|FOREIGN\s+KEY)\b') { continue }
+    if ($raw -match '^(OR|AND)\b') { continue }
+    # ignoruj čisté závorkové řádky, kdyby se do colLines přece jen dostaly
+    if ($raw -match '^\)$') { continue }
+    # 2) zpracuj jen řádky, které vypadají jako "<name> <type>"
+    #    => typický SQL datový typ hned po názvu sloupce
+    if ($raw -notmatch '^[`"]?[a-z0-9_]+[`"]?\s+(ENUM|SET|DECIMAL|NUMERIC|DOUBLE\s+PRECISION|DOUBLE|FLOAT|REAL|TINYINT|SMALLINT|MEDIUMINT|INT|INTEGER|BIGINT|SERIAL|BIGSERIAL|BOOLEAN|JSONB?|UUID|DATE|DATETIME|TIMESTAMP|TIMESTAMPTZ|TIME|YEAR|BIT|BINARY|VARBINARY|BYTEA|BLOB|TINYBLOB|MEDIUMBLOB|LONGBLOB|TEXT|TINYTEXT|MEDIUMTEXT|LONGTEXT|CHAR|VARCHAR)\b') {
+      continue
+    }
     # skip odřádkované indexy v definici (už jsme vyřadili), ale necháme sloupce typu "PRIMARY KEY (id)" — ty nechceme jako sloupce
     if ($raw -match '^(PRIMARY\s+KEY|UNIQUE\s+KEY|INDEX|CONSTRAINT)\b') { continue }
 
@@ -196,7 +209,7 @@ function ConvertFrom-CreateSql([string]$tableName, [string]$sql) {
       $rest = $matches[2]
 
       # SQL typ = první token typu včetně závorek: ENUM('x','y'), DECIMAL(12,2), VARCHAR(255), DATETIME(6), BIGINT UNSIGNED...
-      if ($rest -match '^(ENUM|SET|DECIMAL|NUMERIC|DOUBLE\s+PRECISION|DOUBLE|FLOAT|REAL|TINYINT|SMALLINT|MEDIUMINT|INT|BIGINT|BOOLEAN|JSON|DATE|DATETIME|TIMESTAMP|TIME|YEAR|BIT|BINARY|VARBINARY|BLOB|TINYBLOB|MEDIUMBLOB|LONGBLOB|TEXT|TINYTEXT|MEDIUMTEXT|LONGTEXT|CHAR|VARCHAR)\b([^(]*\([^\)]*\))?(\s+UNSIGNED)?') {
+      if ($rest -match '^(ENUM|SET|DECIMAL|NUMERIC|DOUBLE\s+PRECISION|DOUBLE|FLOAT|REAL|TINYINT|SMALLINT|MEDIUMINT|INT|INTEGER|BIGINT|SERIAL|BIGSERIAL|BOOLEAN|JSONB?|UUID|DATE|DATETIME|TIMESTAMP|TIMESTAMPTZ|TIME|YEAR|BIT|BINARY|VARBINARY|BYTEA|BLOB|TINYBLOB|MEDIUMBLOB|LONGBLOB|TEXT|TINYTEXT|MEDIUMTEXT|LONGTEXT|CHAR|VARCHAR)\b([^(]*\([^\)]*\))?(\s+UNSIGNED)?') {
         $base = $matches[1].ToUpper()
         $par  = $matches[2]
         $uns  = $matches[3]
@@ -238,12 +251,12 @@ function Get-ColumnClassification($columns) {
   foreach ($c in $columns) {
     if ($c.Nullable) { $nullable += $c.Name }
     switch -Regex ($c.Base) {
-      '^(BOOLEAN|BIT)$'      { $bool += $c.Name; continue }
-      '^(TINYINT|SMALLINT|MEDIUMINT|INT|BIGINT|YEAR)$' { $ints += $c.Name; continue }
-      '^(DECIMAL|NUMERIC|DOUBLE|FLOAT|REAL)$' { $floats += $c.Name; continue }
-      '^JSON$'               { $json += $c.Name; continue }
-      '^(DATE|DATETIME|TIMESTAMP|TIME)$' { $dates += $c.Name; continue }
-      '^(BINARY|VARBINARY|BLOB|TINYBLOB|MEDIUMBLOB|LONGBLOB)$' { $bin += $c.Name; continue }
+      '^(BOOLEAN|BIT)$'                                               { $bool   += $c.Name; continue }
+      '^(TINYINT|SMALLINT|MEDIUMINT|INT|INTEGER|BIGINT|YEAR|SERIAL|BIGSERIAL)$' { $ints += $c.Name; continue }
+      '^(DECIMAL|NUMERIC|DOUBLE|FLOAT|REAL)$'                         { $floats += $c.Name; continue }
+      '^(JSON|JSONB)$'                                                { $json   += $c.Name; continue }
+      '^(DATE|DATETIME|TIMESTAMP|TIMESTAMPTZ|TIME)$'                  { $dates  += $c.Name; continue }
+      '^(BINARY|VARBINARY|BYTEA|BLOB|TINYBLOB|MEDIUMBLOB|LONGBLOB)$'  { $bin    += $c.Name; continue }
       default { }
     }
   }
@@ -262,14 +275,14 @@ function Get-ColumnClassification($columns) {
 function Get-PhpTypeFromSqlBase([string]$base, [bool]$nullable) {
   # rozhodnutí: DECIMAL/NUMERIC -> string (bezpečné pro peníze), ostatní plovoucí -> float
   $t = switch -Regex ($base.ToUpper()) {
-    '^(BOOLEAN|BIT)$'                          { 'bool' ; break }
-    '^(TINYINT|SMALLINT|MEDIUMINT|INT|BIGINT|YEAR)$' { 'int'  ; break }
-    '^(DECIMAL|NUMERIC)$'                      { 'string' ; break }
-    '^(DOUBLE|FLOAT|REAL)$'                    { 'float' ; break }
-    '^JSON$'                                   { 'array' ; break }
-    '^(DATE|DATETIME|TIMESTAMP|TIME)$'         { '\DateTimeImmutable' ; break }
-    '^(BINARY|VARBINARY|BLOB|TINYBLOB|MEDIUMBLOB|LONGBLOB)$' { 'string' ; break }
-    default                                    { 'string' }
+    '^(BOOLEAN|BIT)$'                                   { 'bool' ; break }
+    '^(TINYINT|SMALLINT|MEDIUMINT|INT|INTEGER|BIGINT|YEAR|SERIAL|BIGSERIAL)$' { 'int'  ; break }
+    '^(DECIMAL|NUMERIC)$'                               { 'string' ; break }
+    '^(DOUBLE|FLOAT|REAL)$'                             { 'float' ; break }
+    '^JSONB?$'                                          { 'array' ; break }
+    '^(DATE|DATETIME|TIMESTAMP|TIMESTAMPTZ|TIME)$'      { '\DateTimeImmutable' ; break }
+    '^(BINARY|VARBINARY|BYTEA|BLOB|TINYBLOB|MEDIUMBLOB|LONGBLOB)$' { 'string' ; break }
+    default                                             { 'string' }
   }
   if ($t -eq 'array') {
     # array může být null
@@ -336,19 +349,63 @@ function Test-TemplateTokens([string]$content) {
 # -----------------------
 # Main
 # -----------------------
-$schema = Import-SchemaMap -Path $MapPath
 $templates = @( Get-Templates -Root $TemplatesRoot )
-if (-not $schema.Tables) { throw "No 'Tables' in schema map." }
 # Pro volitelnou kontrolu submodulů (.gitmodules)
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $subSet   = Get-SubmodulePathSet -repoRoot $repoRoot
 
-# výpis: co budeme generovat
-Write-Host "Loaded schema for $($schema.Tables.Keys.Count) tables. Templates: $($templates.Count)." -ForegroundColor Cyan
+# Vyber mapy: explicitní -MapPath nebo autodetekce v -SchemaDir
+$mapPaths = @()
+if ($MapPath) {
+  # vynucené pole i pro jedinou cestu
+  $mapPaths = @($MapPath)
+} else {
+  if (-not (Test-Path -LiteralPath $SchemaDir)) { throw "Schema dir not found: '$SchemaDir'." }
 
-# iterace přes tabulky
-$tables = $schema.Tables.GetEnumerator() | Sort-Object Key
-foreach ($entry in $tables) {
+  # Získej FileInfo[], pak teprve převáděj na stringy
+  $allItems = @(Get-ChildItem -LiteralPath $SchemaDir -Filter 'schema-map-*.psd1' -File)
+  if (-not $allItems -or $allItems.Count -eq 0) {
+    throw "No schema maps found under '$SchemaDir' (pattern 'schema-map-*.psd1')."
+  }
+
+  $pgItems  = @($allItems | Where-Object { $_.Name -match 'postgres' })
+  $myItems  = @($allItems | Where-Object { $_.Name -match 'mysql' })
+  $othItems = @($allItems | Where-Object { $_.Name -notmatch 'mysql|postgres' })
+
+  # Teď si připrav čisté stringové cesty
+  $pgPaths  = @($pgItems  | Select-Object -ExpandProperty FullName)
+  $myPaths  = @($myItems  | Select-Object -ExpandProperty FullName)
+  $othPaths = @($othItems | Select-Object -ExpandProperty FullName)
+
+  switch ($EnginePreference) {
+    'postgres' { $mapPaths = @($pgPaths + $othPaths) }
+    'mysql'    { $mapPaths = @($myPaths + $othPaths) }
+    'both'     { $mapPaths = @($pgPaths + $myPaths + $othPaths) }
+    default {
+      # auto: preferuj PG, jinak MySQL
+      $prefer = if ($pgPaths.Count -gt 0) { $pgPaths } else { $myPaths }
+      $mapPaths = @($prefer + $othPaths)
+    }
+  }
+}
+
+# Odstranění nul, duplicit a neexistujících cest (pro jistotu)
+$mapPaths = @($mapPaths | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique)
+
+if (-not $mapPaths -or $mapPaths.Count -eq 0) { throw "No schema maps selected." }
+
+Write-Host "Selected maps ($($mapPaths.Count)):" -ForegroundColor Cyan
+$mapPaths | ForEach-Object { Write-Host "  - $_" -ForegroundColor DarkCyan }
+
+foreach ($mp in $mapPaths) {
+  $schema  = Import-SchemaMap -Path $mp
+  if (-not $schema.Tables) { Write-Warning "No 'Tables' in schema map: $mp"; continue }
+  $mapLeaf = Split-Path -Leaf $mp
+  Write-Host "Loaded '$mapLeaf' with $($schema.Tables.Keys.Count) tables. Templates: $($templates.Count)." -ForegroundColor Cyan
+
+  # iterace přes tabulky
+  $tables = $schema.Tables.GetEnumerator() | Sort-Object Key
+  foreach ($entry in $tables) {
   $table = [string]$entry.Key                             # např. users
   $spec  = $entry.Value
   $createSql = [string]$spec.create
@@ -372,6 +429,7 @@ foreach ($entry in $tables) {
     'NAMESPACE'              = $namespace
     'DTO_CLASS'              = $dtoClass
     'TIMEZONE'               = $Timezone
+    'DATABASE_FQN'           = $DatabaseFQN
     'COLUMNS_TO_PROPS_MAP'   = (New-ColumnPropertyMap $cols)
     'BOOL_COLUMNS_ARRAY'     = (ConvertTo-PhpArray $classInfo.Bool)
     'INT_COLUMNS_ARRAY'      = (ConvertTo-PhpArray $classInfo.Ints)
@@ -417,9 +475,19 @@ foreach ($entry in $tables) {
         $_.Base -match '^(CHAR|VARCHAR|TEXT|TINYTEXT|MEDIUMTEXT|LONGTEXT)$'
     } | ForEach-Object { $_.Name })
 
+    # --- NEW: derive dependencies from foreign keys ---
+    $depNames = @()
+    foreach ($fk in @($spec.foreign_keys)) {
+      if ($fk -match 'REFERENCES\s+[`"]?([a-z0-9_]+)[`"]?') {
+        $ref = $matches[1]
+        if ($ref -and $ref -ne $table) { $depNames += "table-$ref" }
+      }
+    }
+    $depNames = @($depNames | Sort-Object -Unique)
+
     # doplň tokeny:
     $tokenCommon['TABLE']                   = $table
-    $tokenCommon['VIEW']                    = "v_${table}_contract"   # klidně změň podle svých konvencí
+    $tokenCommon['VIEW']                    = "vw_${table}"
     $tokenCommon['COLUMNS_ARRAY']           = (ConvertTo-PhpArray $colNames)
     $tokenCommon['PK']                      = $pk
     $tokenCommon['SOFT_DELETE_COLUMN']      = ($hasDeletedAt ? 'deleted_at' : '')
@@ -434,12 +502,12 @@ foreach ($entry in $tables) {
     $tokenCommon['MAX_PER_PAGE']            = '500'
     $tokenCommon['VERSION']                 = '1.0.0'
     $tokenCommon['DIALECTS_ARRAY']          = "[ 'mysql', 'postgres' ]"
-    $tokenCommon['DEPENDENCIES_ARRAY']      = '[]'
     $tokenCommon['INDEX_NAMES_ARRAY']       = '[]'
     $tokenCommon['FK_NAMES_ARRAY']          = '[]'
     $tokenCommon['UPSERT_KEYS_ARRAY']       = '[]'
     $tokenCommon['UPSERT_UPDATE_COLUMNS_ARRAY'] = '[]'
     $tokenCommon['JOIN_METHODS']            = ''   # šablona Joins chce [[JOIN_METHODS]]
+    $tokenCommon['DEPENDENCIES_ARRAY'] = (ConvertTo-PhpArray $depNames)
 
     # výstupní adresář EXISTUJÍCÍHO balíčku (submodulu) – hledej pascal/snake/kebab
     $moduleDir = Resolve-PackagePath -PackagesDir $ModulesRoot `
@@ -538,6 +606,7 @@ foreach ($entry in $tables) {
       $rendered | Out-File -FilePath $outPath -Encoding UTF8 -Force
       Write-Host "Wrote: $outPath" -ForegroundColor Green
     }
+  }
   }
 }
 

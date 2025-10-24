@@ -11,12 +11,30 @@
 
 Run order (umbrella root):
 ```bash
-pwsh ./scripts/Split-SchemaToPackages.ps1 -MapPath ./scripts/schema-map.psd1 -PackagesDir ./packages
+pwsh ./scripts/mk-schema.ps1 -SeedInTransaction -Force
+pwsh ./scripts/Cleanup-SchemaFolders.ps1 -WhatIf pwsh ./scripts/Cleanup-SchemaFolders.ps1
+
+pwsh ./scripts/Split-SchemaToPackages.ps1 -PackagesDir ./packages
 pwsh ./scripts/New-PackageReadmes.ps1      -MapPath ./scripts/schema-map.psd1 -PackagesDir ./packages -Force
 pwsh ./scripts/Build-Definitions.ps1       -MapPath ./scripts/schema-map.psd1 -DefsPath ./scripts/schema-defs.psd1 -PackagesDir ./packages -Force
 pwsh ./scripts/New-PackageChangelogs.ps1   -MapPath ./scripts/schema-map.psd1 -PackagesDir ./packages -Force
 pwsh ./scripts/New-DocsIndex.ps1           -MapPath ./scripts/schema-map.psd1 -PackagesDir ./packages -OutPath ./PACKAGES.md -Force
 
- pwsh ./scripts/mk-schema.ps1 -MapPath ./scripts/schema-map.psd1 -OutDir ./schema -Force
- pwsh .\scripts\Generate-PhpFromSchema.ps1 -MapPath .\scripts\schema-map.psd1 -TemplatesRoot .\scripts\templates\php -ModulesRoot .\packages -NameResolution detect -StrictSubmodules -WhatIf
- pwsh -NoProfile -File .\scripts\Generate-PhpFromSchema.ps1 -MapPath .\scripts\schema-map.psd1 -TemplatesRoot .\scripts\templates\php -ModulesRoot .\packages -NameResolution detect -StrictSubmodules -Force
+pwsh -NoProfile -File ./scripts/Generate-PhpFromSchema.ps1   -TemplatesRoot ./scripts/templates/php -ModulesRoot   ./packages -SchemaDir     ./scripts/schema -EnginePreference auto -StrictSubmodules -Force
+
+docker compose run --rm -e BC_DB=mysql app php ./tests/ci/run.php  
+docker compose run --rm -e BC_DB=postgres app php ./tests/ci/run.php
+
+docker compose exec -T mysql mysql -uroot -proot -e "DROP DATABASE IF EXISTS test; CREATE DATABASE test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+docker compose exec -T postgres psql -U postgres -d test -v ON_ERROR_STOP=1 -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO postgres; GRANT ALL ON SCHEMA public TO public;"
+
+docker compose run --rm -e BC_DB=mysql -e MYSQL_DSN="mysql:host=mysql;port=3306;dbname=test;charset=utf8mb4" -e MYSQL_USER=root -e MYSQL_PASS=root app ./vendor/bin/phpunit -c tests/phpunit.xml.dist --testsuite "DB Integration"
+
+docker compose run --rm \
+  -e BC_DB=postgres \
+  -e PG_DSN="pgsql:host=postgres;port=5432;dbname=test" \
+  -e PG_USER=postgres -e PG_PASS=postgres \
+  app ./vendor/bin/phpunit -c tests/phpunit.xml.dist --testsuite "DB Integration"
+
+docker compose run --rm app composer update
+docker compose run --rm app composer dump-autoload -o 

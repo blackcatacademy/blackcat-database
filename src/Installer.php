@@ -32,22 +32,42 @@ final class Installer
         $this->db->exec($ddl);                   // <— Core má nově exec()
     }
 
+    private function isInstalled(string $name): bool {
+        return $this->getVersion($name) !== null;
+    }
+
+    private function assertDependenciesInstalled(ModuleInterface $m): void {
+        $missing = [];
+        foreach ($m->dependencies() as $dep) {
+            if (!$this->isInstalled($dep)) { $missing[] = $dep; }
+        }
+        if ($missing) {
+            $list = implode(', ', $missing);
+            throw new \RuntimeException(
+                "Cannot install '{$m->name()}' – missing dependencies: {$list}. ".
+                "Run installOrUpgradeAll([...]) with all modules in one go."
+            );
+        }
+    }
+
     public function installOrUpgrade(ModuleInterface $m): void
     {
         $this->ensureRegistry();
 
-        // volitelná kontrola dialektu
         $supported = $m->dialects();
         if ($supported && !in_array($this->dialect->value, $supported, true)) {
-            // modul si explicitně zakazuje běh v daném dialektu
             throw new \RuntimeException("Module {$m->name()} does not support dialect {$this->dialect->value}");
         }
 
         $current = $this->getVersion($m->name());
 
+        // Nové: pokud ještě není v registry, musí mít nainstalované závislosti
         if ($current === null) {
+            $this->assertDependenciesInstalled($m);
             $m->install($this->db, $this->dialect);
         } elseif (version_compare($current, $m->version(), '<')) {
+            // upgrade může závislosti teoreticky taky vyžadovat – zkontroluj rovněž
+            $this->assertDependenciesInstalled($m);
             $m->upgrade($this->db, $this->dialect, $current);
         }
 

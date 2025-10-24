@@ -1,17 +1,20 @@
 @{
-  File   = 'src/Repository.php'
+  File = 'src/Repository/[[ENTITY_CLASS]]Repository.php'
   Tokens = @(
-    'NAMESPACE','TABLE','PK','UPSERT_KEYS_ARRAY','UPSERT_UPDATE_COLUMNS_ARRAY'
+    'NAMESPACE','ENTITY_CLASS','TABLE','PK','UPSERT_KEYS_ARRAY','UPSERT_UPDATE_COLUMNS_ARRAY','DATABASE_FQN'
   )
   Content = @'
 <?php
 declare(strict_types=1);
 
-namespace [[NAMESPACE]];
+namespace [[NAMESPACE]]\Repository;
 
-use BlackCat\Core\Database;
+use [[DATABASE_FQN]];
+use [[NAMESPACE]]\Definitions;
+use [[NAMESPACE]]\Criteria;
+use [[NAMESPACE]]\ContractRepository;
 
-final class Repository {
+final class [[ENTITY_CLASS]]Repository implements ContractRepository {
     public function __construct(private Database $db) {}
 
     /** Whitelist validních sloupců proti mass-assignmentu */
@@ -119,9 +122,9 @@ final class Repository {
         $soft = Definitions::softDeleteColumn();
         if ($soft) {
             $params = [':id'=>$id];
-            $set = "$soft = NOW()";
+            $set = "$soft = CURRENT_TIMESTAMP";
             $updAt = Definitions::updatedAtColumn();
-            if ($updAt && $updAt !== $soft) { $set .= ", $updAt = NOW()"; }
+            if ($updAt && $updAt !== $soft) { $set .= ", $updAt = CURRENT_TIMESTAMP"; }
             return $this->db->execute("UPDATE [[TABLE]] SET $set WHERE [[PK]] = :id", $params);
         }
         return $this->db->execute("DELETE FROM [[TABLE]] WHERE [[PK]] = :id", [':id'=>$id]);
@@ -132,7 +135,7 @@ final class Repository {
         if (!$soft) return 0;
         $updAt = Definitions::updatedAtColumn();
         $set = "$soft = NULL";
-        if ($updAt && $updAt !== $soft) { $set .= ", $updAt = NOW()"; }
+        if ($updAt && $updAt !== $soft) { $set .= ", $updAt = CURRENT_TIMESTAMP"; }
         return $this->db->execute("UPDATE [[TABLE]] SET $set WHERE [[PK]] = :id", [':id'=>$id]);
     }
 

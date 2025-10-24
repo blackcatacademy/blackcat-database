@@ -33,6 +33,18 @@ Database::init([
 $db      = Database::getInstance();
 $driver  = $db->getPdo()->getAttribute(PDO::ATTR_DRIVER_NAME);
 $dialect = $driver === 'mysql' ? SqlDialect::mysql : SqlDialect::postgres;
+// ↓↓↓ HOTFIX: minimalizace RAM při dotazech
+$pdo = $db->getPdo();
+$pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+$pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, false); // lepší paměťové chování u větších bindů
+if ($driver === 'mysql') {
+    // Ne-bufferovat výsledky (jinak je driver tahá celé do RAM)
+    if (defined('PDO::MYSQL_ATTR_USE_BUFFERED_QUERY')) {
+        $pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false);
+    }
+}
+$runIdempotent = (getenv('BC_RUN_IDEMPOTENT') ?: '0') === '1';
+$runUninstall  = (getenv('BC_UNINSTALL') ?: '0') === '1';
 
 /* ---------- Najdi všechny module classes ---------- */
 $modules = []; // [FQN => ['pkg'=>string, 'deps'=>string[], 'obj'=>ModuleInterface]]
@@ -42,24 +54,32 @@ if ($pattern === false) { fwrite(STDERR, "packages/ not found.\n"); exit(2); }
 
 $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($pattern, FilesystemIterator::SKIP_DOTS));
 foreach ($it as $f) {
-    if ($f->isFile() && preg_match('~/packages/([^/]+)/src/([A-Za-z0-9_]+)Module\.php$~', str_replace('\\','/',$f->getPathname()), $m)) {
-        $pkgDir = $m[1];              // např. worker-locks
-        $base   = $m[2];              // např. WorkerLocks
-        $pkgPascal = implode('', array_map('ucfirst', preg_split('/[_-]/', $pkgDir)));
-        $class = "BlackCat\\Database\\Packages\\{$pkgPascal}\\{$base}Module";
+    if ($f->isFile() && preg_match('~/packages/([^/]+)/src/([A-Za-z0-9_]+)Module\.php$~', $f->getPathname(), $m)) {
+        $pkgDir = $m[1]; // např. "email-verifications" nebo "book_categories"
+        // kebab/snake -> PascalCase
+        $pkgPascal = implode('', array_map(
+            fn($x) => ucfirst($x),
+            preg_split('/[_-]/', $pkgDir)
+        ));
+        $class = "BlackCat\\Database\\Packages\\{$pkgPascal}\\{$pkgPascal}Module";
         if (!class_exists($class)) {
             // trigger autoload (file already exist -> autoload should hit it)
             require_once $f->getPathname();
         }
         if (!class_exists($class)) {
-            fwrite(STDERR, "Module class not found/loaded: $class\n");
+            fwrite(STDERR, "Module class not found/loaded: $class (from $pkgDir)\n");
             exit(3);
         }
         /** @var ModuleInterface $obj */
         $obj = new $class();
         // skip pokud modul nepodporuje daný dialect
         if (!in_array($dialect->value, $obj->dialects(), true)) continue;
-        $modules[$class] = ['pkg'=>$pkg, 'deps'=>$obj->dependencies(), 'obj'=>$obj];
+        $modules[$class] = [
+            'pkg'        => $pkgDir,      // např. "email-verifications"
+            'pkg_pascal' => $pkgPascal,   // např. "EmailVerifications"
+            'deps'       => $obj->dependencies(),
+            'obj'        => $obj
+        ];
     }
 }
 if (!$modules) { fwrite(STDERR, "No modules discovered.\n"); exit(4); }
@@ -115,31 +135,65 @@ foreach ($order as $fqn) {
     try {
         $installer->installOrUpgrade($m);
     } catch (Throwable $e) {
-        fwrite(STDERR, "[FAIL][install] $name: " . $e->getMessage() . "\n");
+        fwrite(STDERR, "[FAIL][install] {$modules[$fqn]['pkg']}: " . $e->getMessage() . "\n");
         $fail++; continue;
+    }
+
+    // Idempotentní druhý běh (pokud zapnuto)
+    if ($runIdempotent) {
+        try {
+            $installer->installOrUpgrade($m);
+        } catch (Throwable $e) {
+            fwrite(STDERR, "[FAIL][idempotent] {$modules[$fqn]['pkg']}: " . $e->getMessage() . "\n");
+            $fail++; continue;
+        }
     }
 
     // status
     try {
         $st = $m->status($db, $dialect);
         $okTable = !empty($st['table']);
+        $okView  = !empty($st['view']);
         $okIdx   = empty($st['missing_idx'] ?? []);
         $okFk    = empty($st['missing_fk'] ?? []);
         $verOk   = ($st['version'] ?? '') === $m->version();
 
-        if (!$okTable || !$okIdx || !$okFk || !$verOk) {
+        if (!$okTable || !$okView || !$okIdx || !$okFk || !$verOk) {
             $fail++;
             fwrite(STDERR, "[FAIL][status] $name ".
-                json_encode(['table'=>$okTable,'idx'=>$okIdx,'fk'=>$okFk,'ver'=>$verOk, 'raw'=>$st], JSON_UNESCAPED_SLASHES) . "\n");
+                json_encode(['table'=>$okTable,'view'=>$okView,'idx'=>$okIdx,'fk'=>$okFk,'ver'=>$verOk, 'raw'=>$st], JSON_UNESCAPED_SLASHES) . "\n");
         } else {
             $reports[] = "[OK] $name v" . $m->version();
         }
     } catch (Throwable $e) {
-        fwrite(STDERR, "[FAIL][status] $name: " . $e->getMessage() . "\n");
+        fwrite(STDERR, "[FAIL][status] {$modules[$fqn]['pkg']}: " . $e->getMessage() . "\n");
         $fail++; continue;
     }
 }
-
+/* ---------- Uninstall smoke test (jen view) ---------- */
+if ($runUninstall) {
+    foreach ($order as $fqn) {
+        /** @var ModuleInterface $m */
+        $m = $modules[$fqn]['obj'];
+        try {
+            $m->uninstall($db, $dialect);
+            // po uninstall by měl být view pryč, tabulka zůstává
+            $st = $m->status($db, $dialect);
+            $okViewGone = empty($st['view']);
+            $okTableStay= !empty($st['table']);
+            if (!$okViewGone || !$okTableStay) {
+                $fail++;
+                fwrite(STDERR, "[FAIL][uninstall] {$m->name()} ".
+                    json_encode(['view_gone'=>$okViewGone,'table_present'=>$okTableStay,'raw'=>$st], JSON_UNESCAPED_SLASHES)."\n");
+            }
+            // reinstall abychom neovlivnili další joby
+            $installer->installOrUpgrade($m);
+        } catch (Throwable $e) {
+            fwrite(STDERR, "[FAIL][uninstall] {$modules[$fqn]['pkg']}: " . $e->getMessage() . "\n");
+            $fail++; continue;
+        }
+    }
+}
 /* ---------- Summary ---------- */
 foreach ($reports as $line) { echo $line, "\n"; }
 if ($fail > 0) {

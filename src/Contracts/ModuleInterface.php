@@ -7,44 +7,55 @@ use BlackCat\Core\Database;
 use BlackCat\Database\SqlDialect;
 
 /**
- * Minimální, stabilní kontrakt, který musí implementovat každý balíček (submodul).
- * Generator v submodulech s tímto rozhraním počítá a umbrella na něm staví orchestrace.
+ * Minimální, stabilní kontrakt implementovaný každým balíčkem (submodule).
+ * Umbrella vrstvy (Installer/Registry) na něm staví orchestraci.
  */
 interface ModuleInterface
 {
-    /** Jednoznačný identifikátor balíčku, např. "table-products". */
+    /** Jednoznačný identifikátor, např. "table-products". */
     public function name(): string;
 
     /** Fyzická tabulka, např. "products". */
     public function table(): string;
 
-    /** SemVer verze schématu tohoto balíčku, např. "1.0.0". */
+    /** SemVer verze schématu modulu, např. "1.0.0". */
     public function version(): string;
 
-    /** Povolené dialekty (např. ['mysql','postgres']). */
+    /** @return list<'mysql'|'postgres'> Povolené dialekty. */
     public function dialects(): array;
 
     /**
      * Soft závislosti (names jiných balíčků), např. ['table-categories'].
-     * Budou respektovány při instalaci/upgradu více modulů najednou.
+     * @return list<string>
      */
     public function dependencies(): array;
 
-    /** Počáteční instalace schématu balíčku. */
+    /** Počáteční instalace schématu modulu. */
     public function install(Database $db, SqlDialect $d): void;
 
-    /** Upgrade schématu z verze $from na aktuální version(). */
+    /** Upgrade schématu z verze $from na current version(). */
     public function upgrade(Database $db, SqlDialect $d, string $from): void;
 
     /**
-     * Rychlý stav – volitelně může vracet diff/info, které modul umí nabídnout.
-     * Není to závazné API – umbrella s tím zachází opatrně.
+     * Odinstalace „kontraktu“ (view) – tabulka zůstává zachována.
+     * Používají na to testy a CI smoke test.
+     */
+    public function uninstall(Database $db, SqlDialect $d): void;
+
+    /**
+     * Rychlý stav (table/view/idx/fk/ver…) – neměl by házet, spíš vracet zjištěná fakta.
+     * Klíče: table(bool), view(bool), missing_idx(string[]), missing_fk(string[]), version(string)
      */
     public function status(Database $db, SqlDialect $d): array;
 
     /**
-     * Strojově čitelné info o schématu (sloupce, indexy, FK, views…),
-     * používá se pro výpočet checksumu v registru schémat.
+     * Strojově čitelné info pro výpočet checksumu (Installer).
+     * Typicky: ['table'=>..., 'view'=>..., 'columns'=>string[], 'version'=>...]
      */
     public function info(): array;
+
+    /**
+     * Název kontraktního view (staticky kvůli snadné introspekci v nástrojích/testech).
+     */
+    public static function contractView(): string;
 }

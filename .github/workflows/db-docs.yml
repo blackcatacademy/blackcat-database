@@ -44,7 +44,7 @@ jobs:
         shell: pwsh
         run: |
           pwsh ./scripts/Test-SchemaOutput.ps1 `
-            -MapPath ./scripts/schema-map.psd1 `
+            -MapPath ./scripts/schema/schema-map.psd1 `
             -SchemaDir ./schema
 
       - name: Split schema into packages

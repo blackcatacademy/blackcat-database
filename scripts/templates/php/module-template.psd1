@@ -27,24 +27,87 @@ final class [[CLASS]] implements ModuleInterface {
         $dir  = __DIR__ . '/../schema';
         $dial = $d->isMysql() ? 'mysql' : 'postgres';
 
-        // Primární pořadí + fallback na alternativní názvosloví
-        $variants = [
-            ['001_table', '002_indexes_deferred', '003_foreign_keys', '004_views_contract', '005_seed'],
-            ['001_table', '020_indexes',          '030_foreign_keys', '040_view_contract',   '050_seed'],
-        ];
+        // Najdi soubory ve tvaru 000_nazev.<dial>.sql NEBO 000_nazev_<dial>.sql
+        $files = array_merge(
+            glob($dir.'/*.'. $dial .'.sql') ?: [],
+            glob($dir.'/*_' . $dial .'.sql') ?: []
+        );
+        // odstraň duplicity a seřaď podle číselného prefixu
+        $files = array_values(array_unique($files));
+        usort($files, static function($a, $b) {
+            $pa = (int)preg_replace('~^.*?/([0-9]{3})_.*$~', '$1', $a);
+            $pb = (int)preg_replace('~^.*?/([0-9]{3})_.*$~', '$1', $b);
+            return $pa <=> $pb ?: strcmp($a, $b);
+        });
 
-        $seen = [];
-        foreach ($variants as $parts) {
-            foreach ($parts as $part) {
-                $path = "$dir/$part.$dial.sql";
-                if (isset($seen[$path]) || !is_file($path)) { continue; }
-                $sql = (string)file_get_contents($path);
-                if ($sql !== '') { $db->exec($sql); }
-                $seen[$path] = true;
-            }
+        foreach ($files as $path) {
+            $this->execSqlFileStreamed($db, $path);
         }
     }
 
+    /** Provede SQL soubor po částech (streamovaně), aby se nealokoval celý obsah do paměti. */
+    private function execSqlFileStreamed(Database $db, string $path): void {
+        $fh = @fopen($path, 'rb');
+        if ($fh === false) { return; }
+
+        $buf = '';
+        while (!feof($fh)) {
+            $chunk = fread($fh, 65536);
+            if ($chunk === false) { break; }
+            $buf .= $chunk;
+
+            while (true) {
+                $posN  = strpos($buf, ";\n");
+                $posRN = strpos($buf, ";\r\n");
+                $pos = ($posN === false) ? $posRN : (($posRN === false) ? $posN : min($posN, $posRN));
+                if ($pos === false) { break; }
+
+                $stmt = trim(substr($buf, 0, $pos));
+                $buf  = substr($buf, ($pos === $posRN) ? $pos + 3 : $pos + 2);
+                if ($stmt !== '') { $this->safeExec($db, $stmt); }
+            }
+        }
+        fclose($fh);
+
+        $tail = trim($buf);
+        if ($tail !== '') { $this->safeExec($db, $tail); }
+    }
+
+    /** Provede DDL, ale toleruje „already exists / duplicate / unknown“ situace pro idempotenci. */
+    private function safeExec(Database $db, string $sql): void {
+        try {
+            $db->exec($sql);
+        } catch (\BlackCat\Core\DatabaseException $e) {
+            $prev = $e->getPrevious();
+            $msg  = strtolower((string)$e->getMessage());
+            $isMy = $db->isMysql();
+
+            $sqlstate = ($prev instanceof \PDOException) ? (string)($prev->errorInfo[0] ?? '') : '';
+            $code     = ($prev instanceof \PDOException) ? (int)($prev->errorInfo[1] ?? 0) : 0;
+
+            $tolerate = false;
+            if ($isMy) {
+                // MySQL duplicitní/již existující objekt apod.
+                // 1050 table exists, 1051 unknown table, 1060 dup column, 1061 dup index,
+                // 1091 unknown key/column in drop, 1826 dup foreign key, 1832 cannot change column (při opakovaném add)
+                $tolerate = in_array($code, [1050,1051,1060,1061,1091,1826], true)
+                            || str_contains($msg, 'already exists')
+                            || str_contains($msg, 'duplicate')
+                            || str_contains($msg, 'cannot drop index')
+                            || str_contains($msg, 'cannot add foreign key constraint and it already exists');
+            } else {
+                // Postgres duplicitní/již existující objekt
+                // 42P07 duplicate_table, 42710 duplicate_object, 42701 duplicate_column
+                $tolerate = in_array($sqlstate, ['42P07','42710','42701'], true)
+                            || str_contains($msg, 'already exists');
+            }
+
+            // DROP IF EXISTS by problém řeší, ale když ho schema soubory nemají, tolerujme opakovaný běh
+            if ($tolerate) { return; }
+            throw $e;
+        }
+    }
+ 
     public function upgrade(Database $db, SqlDialect $d, string $from): void {
         // sem může generátor vkládat idempotentní ALTER/CREATE kroky na základě $from
     }
