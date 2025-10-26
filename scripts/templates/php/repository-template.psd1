@@ -199,47 +199,66 @@ final class [[ENTITY_CLASS]]Repository implements RepoContract {
     // ============ UPDATE / DELETE / RESTORE ============
 
     public function updateById(int|string $id, array $row): int {
+        // 0) aliasy → normalizace
         $row = $this->normalizeInputRow($row);
-        $row = $this->filterCols($row);
 
         $isMysql = $this->db->isMysql();
         $quote   = fn($id) => $isMysql ? "`$id`" : '"'.$id.'"';
         $tblEsc  = $isMysql ? '`[[TABLE]]`' : '"[[TABLE]]"';
 
-        $assign = [];
-        $params = ['id' => $id];
-
         $pk     = Definitions::pk();
         $pkEsc  = $quote($pk);
         $verCol = Definitions::versionColumn();
+        $updAt  = Definitions::updatedAtColumn();
 
-        $changed = false;
+        // 1) očekávanou verzi vytáhni PŘED filtrem (whitelist může 'version' neznat)
+        $hasExpectedVersion = false;
+        $expectedVersion    = null;
+        if ($verCol && array_key_exists($verCol, $row)) {
+            $expectedVersion = is_numeric($row[$verCol]) ? (int)$row[$verCol] : $row[$verCol];
+            unset($row[$verCol]); // verzi nikdy neposíláme do SET jako hodnota
+            $hasExpectedVersion = true;
+        }
+
+        // 2) až teď whitelisting vstupních sloupců
+        $row = $this->filterCols($row);
+
+        // 3) připrav SET
+        $params = ['id' => $id];
+        $assign = [];
+
         foreach ($row as $k => $v) {
-            if ($k === $pk) { continue; }
-            if ($verCol && $k === $verCol) {
-                if (!isset($params['__expected_version'])) { $params['__expected_version'] = $v; }
-                continue;
-            }
+            if ($k === $pk) continue; // PK nikdy neupdatuj
             $assign[]   = $quote($k) . " = :$k";
             $params[$k] = $v;
-            $changed = true;
         }
-        if (!$changed) { return 0; }
+        $hasPayloadChange = !empty($assign);
 
-        $verCond = '';
-        if ($verCol) {
+        // 4) optimistic bump – povol, když máme expected version NEBO když se mění payload
+        if ($verCol && ($hasExpectedVersion || $hasPayloadChange)) {
             $assign[] = $quote($verCol) . ' = ' . $quote($verCol) . ' + 1';
-            if (isset($params['__expected_version'])) {
-                $verCond = " AND " . $quote($verCol) . " = :__expected_version";
-            }
         }
 
-        $updAt = Definitions::updatedAtColumn();
+        // 5) automatické updated_at (pokud existuje a není v payloadu)
         if ($updAt && !array_key_exists($updAt, $row)) {
             $assign[] = $quote($updAt) . " = CURRENT_TIMESTAMP";
         }
 
-        $sql = "UPDATE {$tblEsc} SET " . implode(',', $assign) . " WHERE {$pkEsc} = :id" . $verCond;
+        // 6) když není co měnit (ani bump, ani updated_at, ani payload) → 0
+        if (empty($assign)) {
+            return 0;
+        }
+
+        // 7) WHERE + optimistic podmínka (jen když byla poslána expected version)
+        $verCond = '';
+        if ($verCol && $hasExpectedVersion) {
+            $verCond = " AND " . $quote($verCol) . " = :expected_version";
+            $params['expected_version'] = $expectedVersion;
+        }
+
+        $sql = "UPDATE {$tblEsc} SET " . implode(', ', $assign)
+            . " WHERE {$pkEsc} = :id" . $verCond;
+
         return $this->db->execute($sql, $params);
     }
 

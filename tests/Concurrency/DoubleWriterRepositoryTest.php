@@ -33,7 +33,7 @@ final class DoubleWriterRepositoryTest extends TestCase
         // Najdi první balík, který má Repository a tabulku s PK=id a updatovatelným sloupcem
         foreach (glob(__DIR__ . '/../../packages/*/src/Definitions.php') as $df) {
             require_once $df;
-            if (!preg_match('~Packages/([A-Za-z0-9_]+)/src/Definitions\.php$~', $df, $m)) continue;
+            if (!preg_match('~[\\\\/]packages[\\\\/]([A-Za-z0-9_]+)[\\\\/]src[\\\\/]Definitions\.php$~i', $df, $m)) continue;
             $pkgPascal = $m[1];
 
             $defs = "BlackCat\\Database\\Packages\\{$pkgPascal}\\Definitions";

@@ -21,7 +21,11 @@ final class RowFactory
     {
         $cols = DbHarness::columns($table);
         if (!$cols) return [null, [], []];
+        $pk = DbHarness::primaryKey($table);
+        $pkMeta = null; foreach ($cols as $c) { if (strcasecmp((string)$c['name'],$pk)===0) { $pkMeta=$c; break; } }
+        $pkIsIdentity = (bool)($pkMeta['is_identity'] ?? false);
 
+        $pk = DbHarness::primaryKey($table);
         // 1) Safe režim (řeší povinné FK)
         try {
             [$row, $upd, $uk] = self::buildRow($table, $overrides, 0, []);
@@ -44,6 +48,8 @@ final class RowFactory
             $name = (string)$c['name'];
             $nameLc = strtolower($name);
             if (!empty($c['is_identity'])) continue;
+            // PK přeskočit jen pokud je identity; natural PK ponechat k vyplnění
+            if ($pkIsIdentity && strcasecmp($name, $pk) === 0) continue;
 
             if (self::isRequired($c) && !isset($fkSet[$nameLc]) && isset($allowedSet[$name])) {
                 $row[$name] = self::dummyValue($c);
@@ -73,7 +79,10 @@ final class RowFactory
 
         $byName = self::indexByName($cols);
         $allowedSet = array_fill_keys(DbHarness::allowedColumns($table), true);
+        $pk = DbHarness::primaryKey($table);
         $row = [];
+        $pk = DbHarness::primaryKey($table);
+        $pkIsIdentity = (bool)(($byName[strtolower($pk)]['is_identity'] ?? false));
 
         // 1) povinné FK (single-column). Multi-column povinné → fail (raději než hádat).
         $fks = DbHarness::foreignKeysDetailed($table);
@@ -118,6 +127,8 @@ final class RowFactory
             $name = (string)$c['name'];
             if (!self::isRequired($c)) continue;
             if (!empty($c['is_identity'])) continue;
+            // PK vynechat jen když je identity; natural PK vyplnit
+            if ($pkIsIdentity && strcasecmp($name, $pk) === 0) continue;
             if (array_key_exists($name, $row)) continue;
             if (!isset($allowedSet[$name])) continue;
 
@@ -168,8 +179,12 @@ final class RowFactory
     private static function ensureFirstResolvedUniqueFilled(string $table, array $colsByName, array &$row): ?array
     {
         $allowedSet = array_fill_keys(DbHarness::allowedColumns($table), true);
+        $pk = DbHarness::primaryKey($table);
+        $pkIsIdentity = (bool)(($colsByName[strtolower($pk)]['is_identity'] ?? false));
         foreach (DbHarness::resolvedUniqueKeys($table) as $uk) {
             if (!$uk) continue;
+            // Pokud je uk = [PK] a PK je identity → přeskočit (nevyplňovat id)
+            if ($pkIsIdentity && count($uk) === 1 && strcasecmp($uk[0], $pk) === 0) continue;
             // musí být subset allowed
             $subset = true;
             foreach ($uk as $c) { if (!isset($allowedSet[$c])) { $subset = false; break; } }

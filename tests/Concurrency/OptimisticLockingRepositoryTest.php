@@ -26,7 +26,7 @@ final class OptimisticLockingRepositoryTest extends TestCase
         // najdi první balíček s versionColumn()
         foreach (glob(__DIR__ . '/../../packages/*/src/Definitions.php') as $df) {
             require_once $df;
-            if (!preg_match('~Packages/([A-Za-z0-9_]+)/src/Definitions\.php$~', $df, $m)) continue;
+            if (!preg_match('~[\\\\/]packages[\\\\/]([A-Za-z0-9_]+)[\\\\/]src[\\\\/]Definitions\.php$~i', $df, $m)) continue;
             $ns = $m[1];
             $defs = "BlackCat\\Database\\Packages\\{$ns}\\Definitions";
             $repo = "BlackCat\\Database\\Packages\\{$ns}\\Repository";
