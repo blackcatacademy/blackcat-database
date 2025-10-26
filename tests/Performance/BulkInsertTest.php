@@ -43,6 +43,20 @@ final class BulkInsertTest extends TestCase
                     $repoClass = "BlackCat\\Database\\Packages\\{$m[1]}\\Repository";
                     require_once $rf;
                     $repo = new $repoClass($db);
+                    $defs = "BlackCat\\Database\\Packages\\{$m[1]}\\Definitions";
+                    $uniqueKeys = $defs::uniqueKeys();
+                    $isIdentity = $defs::isIdentityPk();
+
+                    // zplošti seznam unikátních sloupců (i pro composite unikáty)
+                    $uniqueCols = [];
+                    foreach ($uniqueKeys as $uk) {
+                        foreach ($uk as $col) {
+                            $uniqueCols[$col] = true;
+                        }
+                    }
+                    // Přidej i primární klíč, pokud NENÍ identity (natural PK je taky unikát)
+                    $pkCol = $defs::pk();
+                    if (!$isIdentity && $pkCol) { $uniqueCols[$pkCol] = true; }
                     break;
                 }
             }
@@ -51,8 +65,33 @@ final class BulkInsertTest extends TestCase
 
         [$sample] = RowFactory::makeSample($table);
         $rows = [];
-        $N = 10000; // v CI to může být moc – ale BC_STRESS=1 je explicitní
-        for ($i=0;$i<$N;$i++) { $rows[] = $sample; }
+        $N = 10000; // BC_STRESS=1 => schválně velké
+
+        for ($i = 0; $i < $N; $i++) {
+            $row = $sample;
+
+            // Pokud je identity PK, nenech posílat "id" – přenech to DB
+            if ($isIdentity) {
+                unset($row['id']);
+            }
+
+            // Zajisti unikátnost pro všechny unikátní sloupce (PK i ostatní)
+            foreach (array_keys($uniqueCols) as $col) {
+                if (!array_key_exists($col, $row)) continue;
+
+                $val = $row[$col];
+                if (is_string($val)) {
+                    $row[$col] = $val . '-' . $i;
+                } elseif (is_int($val)) {
+                    $row[$col] = $val + $i + 1;
+                } else {
+                    // fallback: stringová reprezentace + suffix
+                    $row[$col] = (string)$val . '-' . $i;
+                }
+            }
+
+            $rows[] = $row;
+        }
 
         DbHarness::begin();
         try {

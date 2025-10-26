@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace BlackCat\Database\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use BlackCat\Database\Tests\Support\DbHarness;
 use BlackCat\Database\Tests\Support\RowFactory;
 use RecursiveDirectoryIterator;
@@ -27,9 +28,7 @@ final class MapperRoundTripDynamicTest extends TestCase
         return $out;
     }
 
-    /**
-     * @dataProvider dtoMappersProvider
-     */
+    #[DataProvider('dtoMappersProvider')]
     public function test_round_trip_for_known_columns(string $pkg, string $mapperClass): void
     {
         $defsClass = "BlackCat\\Database\\Packages\\".implode('', array_map('ucfirst', preg_split('/[_-]/',$pkg)))."\\Definitions";

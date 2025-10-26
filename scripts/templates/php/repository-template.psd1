@@ -211,54 +211,67 @@ final class [[ENTITY_CLASS]]Repository implements RepoContract {
         $verCol = Definitions::versionColumn();
         $updAt  = Definitions::updatedAtColumn();
 
-        // 1) očekávanou verzi vytáhni PŘED filtrem (whitelist může 'version' neznat)
+        // 1) expected version vytáhnout PŘED filtrem
         $hasExpectedVersion = false;
         $expectedVersion    = null;
         if ($verCol && array_key_exists($verCol, $row)) {
             $expectedVersion = is_numeric($row[$verCol]) ? (int)$row[$verCol] : $row[$verCol];
-            unset($row[$verCol]); // verzi nikdy neposíláme do SET jako hodnota
+            unset($row[$verCol]);
             $hasExpectedVersion = true;
         }
 
-        // 2) až teď whitelisting vstupních sloupců
+        // 2) whitelisting vstupních sloupců
         $row = $this->filterCols($row);
 
-        // 3) připrav SET
         $params = ['id' => $id];
         $assign = [];
 
+        // ===== Optimistic locking přes WHERE =====
+        if ($verCol && $hasExpectedVersion) {
+            $verEsc = $quote($verCol);
+
+            // payload sloupce
+            foreach ($row as $k => $v) {
+                if ($k === $pk) continue;
+                $assign[]   = $quote($k) . ' = :' . $k;
+                $params[$k] = $v;
+            }
+
+            // vždy bump verze
+            $assign[] = $verEsc . ' = ' . $verEsc . ' + 1';
+
+            // updated_at pokud není v payloadu
+            if ($updAt && !array_key_exists($updAt, $row)) {
+                $assign[] = $quote($updAt) . ' = CURRENT_TIMESTAMP';
+            }
+
+            if (empty($assign)) return 0;
+            $params['expected_version'] = $expectedVersion;
+
+            $sql = 'UPDATE ' . $tblEsc
+                . ' SET ' . implode(', ', $assign)
+                . ' WHERE ' . $pkEsc . ' = :id AND ' . $verEsc . ' = :expected_version';
+
+            return $this->db->execute($sql, $params);
+        }
+
+        // ===== Klasický update bez optimistic verze =====
         foreach ($row as $k => $v) {
-            if ($k === $pk) continue; // PK nikdy neupdatuj
+            if ($k === $pk) continue;
             $assign[]   = $quote($k) . " = :$k";
             $params[$k] = $v;
         }
         $hasPayloadChange = !empty($assign);
 
-        // 4) optimistic bump – povol, když máme expected version NEBO když se mění payload
-        if ($verCol && ($hasExpectedVersion || $hasPayloadChange)) {
+        if ($verCol && $hasPayloadChange) {
             $assign[] = $quote($verCol) . ' = ' . $quote($verCol) . ' + 1';
         }
-
-        // 5) automatické updated_at (pokud existuje a není v payloadu)
         if ($updAt && !array_key_exists($updAt, $row)) {
             $assign[] = $quote($updAt) . " = CURRENT_TIMESTAMP";
         }
+        if (empty($assign)) return 0;
 
-        // 6) když není co měnit (ani bump, ani updated_at, ani payload) → 0
-        if (empty($assign)) {
-            return 0;
-        }
-
-        // 7) WHERE + optimistic podmínka (jen když byla poslána expected version)
-        $verCond = '';
-        if ($verCol && $hasExpectedVersion) {
-            $verCond = " AND " . $quote($verCol) . " = :expected_version";
-            $params['expected_version'] = $expectedVersion;
-        }
-
-        $sql = "UPDATE {$tblEsc} SET " . implode(', ', $assign)
-            . " WHERE {$pkEsc} = :id" . $verCond;
-
+        $sql = "UPDATE {$tblEsc} SET " . implode(', ', $assign) . " WHERE {$pkEsc} = :id";
         return $this->db->execute($sql, $params);
     }
 
@@ -279,7 +292,7 @@ final class [[ENTITY_CLASS]]Repository implements RepoContract {
             }
             $set = implode(', ', $setParts);
 
-            return $this->db->execute("UPDATE {$tblEsc} SET $set WHERE {$pkEsc} = :id", $params);
+            return $this->db->execute("UPDATE {$tblEsc} SET {$set} WHERE {$pkEsc} = :id", $params);
         }
 
         return $this->db->execute("DELETE FROM {$tblEsc} WHERE {$pkEsc} = :id", ['id'=>$id]);

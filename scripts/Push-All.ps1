@@ -65,7 +65,13 @@ foreach($d in $dirs){
 
   if (Test-GitDirty -Path $path) {
     git -C $path add -A
-    git -C $path commit -m "chore(codegen): add/update generated PHP (Module, Joins, Repository, Mapper, Exceptions) from schema-map"#"chore(schema): add/update generated schema + README (umbrella sync)"
+    git -C $path commit -m "fix(repo): align repositories with concurrency tests & optimistic locking
+
+    - implement optimistic locking: UPDATE ... SET version = version + 1 WHERE pk=:id AND version=:expected
+    - consistent identifier quoting for MySQL/Postgres
+    - set updated_at safely when not provided
+    - minor cleanups discovered by tests"
+
     git -C $path push -u origin $branch
     Write-Host "PUSHED [$($d.Name)]"
   } else {
@@ -81,7 +87,13 @@ if (-not $SkipUmbrella) {
   git submodule status
   git add -A
   if (Test-GitDirty -Path $root) {
-    git commit -m "fix(umbrella): bump packages submodules after PHP codegen"#"chore(umbrella): update README (add DB Docs badge) + regenerate docs"
+    git commit -m "test(concurrency): stabilize repo-vs-repo locks; add BC_DEBUG; locker fallback DB init
+
+    - DoubleWriterRepositoryTest: stricter repo selection (identity PK, row-lock-safe, has version); pass DB env to child; stream locker stdout/stderr; helpful debug logs
+    - tests/support/lock_row_repo.php: fallback Database::init() from ENV + diagnostics
+    - BulkInsertTest: generate unique rows via RowFactory (respect unique keys; avoid duplicate PKs)
+    - Debug: BC_DEBUG toggles DB query logging and 0 ms slow-query threshold in tests"
+
     git push
     Write-Host "PUSHED umbrella"
   } else {

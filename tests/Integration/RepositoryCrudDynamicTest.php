@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace BlackCat\Database\Tests\Integration;
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use BlackCat\Core\Database;
 use BlackCat\Database\Tests\Support\DbHarness;
 use BlackCat\Database\Tests\Support\RowFactory;
@@ -96,7 +97,7 @@ final class RepositoryCrudDynamicTest extends TestCase
         return $out ?: [['app_settings', self::$repos['app_settings'] ?? '', ['setting_key'=>'k','section'=>'s','value'=>'v'], ['value']]];
     }
 
-    /** @dataProvider safeTablesProvider */
+    #[DataProvider('safeTablesProvider')]
     public function test_crud_upsert_lock_smoke(string $table, string $repoFqn, array $row, array $updatable): void
     {
         if (!class_exists($repoFqn)) $this->markTestSkipped("repo missing for $table");
@@ -171,9 +172,7 @@ final class RepositoryCrudDynamicTest extends TestCase
         }
     }
 
-    /**
-     * @dataProvider safeTablesProvider
-     */
+    #[DataProvider('safeTablesProvider')]
     public function test_paginate_smoke(string $table, string $repoFqn): void
     {
         if (!class_exists($repoFqn)) $this->markTestSkipped("repo missing");
