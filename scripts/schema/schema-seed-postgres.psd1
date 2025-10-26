@@ -1,5 +1,5 @@
 @{
-  FormatVersion = '1.0'
+  FormatVersion = '1.1'
 
   Tables = @{
 
@@ -9,36 +9,50 @@
 INSERT INTO countries (iso2, name) VALUES
   (''SK'', ''Slovakia''),
   (''CZ'', ''Czechia'')
-ON CONFLICT (iso2) DO UPDATE SET name = EXCLUDED.name;
+ON CONFLICT (iso2) DO UPDATE
+  SET name = EXCLUDED.name;
 '@
     }
 
     permissions = @{
       seed = @'
--- Baseline permission set
+-- Baseline RBAC (rozšířeno pro nové entity)
 INSERT INTO permissions (name, description) VALUES
-  (''admin:full_access'', ''Grants all administration privileges''),
-  (''users:read'',        ''View users''),
-  (''users:manage'',      ''Create/update/lock users''),
-  (''books:manage'',      ''Manage catalog: authors, books, assets''),
-  (''orders:read'',       ''View orders''),
-  (''orders:manage'',     ''Create/update/cancel orders''),
-  (''payments:refund'',   ''Issue refunds'')
+  (''admin:full_access'',          ''Grants all administration privileges''),
+  (''users:read'',                 ''View users''),
+  (''users:manage'',               ''Create/update/lock users''),
+  (''books:manage'',               ''Manage catalog: authors, books, assets''),
+  (''orders:read'',                ''View orders''),
+  (''orders:manage'',              ''Create/update/cancel orders''),
+  (''payments:read'',              ''View payments''),
+  (''payments:refund'',            ''Issue refunds''),
+  (''invoices:manage'',            ''Create and edit invoices''),
+  (''coupons:manage'',             ''Manage coupons and redemptions''),
+  (''notifications:manage'',       ''Manage outbound notifications''),
+  (''webhooks:replay'',            ''Replay webhook deliveries''),
+  (''jobs:run'',                   ''Run/inspect background jobs''),
+  (''settings:manage'',            ''Edit application settings''),
+  (''keys:manage'',                ''Manage local crypto keys''),
+  (''kms:manage'',                 ''Manage KMS providers/keys''),
+  (''encryption_policies:manage'', ''Manage encryption policies''),
+  (''errors:triage'',              ''Triage and resolve system errors''),
+  (''audit:read'',                 ''Read audit log'')
 ON CONFLICT (name) DO UPDATE
   SET description = EXCLUDED.description,
-      updated_at  = CURRENT_TIMESTAMP(6);
+      updated_at  = now();
 '@
     }
 
     categories = @{
       seed = @'
--- Baseline categories (use slug as stable identifier)
+-- Baseline categories; revive if soft-deleted
 INSERT INTO categories (name, slug, parent_id)
 VALUES
   (''Uncategorized'', ''uncategorized'', NULL),
   (''E-books'',       ''ebooks'',        NULL)
 ON CONFLICT (slug) DO UPDATE
-  SET name = EXCLUDED.name,
+  SET name       = EXCLUDED.name,
+      parent_id  = EXCLUDED.parent_id,
       deleted_at = NULL;
 '@
     }
@@ -47,42 +61,46 @@ ON CONFLICT (slug) DO UPDATE
       seed = @'
 -- Fallback author
 INSERT INTO authors (name, slug, bio, photo_url, story, created_at)
-VALUES (''Unknown Author'', ''unknown'', NULL, NULL, NULL, CURRENT_TIMESTAMP(6))
+VALUES (''Unknown Author'', ''unknown'', NULL, NULL, NULL, now())
 ON CONFLICT (slug) DO UPDATE
-  SET name = EXCLUDED.name,
+  SET name       = EXCLUDED.name,
       deleted_at = NULL;
 '@
     }
 
     app_settings = @{
       seed = @'
--- Operational defaults (no real secrets)
-INSERT INTO app_settings (setting_key, setting_value, type, section, description, is_protected)
+-- Operational defaults (bez skutečných tajemství)
+INSERT INTO app_settings
+  (setting_key, setting_value, "type", section, description, is_protected)
 VALUES
-  (''site.name'',                  ''BlackCat Bookstore'', ''string'', ''site'',     ''Public site name'',                           FALSE),
-  (''site.currency_default'',      ''EUR'',                ''string'', ''site'',     ''Default currency code (ISO 4217)'',           FALSE),
-  (''tax.prices_include_vat'',     ''0'',                  ''bool'',   ''tax'',      ''If true, catalog prices are VAT-inclusive'',  FALSE),
-  (''security.password.min_length'',''12'',                ''int'',    ''security'', ''Minimum password length'',                    TRUE),
-  (''security.two_factor.required_for_admins'',''1'',      ''bool'',   ''security'', ''Admins must have 2FA enabled'',               TRUE),
-  (''orders.public_number_prefix'', ''ORD-'',              ''string'', ''orders'',   ''Prefix for public order numbers'',            FALSE),
-  (''mail.from_address'',           ''no-reply@example.test'',''string'',''mail'',   ''Default From: address for outbound mail'',    TRUE)
+  (''site.name'',                          ''BlackCat Bookstore'', ''string'', ''site'',     ''Public site name'',                          false),
+  (''site.currency_default'',              ''EUR'',                ''string'', ''site'',     ''Default currency code (ISO 4217)'',          false),
+  (''tax.prices_include_vat'',             ''0'',                  ''bool'',   ''tax'',      ''If true, catalog prices are VAT-inclusive'', false),
+  (''security.password.min_length'',       ''12'',                 ''int'',    ''security'', ''Minimum password length'',                   true),
+  (''security.two_factor.required_for_admins'',''1'',              ''bool'',   ''security'', ''Admins must have 2FA enabled'',              true),
+  (''sessions.max_lifetime_seconds'',      ''1209600'',            ''int'',    ''security'', ''Max session lifetime (14d)'',                false),
+  (''notifications.max_retries'',          ''6'',                  ''int'',    ''notify'',   ''Max retry attempts for notifications'',      false),
+  (''security.jwt.refresh_ttl_days'',      ''30'',                 ''int'',    ''security'', ''Refresh token TTL in days'',                 true),
+  (''orders.public_number_prefix'',        ''ORD-'',               ''string'', ''orders'',   ''Prefix for public order numbers'',           false),
+  (''mail.from_address'',                  ''no-reply@example.test'',''string'',''mail'',    ''Default From address'',                      true)
 ON CONFLICT (setting_key) DO UPDATE
   SET setting_value = EXCLUDED.setting_value,
-      type          = EXCLUDED.type,
+      "type"        = EXCLUDED."type",
       section       = EXCLUDED.section,
       description   = EXCLUDED.description,
       is_protected  = EXCLUDED.is_protected,
-      updated_at    = CURRENT_TIMESTAMP(6);
+      updated_at    = now();
 '@
     }
 
     encryption_policies = @{
       seed = @'
--- Default encryption policy for development
+-- Default encryption policy for dev
 INSERT INTO encryption_policies
-  (policy_name, mode,  layer_selection, min_layers, max_layers, aad_template, notes)
+  (policy_name, mode, layer_selection, min_layers, max_layers, aad_template, notes)
 VALUES
-  (''default'',   ''local'', ''defined'', 1, 1, NULL, ''Local single-layer encryption for dev'')
+  (''default'', ''local'', ''defined'', 1, 1, NULL, ''Local single-layer encryption for dev'')
 ON CONFLICT (policy_name) DO UPDATE
   SET mode            = EXCLUDED.mode,
       layer_selection = EXCLUDED.layer_selection,
@@ -95,34 +113,15 @@ ON CONFLICT (policy_name) DO UPDATE
 
     tax_rates = @{
       seed = @'
--- Minimal VAT placeholders (adjust to legal reality)
--- Consider UNIQUE(country_iso2, category, valid_from) for stronger idempotency.
-
--- Slovakia
-INSERT INTO tax_rates (country_iso2, category, rate, valid_from, valid_to)
-SELECT ''SK'',''ebook'',    20.00, DATE ''2000-01-01'', NULL
-WHERE NOT EXISTS (
-  SELECT 1 FROM tax_rates WHERE country_iso2=''SK'' AND category=''ebook''
-);
-
-INSERT INTO tax_rates (country_iso2, category, rate, valid_from, valid_to)
-SELECT ''SK'',''physical'', 20.00, DATE ''2000-01-01'', NULL
-WHERE NOT EXISTS (
-  SELECT 1 FROM tax_rates WHERE country_iso2=''SK'' AND category=''physical''
-);
-
--- Czechia
-INSERT INTO tax_rates (country_iso2, category, rate, valid_from, valid_to)
-SELECT ''CZ'',''ebook'',    21.00, DATE ''2000-01-01'', NULL
-WHERE NOT EXISTS (
-  SELECT 1 FROM tax_rates WHERE country_iso2=''CZ'' AND category=''ebook''
-);
-
-INSERT INTO tax_rates (country_iso2, category, rate, valid_from, valid_to)
-SELECT ''CZ'',''physical'', 21.00, DATE ''2000-01-01'', NULL
-WHERE NOT EXISTS (
-  SELECT 1 FROM tax_rates WHERE country_iso2=''CZ'' AND category=''physical''
-);
+-- Minimal VAT placeholders (idempotent via upsert)
+INSERT INTO tax_rates (country_iso2, category, rate, valid_from, valid_to) VALUES
+  (''SK'', ''ebook'',    20.00, DATE ''2000-01-01'', NULL),
+  (''SK'', ''physical'', 20.00, DATE ''2000-01-01'', NULL),
+  (''CZ'', ''ebook'',    21.00, DATE ''2000-01-01'', NULL),
+  (''CZ'', ''physical'', 21.00, DATE ''2000-01-01'', NULL)
+ON CONFLICT (country_iso2, category, valid_from) DO UPDATE
+  SET rate     = EXCLUDED.rate,
+      valid_to = EXCLUDED.valid_to;
 '@
     }
 

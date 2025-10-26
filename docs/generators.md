@@ -20,7 +20,21 @@ pwsh ./scripts/Build-Definitions.ps1       -MapPath ./scripts/schema-map.psd1 -D
 pwsh ./scripts/New-PackageChangelogs.ps1   -MapPath ./scripts/schema-map.psd1 -PackagesDir ./packages -Force
 pwsh ./scripts/New-DocsIndex.ps1           -MapPath ./scripts/schema-map.psd1 -PackagesDir ./packages -OutPath ./PACKAGES.md -Force
 
-pwsh -NoProfile -File ./scripts/Generate-PhpFromSchema.ps1   -TemplatesRoot ./scripts/templates/php -ModulesRoot   ./packages -SchemaDir     ./scripts/schema -EnginePreference auto -StrictSubmodules -Force
+pwsh -NoProfile -File ./scripts/Generate-PhpFromSchema.ps1 `
+  -TemplatesRoot ./scripts/templates/php `
+  -ModulesRoot   ./packages `
+  -SchemaDir     ./scripts/schema `
+  -EnginePreference auto `
+  -StrictSubmodules `
+  -WhatIf `
+  -Verbose
+pwsh -NoProfile -File ./scripts/Generate-PhpFromSchema.ps1 `
+  -TemplatesRoot ./scripts/templates/php `
+  -ModulesRoot   ./packages `
+  -SchemaDir     ./scripts/schema `
+  -EnginePreference auto `
+  -StrictSubmodules `
+  -Verbose -Force
 
 docker compose run --rm -e BC_DB=mysql app php ./tests/ci/run.php  
 docker compose run --rm -e BC_DB=postgres app php ./tests/ci/run.php
@@ -36,5 +50,9 @@ docker compose run --rm \
   -e PG_USER=postgres -e PG_PASS=postgres \
   app ./vendor/bin/phpunit -c tests/phpunit.xml.dist --testsuite "DB Integration"
 
+docker compose build --no-cache app
 docker compose run --rm app composer update
-docker compose run --rm app composer dump-autoload -o 
+docker compose run --rm app composer dump-autoload -o
+
+docker compose run --rm -e BC_DB=mysql app php ./tests/ci/run.php
+docker compose run --rm -e BC_DB=postgres app php ./tests/ci/run.php

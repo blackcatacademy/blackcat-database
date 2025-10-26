@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
   description TEXT NULL,
   is_protected BOOLEAN NOT NULL DEFAULT FALSE,
   updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INT UNSIGNED NOT NULL DEFAULT 0,
   updated_by BIGINT UNSIGNED NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -58,6 +59,7 @@ CREATE TABLE IF NOT EXISTS authors (
   last_rating_at DATETIME(6) NULL,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  version INT UNSIGNED NOT NULL DEFAULT 0,
   deleted_at DATETIME(6) NULL,
   INDEX idx_authors_avg_rating (avg_rating),
   INDEX idx_authors_books_count (books_count)
@@ -118,6 +120,7 @@ CREATE TABLE IF NOT EXISTS books (
   stock_quantity INT UNSIGNED NOT NULL DEFAULT 0,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  version INT UNSIGNED NOT NULL DEFAULT 0,
   deleted_at DATETIME(6) NULL,
   INDEX idx_books_author_id (author_id),
   INDEX idx_books_main_category_id (main_category_id),
@@ -148,7 +151,8 @@ CREATE TABLE IF NOT EXISTS carts (
   id CHAR(36) PRIMARY KEY,
   user_id BIGINT UNSIGNED NULL,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
+  updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  version INT UNSIGNED NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- === categories ===
@@ -159,6 +163,7 @@ CREATE TABLE IF NOT EXISTS categories (
   parent_id BIGINT UNSIGNED NULL,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  version INT UNSIGNED NOT NULL DEFAULT 0,
   deleted_at DATETIME(6) NULL,
   INDEX idx_categories_parent (parent_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -309,6 +314,7 @@ CREATE TABLE IF NOT EXISTS inventory_reservations (
   reserved_until DATETIME(6) NOT NULL,
   status ENUM('pending','confirmed','expired','cancelled') NOT NULL DEFAULT 'pending',
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INT UNSIGNED NOT NULL DEFAULT 0,
   INDEX idx_res_book (book_id),
   INDEX idx_res_order (order_id),
   INDEX idx_res_status_until (status, reserved_until),
@@ -361,6 +367,7 @@ CREATE TABLE IF NOT EXISTS jwt_tokens (
   type ENUM('refresh','api') NOT NULL DEFAULT 'refresh',
   scopes VARCHAR(255) NULL,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INT UNSIGNED NOT NULL DEFAULT 0,
   expires_at DATETIME(6) NULL,
   last_used_at DATETIME(6) NULL,
   ip_hash BINARY(32) NULL,
@@ -410,12 +417,12 @@ CREATE TABLE IF NOT EXISTS key_rotation_jobs (
 CREATE TABLE IF NOT EXISTS key_usage (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   key_id BIGINT UNSIGNED NOT NULL,
-  `date` DATE NOT NULL,
+  usage_date DATE NOT NULL,
   encrypt_count INT NOT NULL DEFAULT 0,
   decrypt_count INT NOT NULL DEFAULT 0,
   verify_count INT NOT NULL DEFAULT 0,
   last_used_at DATETIME(6) NULL,
-  UNIQUE KEY uq_key_usage_key_date (key_id, `date`)
+  UNIQUE KEY uq_key_usage_key_date (key_id, usage_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- === kms_keys ===
@@ -460,7 +467,7 @@ CREATE TABLE IF NOT EXISTS login_attempts (
 CREATE TABLE IF NOT EXISTS newsletter_subscribers (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT UNSIGNED NULL,
-  email_hash BINARY(32) NULL,
+  email_hash BINARY(32) NOT NULL,
   email_hash_key_version VARCHAR(64) NULL,
   email_enc LONGBLOB NULL,
   email_key_version VARCHAR(64) NULL,
@@ -478,6 +485,7 @@ CREATE TABLE IF NOT EXISTS newsletter_subscribers (
   meta JSON DEFAULT NULL,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  version INT UNSIGNED NOT NULL DEFAULT 0,
   UNIQUE KEY ux_ns_email_hash (email_hash),
   UNIQUE KEY ux_ns_confirm_selector (confirm_selector),
   INDEX idx_ns_user (user_id),
@@ -505,6 +513,7 @@ CREATE TABLE IF NOT EXISTS notifications (
   priority INT NOT NULL DEFAULT 0,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  version INT UNSIGNED NOT NULL DEFAULT 0,
   INDEX idx_notifications_status_scheduled (status, scheduled_at),
   INDEX idx_notifications_next_attempt (next_attempt_at),
   INDEX idx_notifications_locked_until (locked_until)
@@ -566,6 +575,7 @@ CREATE TABLE IF NOT EXISTS orders (
   payment_method VARCHAR(100) NULL,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  version INT UNSIGNED NOT NULL DEFAULT 0,
   INDEX idx_orders_user_id (user_id),
   INDEX idx_orders_status (status),
   INDEX idx_orders_user_status (user_id, status),
@@ -577,8 +587,9 @@ CREATE TABLE IF NOT EXISTS orders (
 -- === payment_gateway_notifications ===
 CREATE TABLE IF NOT EXISTS payment_gateway_notifications (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  transaction_id VARCHAR(255) NULL,
+  transaction_id VARCHAR(255) NOT NULL,
   received_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INT UNSIGNED NOT NULL DEFAULT 0,
   processing_by VARCHAR(100) NULL,
   processing_until DATETIME(6) NULL,
   attempts INT UNSIGNED NOT NULL DEFAULT 0,
@@ -623,6 +634,7 @@ CREATE TABLE IF NOT EXISTS payments (
   details JSON NULL,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  version INT UNSIGNED NOT NULL DEFAULT 0,
   UNIQUE KEY uq_payments_transaction_id (transaction_id),
   INDEX idx_payments_order (order_id),
   INDEX idx_payments_provider_event (provider_event_id),
@@ -726,6 +738,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   token_issued_at DATETIME(6) NULL,
   user_id BIGINT UNSIGNED NULL,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INT UNSIGNED NOT NULL DEFAULT 0,
   last_seen_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   expires_at DATETIME(6) NULL,
   failed_decrypt_count INT UNSIGNED NOT NULL DEFAULT 0,
@@ -791,6 +804,7 @@ CREATE TABLE IF NOT EXISTS system_jobs (
   error TEXT NULL,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  version INT UNSIGNED NOT NULL DEFAULT 0,
   INDEX idx_system_jobs_status_sched (status, scheduled_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -813,6 +827,7 @@ CREATE TABLE IF NOT EXISTS two_factor (
   hotp_counter BIGINT UNSIGNED NULL,
   enabled BOOLEAN NOT NULL DEFAULT FALSE,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INT UNSIGNED NOT NULL DEFAULT 0,
   last_used_at DATETIME(6) NULL,
   PRIMARY KEY (user_id, method)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -847,7 +862,8 @@ CREATE TABLE IF NOT EXISTS user_profiles (
   profile_enc LONGBLOB NULL,
   key_version VARCHAR(64) NULL,
   encryption_meta JSON NULL,
-  updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+  updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INT UNSIGNED NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- === users ===
@@ -867,6 +883,7 @@ CREATE TABLE IF NOT EXISTS users (
   last_login_ip_key_version VARCHAR(64) NULL,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  version INT UNSIGNED NOT NULL DEFAULT 0,
   deleted_at DATETIME(6) NULL,
   actor_role ENUM('customer','admin') NOT NULL DEFAULT 'customer',
   INDEX idx_users_last_login_at (last_login_at),
@@ -912,6 +929,7 @@ CREATE TABLE IF NOT EXISTS webhook_outbox (
   next_attempt_at DATETIME(6) NULL,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  version INT UNSIGNED NOT NULL DEFAULT 0,
   INDEX idx_webhook_status_scheduled (status, next_attempt_at),
   INDEX idx_webhook_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;

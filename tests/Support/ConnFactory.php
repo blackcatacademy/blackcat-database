@@ -35,12 +35,13 @@ final class ConnFactory
     {
         $which = getenv('BC_DB') ?: 'mysql';
         if ($which === 'mysql') {
-            // v sekundách; 1s je rozumné pro test
             $sec = max(1, (int)ceil($ms / 1000));
             $pdo->exec("SET innodb_lock_wait_timeout = {$sec}");
         } else {
-            // PG – lock_timeout je v ms
-            $pdo->exec("SET LOCAL lock_timeout = '{$ms}ms'");
+            $sql = $pdo->inTransaction()
+                ? "SET LOCAL lock_timeout = '{$ms}ms'"
+                : "SET lock_timeout = '{$ms}ms'";
+            $pdo->exec($sql);
         }
     }
 }

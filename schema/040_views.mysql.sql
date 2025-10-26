@@ -1,10 +1,11 @@
 -- === app_settings ===
 -- Contract view for [app_settings]
--- Masks setting_value for secret entries.
-CREATE OR REPLACE VIEW vw_app_settings AS
+-- Masks secrets and protected values; adds has_value flag.
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_app_settings AS
 SELECT
   setting_key,
-  CASE WHEN type = 'secret' THEN NULL ELSE setting_value END AS setting_value,
+  CASE WHEN type = 'secret' OR is_protected = 1 THEN NULL ELSE setting_value END AS setting_value,
+  (setting_value IS NOT NULL) AS has_value,
   type,
   section,
   description,
@@ -15,8 +16,8 @@ FROM app_settings;
 
 -- === audit_log ===
 -- Contract view for [audit_log]
--- Omits old_value/new_value JSON to reduce payload and potential leakage.
-CREATE OR REPLACE VIEW vw_audit_log AS
+-- Omits old_value/new_value JSON; adds ip_pretty from ip_bin.
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_audit_log AS
 SELECT
   id,
   table_name,
@@ -25,18 +26,20 @@ SELECT
   change_type,
   changed_at,
   ip_bin,
+  INET6_NTOA(ip_bin) AS ip_pretty,
   user_agent,
   request_id
 FROM audit_log;
 
 -- === auth_events ===
 -- Contract view for [auth_events]
-CREATE OR REPLACE VIEW vw_auth_events AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_auth_events AS
 SELECT
   id,
   user_id,
   type,
   ip_hash,
+  HEX(ip_hash) AS ip_hash_hex,
   ip_hash_key_version,
   user_agent,
   occurred_at,
@@ -46,7 +49,7 @@ FROM auth_events;
 
 -- === authors ===
 -- Contract view for [authors]
-CREATE OR REPLACE VIEW vw_authors AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_authors AS
 SELECT
   id,
   name,
@@ -67,7 +70,7 @@ FROM authors;
 -- === book_assets ===
 -- Contract view for [book_assets]
 -- Hides encryption_key_enc, encryption_iv, encryption_tag, encryption_aad.
-CREATE OR REPLACE VIEW vw_book_assets AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_book_assets AS
 SELECT
   id,
   book_id,
@@ -88,7 +91,7 @@ FROM book_assets;
 
 -- === book_categories ===
 -- Contract view for [book_categories]
-CREATE OR REPLACE VIEW vw_book_categories AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_book_categories AS
 SELECT
   book_id,
   category_id
@@ -96,7 +99,8 @@ FROM book_categories;
 
 -- === books ===
 -- Contract view for [books]
-CREATE OR REPLACE VIEW vw_books AS
+-- Adds saleability helper.
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_books AS
 SELECT
   id,
   title,
@@ -116,6 +120,7 @@ SELECT
   is_active,
   is_available,
   stock_quantity,
+  (is_active = 1 AND is_available = 1 AND (stock_quantity IS NULL OR stock_quantity > 0)) AS is_saleable,
   created_at,
   updated_at,
   deleted_at
@@ -123,7 +128,7 @@ FROM books;
 
 -- === cart_items ===
 -- Contract view for [cart_items]
-CREATE OR REPLACE VIEW vw_cart_items AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_cart_items AS
 SELECT
   id,
   cart_id,
@@ -139,7 +144,7 @@ FROM cart_items;
 
 -- === carts ===
 -- Contract view for [carts]
-CREATE OR REPLACE VIEW vw_carts AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_carts AS
 SELECT
   id,
   user_id,
@@ -149,7 +154,7 @@ FROM carts;
 
 -- === categories ===
 -- Contract view for [categories]
-CREATE OR REPLACE VIEW vw_categories AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_categories AS
 SELECT
   id,
   name,
@@ -162,7 +167,7 @@ FROM categories;
 
 -- === countries ===
 -- Contract view for [countries]
-CREATE OR REPLACE VIEW vw_countries AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_countries AS
 SELECT
   iso2,
   name
@@ -170,7 +175,7 @@ FROM countries;
 
 -- === coupon_redemptions ===
 -- Contract view for [coupon_redemptions]
-CREATE OR REPLACE VIEW vw_coupon_redemptions AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_coupon_redemptions AS
 SELECT
   id,
   coupon_id,
@@ -182,7 +187,8 @@ FROM coupon_redemptions;
 
 -- === coupons ===
 -- Contract view for [coupons]
-CREATE OR REPLACE VIEW vw_coupons AS
+-- Adds is_current helper.
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_coupons AS
 SELECT
   id,
   code,
@@ -195,6 +201,7 @@ SELECT
   min_order_amount,
   applies_to,
   is_active,
+  (is_active = 1 AND NOW() >= starts_at AND (ends_at IS NULL OR NOW() <= ends_at)) AS is_current,
   created_at,
   updated_at
 FROM coupons;
@@ -202,7 +209,7 @@ FROM coupons;
 -- === crypto_keys ===
 -- Contract view for [crypto_keys]
 -- Hides backup_blob (encrypted backup payload). Keeps metadata for inventory.
-CREATE OR REPLACE VIEW vw_crypto_keys AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_crypto_keys AS
 SELECT
   id,
   basename,
@@ -230,7 +237,7 @@ FROM crypto_keys;
 -- === email_verifications ===
 -- Contract view for [email_verifications]
 -- Hides token_hash and validator_hash; exposes selector and timestamps.
-CREATE OR REPLACE VIEW vw_email_verifications AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_email_verifications AS
 SELECT
   id,
   user_id,
@@ -244,7 +251,7 @@ FROM email_verifications;
 -- === encrypted_fields ===
 -- Contract view for [encrypted_fields]
 -- Hides ciphertext; keeps routing metadata.
-CREATE OR REPLACE VIEW vw_encrypted_fields AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_encrypted_fields AS
 SELECT
   id,
   entity_table,
@@ -257,7 +264,7 @@ FROM encrypted_fields;
 
 -- === encryption_events ===
 -- Contract view for [encryption_events]
-CREATE OR REPLACE VIEW vw_encryption_events AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_encryption_events AS
 SELECT
   id,
   entity_table,
@@ -274,7 +281,7 @@ FROM encryption_events;
 
 -- === encryption_policies ===
 -- Contract view for [encryption_policies]
-CREATE OR REPLACE VIEW vw_encryption_policies AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_encryption_policies AS
 SELECT
   id,
   policy_name,
@@ -289,33 +296,37 @@ FROM encryption_policies;
 
 -- === idempotency_keys ===
 -- Contract view for [idempotency_keys]
--- Hides gateway_payload body by default.
-CREATE OR REPLACE VIEW vw_idempotency_keys AS
+-- Hides gateway_payload body; adds expiry helpers.
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_idempotency_keys AS
 SELECT
   key_hash,
   payment_id,
   order_id,
   redirect_url,
   created_at,
-  ttl_seconds
+  ttl_seconds,
+  TIMESTAMPADD(SECOND, ttl_seconds, created_at) AS expires_at,
+  (TIMESTAMPADD(SECOND, ttl_seconds, created_at) < NOW()) AS is_expired
 FROM idempotency_keys;
 
 -- === inventory_reservations ===
 -- Contract view for [inventory_reservations]
-CREATE OR REPLACE VIEW vw_inventory_reservations AS
+-- Adds is_expired helper.
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_inventory_reservations AS
 SELECT
   id,
   order_id,
   book_id,
   quantity,
   reserved_until,
+  (NOW() > reserved_until) AS is_expired,
   status,
   created_at
 FROM inventory_reservations;
 
 -- === invoice_items ===
 -- Contract view for [invoice_items]
-CREATE OR REPLACE VIEW vw_invoice_items AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_invoice_items AS
 SELECT
   id,
   invoice_id,
@@ -331,7 +342,7 @@ FROM invoice_items;
 
 -- === invoices ===
 -- Contract view for [invoices]
-CREATE OR REPLACE VIEW vw_invoices AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_invoices AS
 SELECT
   id,
   order_id,
@@ -350,8 +361,8 @@ FROM invoices;
 
 -- === jwt_tokens ===
 -- Contract view for [jwt_tokens]
--- Hides token_hash.
-CREATE OR REPLACE VIEW vw_jwt_tokens AS
+-- Hides token_hash. Adds HEX helper for ip_hash.
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_jwt_tokens AS
 SELECT
   id,
   jti,
@@ -364,6 +375,7 @@ SELECT
   expires_at,
   last_used_at,
   ip_hash,
+  HEX(ip_hash) AS ip_hash_hex,
   ip_hash_key_version,
   replaced_by,
   revoked,
@@ -372,7 +384,7 @@ FROM jwt_tokens;
 
 -- === key_events ===
 -- Contract view for [key_events]
-CREATE OR REPLACE VIEW vw_key_events AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_key_events AS
 SELECT
   id,
   key_id,
@@ -388,7 +400,7 @@ FROM key_events;
 
 -- === key_rotation_jobs ===
 -- Contract view for [key_rotation_jobs]
-CREATE OR REPLACE VIEW vw_key_rotation_jobs AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_key_rotation_jobs AS
 SELECT
   id,
   basename,
@@ -405,11 +417,11 @@ FROM key_rotation_jobs;
 
 -- === key_usage ===
 -- Contract view for [key_usage]
-CREATE OR REPLACE VIEW vw_key_usage AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_key_usage AS
 SELECT
   id,
   key_id,
-  date,
+  usage_date,
   encrypt_count,
   decrypt_count,
   verify_count,
@@ -418,7 +430,7 @@ FROM key_usage;
 
 -- === kms_keys ===
 -- Contract view for [kms_keys]
-CREATE OR REPLACE VIEW vw_kms_keys AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_kms_keys AS
 SELECT
   id,
   provider_id,
@@ -431,7 +443,7 @@ FROM kms_keys;
 
 -- === kms_providers ===
 -- Contract view for [kms_providers]
-CREATE OR REPLACE VIEW vw_kms_providers AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_kms_providers AS
 SELECT
   id,
   name,
@@ -444,37 +456,43 @@ FROM kms_providers;
 
 -- === login_attempts ===
 -- Contract view for [login_attempts]
--- Exposes hashed identifiers only; safe for security dashboards.
-CREATE OR REPLACE VIEW vw_login_attempts AS
+-- Exposes hashed identifiers; adds HEX helpers.
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_login_attempts AS
 SELECT
   id,
   ip_hash,
+  HEX(ip_hash) AS ip_hash_hex,
   attempted_at,
   success,
   user_id,
   username_hash,
+  HEX(username_hash) AS username_hash_hex,
   auth_event_id
 FROM login_attempts;
 
 -- === newsletter_subscribers ===
 -- Contract view for [newsletter_subscribers]
--- Hides email_enc; keeps hash and status fields.
-CREATE OR REPLACE VIEW vw_newsletter_subscribers AS
+-- Hides email_enc; adds HEX helpers for hashes.
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_newsletter_subscribers AS
 SELECT
   id,
   user_id,
   email_hash,
+  HEX(email_hash) AS email_hash_hex,
   email_hash_key_version,
   confirm_selector,
   confirm_validator_hash,
+  HEX(confirm_validator_hash) AS confirm_validator_hash_hex,
   confirm_key_version,
   confirm_expires,
   confirmed_at,
   unsubscribe_token_hash,
+  HEX(unsubscribe_token_hash) AS unsubscribe_token_hash_hex,
   unsubscribe_token_key_version,
   unsubscribed_at,
   origin,
   ip_hash,
+  HEX(ip_hash) AS ip_hash_hex,
   ip_hash_key_version,
   meta,
   created_at,
@@ -483,7 +501,8 @@ FROM newsletter_subscribers;
 
 -- === notifications ===
 -- Contract view for [notifications]
-CREATE OR REPLACE VIEW vw_notifications AS
+-- Adds is_locked helper.
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_notifications AS
 SELECT
   id,
   user_id,
@@ -499,6 +518,7 @@ SELECT
   error,
   last_attempt_at,
   locked_until,
+  (locked_until IS NOT NULL AND locked_until > NOW()) AS is_locked,
   locked_by,
   priority,
   created_at,
@@ -507,8 +527,8 @@ FROM notifications;
 
 -- === order_item_downloads ===
 -- Contract view for [order_item_downloads]
--- Hides download_token_hash.
-CREATE OR REPLACE VIEW vw_order_item_downloads AS
+-- Hides download_token_hash; adds usage helpers and HEX for ip_hash.
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_order_item_downloads AS
 SELECT
   id,
   order_id,
@@ -518,15 +538,18 @@ SELECT
   key_version,
   max_uses,
   used,
+  GREATEST(max_uses - used, 0) AS uses_left,
+  (used < max_uses AND (expires_at IS NULL OR expires_at > NOW())) AS is_valid,
   expires_at,
   last_used_at,
   ip_hash,
+  HEX(ip_hash) AS ip_hash_hex,
   ip_hash_key_version
 FROM order_item_downloads;
 
 -- === order_items ===
 -- Contract view for [order_items]
-CREATE OR REPLACE VIEW vw_order_items AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_order_items AS
 SELECT
   id,
   order_id,
@@ -542,12 +565,14 @@ FROM order_items;
 
 -- === orders ===
 -- Contract view for [orders]
--- Hides encrypted_customer_blob; keeps metadata and totals.
-CREATE OR REPLACE VIEW vw_orders AS
+-- Hides encrypted_customer_blob; adds UUID helpers.
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_orders AS
 SELECT
   id,
   uuid,
   uuid_bin,
+  BIN_TO_UUID(uuid_bin, TRUE) AS uuid_text,
+  HEX(uuid_bin) AS uuid_bin_hex,
   public_order_no,
   user_id,
   status,
@@ -566,7 +591,7 @@ FROM orders;
 
 -- === payment_gateway_notifications ===
 -- Contract view for [payment_gateway_notifications]
-CREATE OR REPLACE VIEW vw_payment_gateway_notifications AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_payment_gateway_notifications AS
 SELECT
   id,
   transaction_id,
@@ -580,7 +605,7 @@ FROM payment_gateway_notifications;
 
 -- === payment_logs ===
 -- Contract view for [payment_logs]
-CREATE OR REPLACE VIEW vw_payment_logs AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_payment_logs AS
 SELECT
   id,
   payment_id,
@@ -590,21 +615,22 @@ FROM payment_logs;
 
 -- === payment_webhooks ===
 -- Contract view for [payment_webhooks]
--- Hides raw payload JSON; exposes hash and identifiers.
-CREATE OR REPLACE VIEW vw_payment_webhooks AS
+-- Hides raw payload JSON; exposes presence.
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_payment_webhooks AS
 SELECT
   id,
   payment_id,
   gateway_event_id,
   payload_hash,
+  (payload IS NOT NULL) AS has_payload,
   from_cache,
   created_at
 FROM payment_webhooks;
 
 -- === payments ===
 -- Contract view for [payments]
--- Includes "details" JSON; mask in your app if it can contain sensitive provider payloads.
-CREATE OR REPLACE VIEW vw_payments AS
+-- Includes "details" JSON; mask in your app if needed.
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_payments AS
 SELECT
   id,
   order_id,
@@ -621,7 +647,7 @@ FROM payments;
 
 -- === permissions ===
 -- Contract view for [permissions]
-CREATE OR REPLACE VIEW vw_permissions AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_permissions AS
 SELECT
   id,
   name,
@@ -632,7 +658,7 @@ FROM permissions;
 
 -- === policy_kms_keys ===
 -- Contract view for [policy_kms_keys]
-CREATE OR REPLACE VIEW vw_policy_kms_keys AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_policy_kms_keys AS
 SELECT
   policy_id,
   kms_key_id,
@@ -642,7 +668,7 @@ FROM policy_kms_keys;
 
 -- === refunds ===
 -- Contract view for [refunds]
-CREATE OR REPLACE VIEW vw_refunds AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_refunds AS
 SELECT
   id,
   payment_id,
@@ -656,12 +682,13 @@ FROM refunds;
 
 -- === register_events ===
 -- Contract view for [register_events]
-CREATE OR REPLACE VIEW vw_register_events AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_register_events AS
 SELECT
   id,
   user_id,
   type,
   ip_hash,
+  HEX(ip_hash) AS ip_hash_hex,
   ip_hash_key_version,
   user_agent,
   occurred_at,
@@ -670,7 +697,8 @@ FROM register_events;
 
 -- === reviews ===
 -- Contract view for [reviews]
-CREATE OR REPLACE VIEW vw_reviews AS
+-- Adds is_edited helper.
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_reviews AS
 SELECT
   id,
   book_id,
@@ -678,54 +706,60 @@ SELECT
   rating,
   review_text,
   created_at,
-  updated_at
+  updated_at,
+  (updated_at IS NOT NULL) AS is_edited
 FROM reviews;
 
 -- === session_audit ===
 -- Contract view for [session_audit]
--- Session token is typically hashed; included for correlation. Adjust if you treat it as sensitive.
-CREATE OR REPLACE VIEW vw_session_audit AS
+-- Includes hashed token + HEX helpers; meta_json -> meta.
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_session_audit AS
 SELECT
   id,
   session_token,
+  HEX(session_token) AS session_token_hex,
   session_token_key_version,
   csrf_key_version,
   session_id,
   event,
   user_id,
   ip_hash,
+  HEX(ip_hash) AS ip_hash_hex,
   ip_hash_key_version,
   user_agent,
-  meta_json,
+  meta_json AS meta,
   outcome,
   created_at
 FROM session_audit;
 
 -- === sessions ===
 -- Contract view for [sessions]
--- Hides token_hash and session_blob.
-CREATE OR REPLACE VIEW vw_sessions AS
+-- Hides token_hash and session_blob; adds activity helper.
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_sessions AS
 SELECT
   id,
   token_hash_key_version,
   token_fingerprint,
+  HEX(token_fingerprint) AS token_fingerprint_hex,
   token_issued_at,
   user_id,
   created_at,
   last_seen_at,
   expires_at,
+  (revoked = 0 AND (expires_at IS NULL OR expires_at > NOW())) AS is_active,
   failed_decrypt_count,
   last_failed_decrypt_at,
   revoked,
   ip_hash,
+  HEX(ip_hash) AS ip_hash_hex,
   ip_hash_key_version,
   user_agent
 FROM sessions;
 
 -- === system_errors ===
 -- Contract view for [system_errors]
--- Hides stack_trace and token; safe for dashboards and triage.
-CREATE OR REPLACE VIEW vw_system_errors AS
+-- Hides stack_trace and token; adds HEX/ip_pretty helpers.
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_system_errors AS
 SELECT
   id,
   level,
@@ -737,9 +771,12 @@ SELECT
   occurrences,
   user_id,
   ip_hash,
+  HEX(ip_hash) AS ip_hash_hex,
   ip_hash_key_version,
   ip_text,
   ip_bin,
+  HEX(ip_bin) AS ip_bin_hex,
+  COALESCE(ip_text, INET6_NTOA(ip_bin)) AS ip_pretty,
   user_agent,
   url,
   method,
@@ -754,7 +791,7 @@ FROM system_errors;
 
 -- === system_jobs ===
 -- Contract view for [system_jobs]
-CREATE OR REPLACE VIEW vw_system_jobs AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_system_jobs AS
 SELECT
   id,
   job_type,
@@ -771,7 +808,7 @@ FROM system_jobs;
 
 -- === tax_rates ===
 -- Contract view for [tax_rates]
-CREATE OR REPLACE VIEW vw_tax_rates AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_tax_rates AS
 SELECT
   id,
   country_iso2,
@@ -784,7 +821,7 @@ FROM tax_rates;
 -- === two_factor ===
 -- Contract view for [two_factor]
 -- Hides secret and recovery_codes_enc; keeps method and state.
-CREATE OR REPLACE VIEW vw_two_factor AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_two_factor AS
 SELECT
   user_id,
   method,
@@ -796,7 +833,7 @@ FROM two_factor;
 
 -- === user_consents ===
 -- Contract view for [user_consents]
-CREATE OR REPLACE VIEW vw_user_consents AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_user_consents AS
 SELECT
   id,
   user_id,
@@ -810,7 +847,7 @@ FROM user_consents;
 
 -- === user_identities ===
 -- Contract view for [user_identities]
-CREATE OR REPLACE VIEW vw_user_identities AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_user_identities AS
 SELECT
   id,
   user_id,
@@ -822,8 +859,8 @@ FROM user_identities;
 
 -- === user_profiles ===
 -- Contract view for [user_profiles]
--- Omits large encrypted profile blob by default; add it back if your service truly needs it.
-CREATE OR REPLACE VIEW vw_user_profiles AS
+-- Omits large encrypted profile blob by default.
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_user_profiles AS
 SELECT
   user_id,
   key_version,
@@ -833,11 +870,12 @@ FROM user_profiles;
 
 -- === users ===
 -- Contract view for [users]
--- Hides password_* columns. Keeps operational flags and audit fields.
-CREATE OR REPLACE VIEW vw_users AS
+-- Hides password_* columns. Adds HEX helpers for hashes.
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_users AS
 SELECT
   id,
   email_hash,
+  HEX(email_hash) AS email_hash_hex,
   email_hash_key_version,
   is_active,
   is_locked,
@@ -845,6 +883,7 @@ SELECT
   must_change_password,
   last_login_at,
   last_login_ip_hash,
+  HEX(last_login_ip_hash) AS last_login_ip_hash_hex,
   last_login_ip_key_version,
   created_at,
   updated_at,
@@ -854,24 +893,26 @@ FROM users;
 
 -- === vat_validations ===
 -- Contract view for [vat_validations]
--- Hides raw provider response JSON.
-CREATE OR REPLACE VIEW vw_vat_validations AS
+-- Hides raw provider response; adds freshness flag (30 days).
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_vat_validations AS
 SELECT
   id,
   vat_id,
   country_iso2,
   valid,
-  checked_at
+  checked_at,
+  (checked_at > NOW() - INTERVAL 30 DAY) AS is_fresh
 FROM vat_validations;
 
 -- === verify_events ===
 -- Contract view for [verify_events]
-CREATE OR REPLACE VIEW vw_verify_events AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_verify_events AS
 SELECT
   id,
   user_id,
   type,
   ip_hash,
+  HEX(ip_hash) AS ip_hash_hex,
   ip_hash_key_version,
   user_agent,
   occurred_at,
@@ -880,7 +921,7 @@ FROM verify_events;
 
 -- === webhook_outbox ===
 -- Contract view for [webhook_outbox]
-CREATE OR REPLACE VIEW vw_webhook_outbox AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_webhook_outbox AS
 SELECT
   id,
   event_type,
@@ -894,7 +935,7 @@ FROM webhook_outbox;
 
 -- === worker_locks ===
 -- Contract view for [worker_locks]
-CREATE OR REPLACE VIEW vw_worker_locks AS
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW vw_worker_locks AS
 SELECT
   name,
   locked_until

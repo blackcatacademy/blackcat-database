@@ -12,12 +12,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/blackcatacademy/blackcat-core.git",
-                "reference": "360c770ec4d7dcb1181b284fde97834e8ae037bd"
+                "reference": "a422cdd06f5aa57f6e6947f8353ac3eb6c9600e2"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/blackcatacademy/blackcat-core/zipball/360c770ec4d7dcb1181b284fde97834e8ae037bd",
-                "reference": "360c770ec4d7dcb1181b284fde97834e8ae037bd",
+                "url": "https://api.github.com/repos/blackcatacademy/blackcat-core/zipball/a422cdd06f5aa57f6e6947f8353ac3eb6c9600e2",
+                "reference": "a422cdd06f5aa57f6e6947f8353ac3eb6c9600e2",
                 "shasum": ""
             },
             "require": {
@@ -89,7 +89,7 @@
                 "issues": "https://github.com/blackcatacademy/blackcat-core/issues",
                 "source": "https://github.com/blackcatacademy/blackcat-core"
             },
-            "time": "2025-10-24T16:25:06+00:00"
+            "time": "2025-10-25T21:27:50+00:00"
         },
         {
             "name": "psr/log",

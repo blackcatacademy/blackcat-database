@@ -11,7 +11,16 @@ trait ServiceHelpers
 {
     /** OČEKÁVÁ se, že třída má property: private Database $db; (a volitelně private ?QueryCache $qcache) */
 
-    protected function db(): Database { /** @var Database $db */ return $this->db; }
+    protected function db(): Database {
+        if (property_exists($this, 'db') && $this->db instanceof Database) {
+            return $this->db;
+        }
+        if (method_exists($this, 'getDb')) {
+            $db = $this->getDb();
+            if ($db instanceof Database) return $db;
+        }
+        throw new \LogicException('Service is missing Database dependency.');
+    }
     protected function qcache(): ?QueryCache { /** @var ?QueryCache $qcache */ return $this->qcache ?? null; }
 
     /** Transakce (R/W) */
@@ -63,7 +72,12 @@ trait ServiceHelpers
 
     /** Utility: identifikátory a kvóty */
     protected function idKey(string $ns, string $id): string {
-        return $ns.':'.$this->db()->id().':'.$id;
+        $dbId = 'db';
+        try {
+            $db = $this->db();
+            if ($db && method_exists($db, 'id')) { $dbId = (string)$db->id(); }
+        } catch (\Throwable $_) {}
+        return $ns . ':' . $dbId . ':' . $id;
     }
 }
 

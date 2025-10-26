@@ -1,96 +1,110 @@
 START TRANSACTION;
 
 -- === app_settings ===
--- Operational defaults (do NOT store real secrets here)
--- Values are strings; types drive casting/validation at application layer.
-INSERT INTO app_settings (setting_key, setting_value, type, section, description, is_protected) VALUES
-  ('site.name',                         'BlackCat Bookstore', 'string', 'site',     'Public site name',                          0),
-  ('site.currency_default',             'EUR',                'string', 'site',     'Default currency code (ISO 4217)',          0),
-  ('tax.prices_include_vat',            '0',                  'bool',   'tax',      'If true, catalog prices are VAT-inclusive', 0),
-  ('security.password.min_length',      '12',                 'int',    'security', 'Minimum password length',                   1),
-  ('security.two_factor.required_for_admins','1',             'bool',   'security', 'Admins must have 2FA enabled',              1),
-  ('orders.public_number_prefix',       'ORD-',               'string', 'orders',   'Prefix for public order numbers',           0),
-  ('mail.from_address',                 'no-reply@example.test','string','mail',    'Default From: address for outbound mail',   1)
+-- Operational defaults (neukládej reálná tajemství)
+INSERT INTO app_settings (setting_key, setting_value, type, section, description, is_protected, updated_at) VALUES
+  (''site.name'',                          ''BlackCat Bookstore'', ''string'', ''site'',     ''Public site name'',                          0, CURRENT_TIMESTAMP(6)),
+  (''site.currency_default'',              ''EUR'',                ''string'', ''site'',     ''Default currency code (ISO 4217)'',          0, CURRENT_TIMESTAMP(6)),
+  (''tax.prices_include_vat'',             ''0'',                  ''bool'',   ''tax'',      ''If true, catalog prices are VAT-inclusive'', 0, CURRENT_TIMESTAMP(6)),
+  (''security.password.min_length'',       ''12'',                 ''int'',    ''security'', ''Minimum password length'',                   1, CURRENT_TIMESTAMP(6)),
+  (''security.two_factor.required_for_admins'',''1'',              ''bool'',   ''security'', ''Admins must have 2FA enabled'',              1, CURRENT_TIMESTAMP(6)),
+  (''sessions.max_lifetime_seconds'',      ''1209600'',            ''int'',    ''security'', ''Max session lifetime (14d)'',                0, CURRENT_TIMESTAMP(6)),
+  (''notifications.max_retries'',          ''6'',                  ''int'',    ''notify'',   ''Max retry attempts for notifications'',      0, CURRENT_TIMESTAMP(6)),
+  (''security.jwt.refresh_ttl_days'',      ''30'',                 ''int'',    ''security'', ''Refresh token TTL in days'',                 1, CURRENT_TIMESTAMP(6)),
+  (''orders.public_number_prefix'',        ''ORD-'',               ''string'', ''orders'',   ''Prefix for public order numbers'',           0, CURRENT_TIMESTAMP(6)),
+  (''mail.from_address'',                  ''no-reply@example.test'',''string'',''mail'',    ''Default From address'',                      1, CURRENT_TIMESTAMP(6))
+AS new
 ON DUPLICATE KEY UPDATE
-  setting_value = VALUES(setting_value),
-  type          = VALUES(type),
-  section       = VALUES(section),
-  description   = VALUES(description),
-  is_protected  = VALUES(is_protected),
-  updated_at    = CURRENT_TIMESTAMP(6);
+  setting_value = new.setting_value,
+  type          = new.type,
+  section       = new.section,
+  description   = new.description,
+  is_protected  = new.is_protected,
+  updated_at    = CURRENT_TIMESTAMP(6),
+  updated_by    = updated_by;
 
 -- === authors ===
--- Fallback author to attach items with missing/unknown authors
+-- Fallback author
 INSERT INTO authors (name, slug, bio, photo_url, story, created_at)
-VALUES ('Unknown Author', 'unknown', NULL, NULL, NULL, CURRENT_TIMESTAMP(6))
-ON DUPLICATE KEY UPDATE name = VALUES(name);
+VALUES (''Unknown Author'', ''unknown'', NULL, NULL, NULL, CURRENT_TIMESTAMP(6))
+AS new
+ON DUPLICATE KEY UPDATE
+  name       = new.name,
+  deleted_at = NULL;
 
 -- === categories ===
--- Baseline categories (keep it lean; use slugs as stable identifiers)
+-- Baseline categories; revive if soft-deleted
 INSERT INTO categories (name, slug, parent_id)
 VALUES
-  ('Uncategorized', 'uncategorized', NULL),
-  ('E-books',       'ebooks',        NULL)
+  (''Uncategorized'', ''uncategorized'', NULL),
+  (''E-books'',       ''ebooks'',        NULL)
+AS new
 ON DUPLICATE KEY UPDATE
-  name = VALUES(name),
-  deleted_at = NULL; -- revive if previously soft-deleted;
+  name       = new.name,
+  parent_id  = new.parent_id,
+  deleted_at = NULL;
 
 -- === countries ===
--- Minimal countries for bootstrapping (idempotent)
+-- Minimal countries (idempotent)
 INSERT INTO countries (iso2, name) VALUES
-  ('SK', 'Slovakia'),
-  ('CZ', 'Czechia')
-ON DUPLICATE KEY UPDATE name = VALUES(name);
+  (''SK'', ''Slovakia''),
+  (''CZ'', ''Czechia'')
+AS new
+ON DUPLICATE KEY UPDATE
+  name = new.name;
 
 -- === encryption_policies ===
--- Default encryption policy for development (local, single layer).
--- Adjust/extend before enabling KMS in production.
+-- Default encryption policy for dev
 INSERT INTO encryption_policies
   (policy_name, mode,  layer_selection, min_layers, max_layers, aad_template, notes)
 VALUES
-  ('default',   'local','defined',      1,          1,          NULL,         'Local single-layer encryption for dev')
+  (''default'', ''local'', ''defined'', 1, 1, NULL, ''Local single-layer encryption for dev'')
+AS new
 ON DUPLICATE KEY UPDATE
-  mode            = VALUES(mode),
-  layer_selection = VALUES(layer_selection),
-  min_layers      = VALUES(min_layers),
-  max_layers      = VALUES(max_layers),
-  aad_template    = VALUES(aad_template),
-  notes           = VALUES(notes);
+  mode            = new.mode,
+  layer_selection = new.layer_selection,
+  min_layers      = new.min_layers,
+  max_layers      = new.max_layers,
+  aad_template    = new.aad_template,
+  notes           = new.notes;
 
 -- === permissions ===
--- Baseline permission set (extend per your RBAC needs)
+-- Baseline RBAC (+ rozšíření pro nové entity)
 INSERT INTO permissions (name, description) VALUES
-  ('admin:full_access', 'Grants all administration privileges'),
-  ('users:read',        'View users'),
-  ('users:manage',      'Create/update/lock users'),
-  ('books:manage',      'Manage catalog: authors, books, assets'),
-  ('orders:read',       'View orders'),
-  ('orders:manage',     'Create/update/cancel orders'),
-  ('payments:refund',   'Issue refunds')
-ON DUPLICATE KEY UPDATE description = VALUES(description);
+  (''admin:full_access'',          ''Grants all administration privileges''),
+  (''users:read'',                 ''View users''),
+  (''users:manage'',               ''Create/update/lock users''),
+  (''books:manage'',               ''Manage catalog: authors, books, assets''),
+  (''orders:read'',                ''View orders''),
+  (''orders:manage'',              ''Create/update/cancel orders''),
+  (''payments:read'',              ''View payments''),
+  (''payments:refund'',            ''Issue refunds''),
+  (''invoices:manage'',            ''Create and edit invoices''),
+  (''coupons:manage'',             ''Manage coupons and redemptions''),
+  (''notifications:manage'',       ''Manage outbound notifications''),
+  (''webhooks:replay'',            ''Replay webhook deliveries''),
+  (''jobs:run'',                   ''Run/inspect background jobs''),
+  (''settings:manage'',            ''Edit application settings''),
+  (''keys:manage'',                ''Manage local crypto keys''),
+  (''kms:manage'',                 ''Manage KMS providers/keys''),
+  (''encryption_policies:manage'', ''Manage encryption policies''),
+  (''errors:triage'',              ''Triage and resolve system errors''),
+  (''audit:read'',                 ''Read audit log'')
+AS new
+ON DUPLICATE KEY UPDATE
+  description = new.description;
 
 -- === tax_rates ===
--- Minimal VAT placeholders (adjust to legal reality in your target markets).
--- Uses NOT EXISTS to remain idempotent without a unique constraint.
--- Tip: consider adding a UNIQUE index on (country_iso2, category, valid_from) to harden this.
-
--- Slovakia, baseline 20% for both categories (placeholder)
-INSERT INTO tax_rates (country_iso2, category, rate, valid_from, valid_to)
-SELECT 'SK','ebook',   20.00, '2000-01-01', NULL
-WHERE NOT EXISTS (SELECT 1 FROM tax_rates WHERE country_iso2='SK' AND category='ebook');
-
-INSERT INTO tax_rates (country_iso2, category, rate, valid_from, valid_to)
-SELECT 'SK','physical',20.00, '2000-01-01', NULL
-WHERE NOT EXISTS (SELECT 1 FROM tax_rates WHERE country_iso2='SK' AND category='physical');
-
--- Czechia, baseline 21% for both categories (placeholder)
-INSERT INTO tax_rates (country_iso2, category, rate, valid_from, valid_to)
-SELECT 'CZ','ebook',   21.00, '2000-01-01', NULL
-WHERE NOT EXISTS (SELECT 1 FROM tax_rates WHERE country_iso2='CZ' AND category='ebook');
-
-INSERT INTO tax_rates (country_iso2, category, rate, valid_from, valid_to)
-SELECT 'CZ','physical',21.00, '2000-01-01', NULL
-WHERE NOT EXISTS (SELECT 1 FROM tax_rates WHERE country_iso2='CZ' AND category='physical');
+-- Minimal VAT placeholders (idempotent via upsert)
+INSERT INTO tax_rates (country_iso2, category, rate, valid_from, valid_to) VALUES
+  (''SK'', ''ebook'',    20.00, ''2000-01-01'', NULL),
+  (''SK'', ''physical'', 20.00, ''2000-01-01'', NULL),
+  (''CZ'', ''ebook'',    21.00, ''2000-01-01'', NULL),
+  (''CZ'', ''physical'', 21.00, ''2000-01-01'', NULL)
+AS new
+ON DUPLICATE KEY UPDATE
+  rate     = new.rate,
+  valid_to = new.valid_to;
 
 COMMIT;
 

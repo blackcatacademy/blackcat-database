@@ -83,4 +83,12 @@ final class QueryCacheTest extends TestCase
         $this->qcInvalidate();
         $this->assertTrue(true);
     }
+    
+    public function test_cache_getter_present(): void
+    {
+        $ref = $this->qc->cache();
+        $this->assertTrue(method_exists($this->qc, 'cache'));
+        $this->assertTrue($ref->set('k','v',10));
+        $this->assertSame('v', $ref->get('k'));
+    }
 }

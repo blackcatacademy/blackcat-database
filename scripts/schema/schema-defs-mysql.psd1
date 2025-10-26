@@ -1,5 +1,5 @@
 @{
-  FormatVersion = '1.0'
+  FormatVersion = '1.1'
 
   Tables = @{
 
@@ -28,7 +28,7 @@
         old_value    = @{ Description='JSON snapshot before change.' }
         new_value    = @{ Description='JSON snapshot after change.' }
         changed_at   = @{ Description='When change occurred (UTC).' }
-        ip_bin       = @{ Description='Client IP (binary form).' }
+        ip_bin       = ip_bin = @{ Description='Client IP (binary form).'; PII='plain' }
         user_agent   = @{ Description='Client user agent string.' }
         request_id   = @{ Description='Correlation/request id if available.' }
       }
@@ -45,7 +45,7 @@
         user_agent           = @{ Description='Client user agent.' }
         occurred_at          = @{ Description='When event happened (UTC).' }
         meta                 = @{ Description='Additional JSON metadata (e.g., email used).' }
-        meta_email           = @{ Description='Generated: email extracted from meta (for indexing).' }
+        meta_email           = @{ Description='Generated/stored email extracted from meta for indexing/filtering.' }
       }
     }
 
@@ -70,7 +70,7 @@
     }
 
     book_assets = @{
-      Summary = 'Binary and ancillary assets for books (covers, files, extras).'
+      Summary = 'Binary and ancillary assets for books (covers, files, extras). UNIQUE (book_id, asset_type) — max. one asset of a given type per book.'
       Columns = @{
         id                 = @{ Description='Surrogate primary key.' }
         book_id            = @{ Description='Book (FK books.id).' }
@@ -130,7 +130,7 @@
     }
 
     cart_items = @{
-      Summary = 'Items added to shopping carts.'
+      Summary = Summary = 'Items added to shopping carts. UNIQUE (cart_id, book_id, sku) to prevent duplicate items in the cart.'
       Columns = @{
         id             = @{ Description='Surrogate primary key.' }
         cart_id        = @{ Description='Cart identifier (UUID textual).' }
@@ -221,7 +221,7 @@
         algorithm          = @{ Description='Algorithm identifier.' }
         length_bits        = @{ Description='Key length in bits.' }
         origin             = @{ Description='Key origin.'; Enum=@('local','kms','imported') }
-        usage              = @{ Description='Allowed operations (SET field).'; Enum=@('encrypt','decrypt','sign','verify','wrap','unwrap') }
+        usage              = @{ Description='Allowed operations (set/array of values: encrypt,decrypt,sign,verify,wrap,unwrap).' ; Enum=@('encrypt','decrypt','sign','verify','wrap','unwrap') }
         scope              = @{ Description='Business scope tag (e.g., orders).' }
         status             = @{ Description='Lifecycle state.'; Enum=@('active','retired','compromised','archived') }
         is_backup_encrypted= @{ Description='Backup blob is encrypted with KEK.' }
@@ -282,10 +282,10 @@
     }
 
     encryption_policies = @{
-      Summary = 'Encryption policy registry and parameters.'
+      Summary = 'Encryption policy registry and parameters. policy_name is UNIQUE.'
       Columns = @{
         id             = @{ Description='Surrogate primary key.' }
-        policy_name    = @{ Description='Unique policy name.' }
+        policy_name    = @{ Description='Unique policy name (UNIQUE).' }
         mode           = @{ Description='Execution mode.'; Enum=@('local','kms','multi-kms') }
         layer_selection= @{ Description='Layer selection algorithm.'; Enum=@('defined','round_robin','random','hash_mod') }
         min_layers     = @{ Description='Minimum layers.' }
@@ -305,7 +305,7 @@
         gateway_payload = @{ Description='Original payload JSON.' }
         redirect_url = @{ Description='Client redirect URL (if any).' }
         created_at   = @{ Description='Creation timestamp (UTC).' }
-        ttl_seconds  = @{ Description='Time-to-live in seconds.' }
+        ttl_seconds  = @{ Description='Time-to-live in seconds (> 0).' }
       }
     }
 
@@ -331,7 +331,7 @@
         description = @{ Description='Line description.' }
         unit_price  = @{ Description='Unit price excl. tax.' }
         quantity    = @{ Description='Quantity (> 0).' }
-        tax_rate    = @{ Description='Tax rate %.' }
+        tax_rate    = @{ Description='Tax rate % (0..100).' }
         tax_amount  = @{ Description='Tax amount.' }
         line_total  = @{ Description='Total incl. tax for line.' }
         currency    = @{ Description='ISO 4217 currency code.' }
@@ -339,11 +339,11 @@
     }
 
     invoices = @{
-      Summary = 'Issued invoices linked to orders.'
+      Summary = 'Issued invoices linked to orders. invoice_number is UNIQUE.'
       Columns = @{
         id              = @{ Description='Surrogate primary key.' }
         order_id        = @{ Description='Order (FK orders.id), optional.' }
-        invoice_number  = @{ Description='Unique invoice number.' }
+        invoice_number  = @{ Description='Unique invoice number (UNIQUE).' }
         variable_symbol = @{ Description='Local payment identifier/VS.' }
         issue_date      = @{ Description='Issue date.' }
         due_date        = @{ Description='Due date (optional).' }
@@ -426,11 +426,11 @@
     }
 
     kms_keys = @{
-      Summary = 'External KMS key references.'
+      Summary = 'External KMS key references. UNIQUE (provider_id, external_key_ref).'
       Columns = @{
         id               = @{ Description='Surrogate primary key.' }
         provider_id      = @{ Description='KMS provider (FK kms_providers.id).' }
-        external_key_ref = @{ Description='Provider-specific key identifier.' }
+        external_key_ref = @{ Description='Provider-specific key identifier. Part of UNIQUE (provider_id, external_key_ref).' }
         purpose          = @{ Description='Primary purpose.'; Enum=@('wrap','encrypt','both') }
         algorithm        = @{ Description='Algorithm or template id.' }
         status           = @{ Description='Lifecycle status.'; Enum=@('active','retired','disabled') }
@@ -439,10 +439,10 @@
     }
 
     kms_providers = @{
-      Summary = 'Configured KMS providers.'
+      Summary = 'Configured KMS providers. name is UNIQUE.'
       Columns = @{
         id              = @{ Description='Surrogate primary key.' }
-        name            = @{ Description='Display name.' }
+        name            = @{ Description='Display name (UNIQUE).' }
         provider        = @{ Description='Provider kind.'; Enum=@('gcp','aws','azure','vault') }
         location        = @{ Description='Region or location.' }
         project_tenant  = @{ Description='Project/tenant id.' }
@@ -465,15 +465,15 @@
     }
 
     newsletter_subscribers = @{
-      Summary = 'Newsletter subscription registry with double opt-in.'
+      Summary = 'Newsletter subscription registry with double opt-in. email_hash is UNIQUE; confirm_selector is UNIQUE.'
       Columns = @{
         id                          = @{ Description='Surrogate primary key.' }
         user_id                     = @{ Description='Related user (optional).' }
-        email_hash                  = @{ Description='Hashed email value.'; PII='hashed' }
+        email_hash                  = @{ Description='Hashed email value (UNIQUE).'; PII='hashed' }
         email_hash_key_version      = @{ Description='Key version for email_hash.' }
         email_enc                   = @{ Description='Encrypted email address.'; PII='encrypted' }
         email_key_version           = @{ Description='Key version for email_enc.' }
-        confirm_selector            = @{ Description='Public selector for confirmation (unique).' }
+        confirm_selector            = @{ Description='Public selector for confirmation (UNIQUE).' }
         confirm_validator_hash      = @{ Description='Hashed validator token.'; PII='hashed' }
         confirm_key_version         = @{ Description='Key version for confirmation hash.' }
         confirm_expires             = @{ Description='Confirmation expiry (UTC).' }
@@ -515,13 +515,13 @@
     }
 
     order_item_downloads = @{
-      Summary = 'Per-order download entitlements for digital items.'
+      Summary = 'Per-order download entitlements for digital items. UNIQUE (order_id, book_id, asset_id).'
       Columns = @{
         id                   = @{ Description='Surrogate primary key.' }
         order_id             = @{ Description='Order (FK orders.id).' }
         book_id              = @{ Description='Book (FK books.id).' }
         asset_id             = @{ Description='Asset (FK book_assets.id).' }
-        download_token_hash  = @{ Description='Hashed download token.'; PII='hashed' }
+        download_token_hash  = @{ Description='Hashed download token (dedupe/lookup).'; PII='hashed' }
         token_key_version    = @{ Description='Key version used for download_token_hash.' }
         key_version          = @{ Description='Content encryption key version.' }
         max_uses             = @{ Description='Max allowed downloads.' }
@@ -544,7 +544,7 @@
         sku_snapshot  = @{ Description='Captured SKU at purchase time.' }
         unit_price    = @{ Description='Unit price at purchase.' }
         quantity      = @{ Description='Quantity (> 0).' }
-        tax_rate      = @{ Description='Tax rate %.' }
+        tax_rate      = @{ Description='Tax rate % (0..100).' }
         currency      = @{ Description='ISO 4217 currency code.' }
       }
     }
@@ -554,7 +554,7 @@
       Columns = @{
         id                               = @{ Description='Surrogate primary key.' }
         uuid                             = @{ Description='Unique external order id (UUID text).' }
-        uuid_bin                         = @{ Description='UUID binary form (unique).' }
+        uuid_bin                         = @{ Description='UUID binary form (unique, for compact lookups).' }
         public_order_no                  = @{ Description='Human-friendly order number.' }
         user_id                          = @{ Description='Customer (FK users.id), optional (guest checkout).' }
         status                           = @{ Description='Order state.'; Enum=@('pending','paid','failed','cancelled','refunded','completed') }
@@ -574,10 +574,10 @@
     }
 
     payment_gateway_notifications = @{
-      Summary = 'Inbound notifications from payment gateways (webhooks, IPNs).'
+      Summary = 'Inbound notifications from payment gateways (webhooks, IPNs). transaction_id is REQUIRED and UNIQUE.'
       Columns = @{
         id                = @{ Description='Surrogate primary key.' }
-        transaction_id    = @{ Description='Gateway transaction id (unique if provided).' }
+        transaction_id    = @{ Description='Gateway transaction id (REQUIRED, UNIQUE).' }
         received_at       = @{ Description='When we received the notification (UTC).' }
         processing_by     = @{ Description='Worker name processing the event.' }
         processing_until  = @{ Description='Lease end.' }
@@ -598,12 +598,12 @@
     }
 
     payment_webhooks = @{
-      Summary = 'Raw webhook payloads (deduplicated by payload_hash).'
+      Summary = 'Raw webhook payloads (deduplicated by payload_hash UNIQUE).'
       Columns = @{
         id               = @{ Description='Surrogate primary key.' }
         payment_id       = @{ Description='Payment (FK payments.id), optional.' }
         gateway_event_id = @{ Description='Gateway event id, optional.' }
-        payload_hash     = @{ Description='Hash of payload for dedupe.' }
+        payload_hash     = @{ Description='Hash of payload for dedupe (UNIQUE).' }
         payload          = @{ Description='Original JSON payload.' }
         from_cache       = @{ Description='Marked if sourced from cache/retry.' }
         created_at       = @{ Description='Received at (UTC).' }
@@ -619,7 +619,7 @@
         transaction_id    = @{ Description='Provider transaction id (unique if provided).' }
         provider_event_id = @{ Description='Provider event id (optional).' }
         status            = @{ Description='Payment state.'; Enum=@('initiated','pending','authorized','paid','cancelled','partially_refunded','refunded','failed') }
-        amount            = @{ Description='Payment amount.' }
+        amount            = @{ Description='Payment amount. Must be >= 0.' }
         currency          = @{ Description='ISO 4217 currency code.' }
         details           = @{ Description='JSON with provider details/receipts.' }
         created_at        = @{ Description='Creation timestamp (UTC).' }
@@ -639,7 +639,7 @@
     }
 
     policy_kms_keys = @{
-      Summary = 'KMS key assignments per encryption policy.'
+      Summary = 'KMS key assignments per encryption policy. PRIMARY KEY (policy_id, kms_key_id).'
       Columns = @{
         policy_id = @{ Description='Policy (FK encryption_policies.id).' }
         kms_key_id= @{ Description='KMS key (FK kms_keys.id).' }
@@ -653,7 +653,7 @@
       Columns = @{
         id         = @{ Description='Surrogate primary key.' }
         payment_id = @{ Description='Payment (FK payments.id).' }
-        amount     = @{ Description='Refund amount.' }
+        amount     = @{ Description='Refund amount (>= 0).' }
         currency   = @{ Description='ISO 4217 currency code.' }
         reason     = @{ Description='Reason provided by operator/gateway.' }
         status     = @{ Description='Gateway/state status label.' }
@@ -677,7 +677,7 @@
     }
 
     reviews = @{
-      Summary = 'User reviews and ratings for books.'
+      Summary = 'User reviews and ratings for books. UNIQUE (book_id, user_id) — one user can only rate a book once.'
       Columns = @{
         id          = @{ Description='Surrogate primary key.' }
         book_id     = @{ Description='Book (FK books.id).' }
@@ -779,7 +779,7 @@
     }
 
     tax_rates = @{
-      Summary = 'Tax rates per country and goods category.'
+      Summary = 'Tax rates per country and goods category. UNIQUE (country_iso2, category, valid_from).'
       Columns = @{
         id           = @{ Description='Surrogate primary key.' }
         country_iso2 = @{ Description='ISO 3166-1 alpha-2 country code.' }
@@ -805,7 +805,7 @@
     }
 
     user_consents = @{
-      Summary = 'Captured consents per user and version.'
+      Summary = 'Captured consents per user and version. UNIQUE (user_id, consent_type, version).'
       Columns = @{
         id          = @{ Description='Surrogate primary key.' }
         user_id     = @{ Description='User (FK users.id).' }
@@ -819,12 +819,12 @@
     }
 
     user_identities = @{
-      Summary = 'External identity links (OAuth/OpenID/etc.).'
+      Summary = 'External identity links (OAuth/OpenID/etc.). One row per (provider, provider_user_id).'
       Columns = @{
         id               = @{ Description='Surrogate primary key.' }
         user_id          = @{ Description='User (FK users.id).' }
-        provider         = @{ Description='Provider key (e.g., google, github).' }
-        provider_user_id = @{ Description='User id at provider (unique per provider).' }
+        provider         = @{ Description='Provider key (e.g., google, github). Part of UNIQUE (provider, provider_user_id).' }
+        provider_user_id = @{ Description='User id at provider. Part of UNIQUE (provider, provider_user_id).' }
         created_at       = @{ Description='Creation timestamp (UTC).' }
         updated_at       = @{ Description='Update timestamp (UTC).' }
       }
@@ -845,7 +845,7 @@
       Summary = 'User accounts and authentication attributes.'
       Columns = @{
         id                       = @{ Description='Surrogate primary key.' }
-        email_hash               = @{ Description='Hashed email (salted/peppered).'; PII='hashed' }
+        email_hash               = @{ Description='Hashed email (salted/peppered). UNIQUE.'; PII='hashed' }
         email_hash_key_version   = @{ Description='Key version for email_hash.' }
         password_hash            = @{ Description='Password hash string.'; PII='hashed' }
         password_algo            = @{ Description='Password hash algorithm id.' }

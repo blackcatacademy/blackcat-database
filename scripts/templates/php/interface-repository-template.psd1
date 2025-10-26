@@ -12,9 +12,7 @@ use [[NAMESPACE]]\Repository\[[ENTITY_CLASS]]Repository;
 use [[NAMESPACE]]\Criteria;
 
 /**
- * Umbrella/facade pro testy a tooly:
- * - stabilní FQN: BlackCat\Database\Packages\<Pkg>\Repository
- * - deleguje na konkrétní [[ENTITY_CLASS]]Repository
+ * Umbrella/facade pro testy a tooly – drží stabilní FQN.
  */
 final class Repository
 {
@@ -25,7 +23,6 @@ final class Repository
         $this->repo = new [[ENTITY_CLASS]]Repository($db);
     }
 
-    // ---- CRUD / paging / lock – jen forwardy ----
     public function insert(array $row): void { $this->repo->insert($row); }
     public function insertMany(array $rows): void { $this->repo->insertMany($rows); }
 
@@ -43,6 +40,7 @@ final class Repository
     public function exists(string $whereSql = '1=1', array $params = []): bool { return $this->repo->exists($whereSql, $params); }
     public function count(string $whereSql = '1=1', array $params = []): int { return $this->repo->count($whereSql, $params); }
 
+    /** @return array{items:array<int,array>,total:int,page:int,perPage:int} */
     public function paginate(Criteria $c): array { return $this->repo->paginate($c); }
 
     public function lockById(int|string $id): ?array { return $this->repo->lockById($id); }

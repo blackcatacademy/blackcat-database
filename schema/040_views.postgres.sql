@@ -1,10 +1,11 @@
 -- === app_settings ===
 -- Contract view for [app_settings]
--- Masks setting_value for secret entries.
+-- Masks secrets and protected values; adds has_value flag.
 CREATE OR REPLACE VIEW vw_app_settings AS
 SELECT
   setting_key,
-  CASE WHEN "type" = 'secret' THEN NULL ELSE setting_value END AS setting_value,
+  CASE WHEN "type" = 'secret' OR is_protected THEN NULL ELSE setting_value END AS setting_value,
+  (setting_value IS NOT NULL) AS has_value,
   "type",
   section,
   description,
@@ -15,7 +16,7 @@ FROM app_settings;
 
 -- === audit_log ===
 -- Contract view for [audit_log]
--- Omits old_value/new_value JSON to reduce payload and potential leakage.
+-- Omits old_value/new_value JSON; adds ip_bin_hex helper.
 CREATE OR REPLACE VIEW vw_audit_log AS
 SELECT
   id,
@@ -25,6 +26,7 @@ SELECT
   change_type,
   changed_at,
   ip_bin,
+  encode(ip_bin, 'hex') AS ip_bin_hex,
   user_agent,
   request_id
 FROM audit_log;
@@ -37,6 +39,7 @@ SELECT
   user_id,
   type,
   ip_hash,
+  encode(ip_hash, 'hex') AS ip_hash_hex,
   ip_hash_key_version,
   user_agent,
   occurred_at,
@@ -96,6 +99,7 @@ FROM book_categories;
 
 -- === books ===
 -- Contract view for [books]
+-- Adds saleability helper.
 CREATE OR REPLACE VIEW vw_books AS
 SELECT
   id,
@@ -116,6 +120,7 @@ SELECT
   is_active,
   is_available,
   stock_quantity,
+  (is_active AND is_available AND (stock_quantity IS NULL OR stock_quantity > 0)) AS is_saleable,
   created_at,
   updated_at,
   deleted_at
@@ -182,6 +187,7 @@ FROM coupon_redemptions;
 
 -- === coupons ===
 -- Contract view for [coupons]
+-- Adds is_current helper.
 CREATE OR REPLACE VIEW vw_coupons AS
 SELECT
   id,
@@ -195,6 +201,7 @@ SELECT
   min_order_amount,
   applies_to,
   is_active,
+  (is_active AND now() >= starts_at AND (ends_at IS NULL OR now() <= ends_at)) AS is_current,
   created_at,
   updated_at
 FROM coupons;
@@ -289,7 +296,7 @@ FROM encryption_policies;
 
 -- === idempotency_keys ===
 -- Contract view for [idempotency_keys]
--- Hides gateway_payload body by default.
+-- Hides gateway_payload body; adds expiry helpers.
 CREATE OR REPLACE VIEW vw_idempotency_keys AS
 SELECT
   key_hash,
@@ -297,11 +304,14 @@ SELECT
   order_id,
   redirect_url,
   created_at,
-  ttl_seconds
+  ttl_seconds,
+  (created_at + make_interval(secs => ttl_seconds)) AS expires_at,
+  ((created_at + make_interval(secs => ttl_seconds)) < now()) AS is_expired
 FROM idempotency_keys;
 
 -- === inventory_reservations ===
 -- Contract view for [inventory_reservations]
+-- Adds is_expired helper.
 CREATE OR REPLACE VIEW vw_inventory_reservations AS
 SELECT
   id,
@@ -309,6 +319,7 @@ SELECT
   book_id,
   quantity,
   reserved_until,
+  (now() > reserved_until) AS is_expired,
   status,
   created_at
 FROM inventory_reservations;
@@ -350,11 +361,12 @@ FROM invoices;
 
 -- === jwt_tokens ===
 -- Contract view for [jwt_tokens]
--- Hides token_hash.
+-- Hides token_hash; adds hex helper and jti as text.
 CREATE OR REPLACE VIEW vw_jwt_tokens AS
 SELECT
   id,
   jti,
+  jti::text AS jti_text,
   user_id,
   token_hash_algo,
   token_hash_key_version,
@@ -364,6 +376,7 @@ SELECT
   expires_at,
   last_used_at,
   ip_hash,
+  encode(ip_hash, 'hex') AS ip_hash_hex,
   ip_hash_key_version,
   replaced_by,
   revoked,
@@ -409,7 +422,7 @@ CREATE OR REPLACE VIEW vw_key_usage AS
 SELECT
   id,
   key_id,
-  date,
+  usage_date,
   encrypt_count,
   decrypt_count,
   verify_count,
@@ -444,37 +457,43 @@ FROM kms_providers;
 
 -- === login_attempts ===
 -- Contract view for [login_attempts]
--- Exposes hashed identifiers only; safe for security dashboards.
+-- Exposes hashed identifiers only; adds hex helpers.
 CREATE OR REPLACE VIEW vw_login_attempts AS
 SELECT
   id,
   ip_hash,
+  encode(ip_hash, 'hex') AS ip_hash_hex,
   attempted_at,
   success,
   user_id,
   username_hash,
+  encode(username_hash, 'hex') AS username_hash_hex,
   auth_event_id
 FROM login_attempts;
 
 -- === newsletter_subscribers ===
 -- Contract view for [newsletter_subscribers]
--- Hides email_enc; keeps hash and status fields.
+-- Hides email_enc; adds hex helpers for hashes.
 CREATE OR REPLACE VIEW vw_newsletter_subscribers AS
 SELECT
   id,
   user_id,
   email_hash,
+  encode(email_hash, 'hex') AS email_hash_hex,
   email_hash_key_version,
   confirm_selector,
   confirm_validator_hash,
+  encode(confirm_validator_hash, 'hex') AS confirm_validator_hash_hex,
   confirm_key_version,
   confirm_expires,
   confirmed_at,
   unsubscribe_token_hash,
+  encode(unsubscribe_token_hash, 'hex') AS unsubscribe_token_hash_hex,
   unsubscribe_token_key_version,
   unsubscribed_at,
   origin,
   ip_hash,
+  encode(ip_hash, 'hex') AS ip_hash_hex,
   ip_hash_key_version,
   meta,
   created_at,
@@ -483,6 +502,7 @@ FROM newsletter_subscribers;
 
 -- === notifications ===
 -- Contract view for [notifications]
+-- Adds is_locked helper.
 CREATE OR REPLACE VIEW vw_notifications AS
 SELECT
   id,
@@ -499,6 +519,7 @@ SELECT
   error,
   last_attempt_at,
   locked_until,
+  (locked_until IS NOT NULL AND locked_until > now()) AS is_locked,
   locked_by,
   priority,
   created_at,
@@ -507,7 +528,7 @@ FROM notifications;
 
 -- === order_item_downloads ===
 -- Contract view for [order_item_downloads]
--- Hides download_token_hash.
+-- Hides download_token_hash; adds usage helpers & hex for ip_hash.
 CREATE OR REPLACE VIEW vw_order_item_downloads AS
 SELECT
   id,
@@ -518,9 +539,12 @@ SELECT
   key_version,
   max_uses,
   used,
+  GREATEST(max_uses - used, 0) AS uses_left,
+  (used < max_uses AND (expires_at IS NULL OR expires_at > now())) AS is_valid,
   expires_at,
   last_used_at,
   ip_hash,
+  encode(ip_hash, 'hex') AS ip_hash_hex,
   ip_hash_key_version
 FROM order_item_downloads;
 
@@ -542,12 +566,14 @@ FROM order_items;
 
 -- === orders ===
 -- Contract view for [orders]
--- Hides encrypted_customer_blob; keeps metadata and totals.
+-- Hides encrypted_customer_blob; PG has native uuid (uuid_bin removed).
+-- Adds uuid_text and uuid_hex.
 CREATE OR REPLACE VIEW vw_orders AS
 SELECT
   id,
   uuid,
-  uuid_bin,
+  uuid::text AS uuid_text,
+  replace(uuid::text, '-','') AS uuid_hex,
   public_order_no,
   user_id,
   status,
@@ -590,20 +616,21 @@ FROM payment_logs;
 
 -- === payment_webhooks ===
 -- Contract view for [payment_webhooks]
--- Hides raw payload JSON; exposes hash and identifiers.
+-- Hides raw payload JSON; exposes presence.
 CREATE OR REPLACE VIEW vw_payment_webhooks AS
 SELECT
   id,
   payment_id,
   gateway_event_id,
   payload_hash,
+  (payload IS NOT NULL) AS has_payload,
   from_cache,
   created_at
 FROM payment_webhooks;
 
 -- === payments ===
 -- Contract view for [payments]
--- Includes "details" JSON; mask in your app if it can contain sensitive provider payloads.
+-- Includes "details" JSON; mask in your app if needed.
 CREATE OR REPLACE VIEW vw_payments AS
 SELECT
   id,
@@ -662,6 +689,7 @@ SELECT
   user_id,
   type,
   ip_hash,
+  encode(ip_hash, 'hex') AS ip_hash_hex,
   ip_hash_key_version,
   user_agent,
   occurred_at,
@@ -670,6 +698,7 @@ FROM register_events;
 
 -- === reviews ===
 -- Contract view for [reviews]
+-- Adds is_edited helper.
 CREATE OR REPLACE VIEW vw_reviews AS
 SELECT
   id,
@@ -678,53 +707,59 @@ SELECT
   rating,
   review_text,
   created_at,
-  updated_at
+  updated_at,
+  (updated_at IS NOT NULL) AS is_edited
 FROM reviews;
 
 -- === session_audit ===
 -- Contract view for [session_audit]
--- Session token is typically hashed; included for correlation. Adjust if sensitive.
+-- Includes hashed token; adds hex helpers; meta_json -> meta.
 CREATE OR REPLACE VIEW vw_session_audit AS
 SELECT
   id,
   session_token,
+  encode(session_token, 'hex') AS session_token_hex,
   session_token_key_version,
   csrf_key_version,
   session_id,
   event,
   user_id,
   ip_hash,
+  encode(ip_hash, 'hex') AS ip_hash_hex,
   ip_hash_key_version,
   user_agent,
-  meta_json,
+  meta_json AS meta,
   outcome,
   created_at
 FROM session_audit;
 
 -- === sessions ===
 -- Contract view for [sessions]
--- Hides token_hash and session_blob.
+-- Hides token_hash and session_blob; adds activity helper & hex helpers.
 CREATE OR REPLACE VIEW vw_sessions AS
 SELECT
   id,
   token_hash_key_version,
   token_fingerprint,
+  encode(token_fingerprint, 'hex') AS token_fingerprint_hex,
   token_issued_at,
   user_id,
   created_at,
   last_seen_at,
   expires_at,
+  (NOT revoked AND (expires_at IS NULL OR expires_at > now())) AS is_active,
   failed_decrypt_count,
   last_failed_decrypt_at,
   revoked,
   ip_hash,
+  encode(ip_hash, 'hex') AS ip_hash_hex,
   ip_hash_key_version,
   user_agent
 FROM sessions;
 
 -- === system_errors ===
 -- Contract view for [system_errors]
--- Hides stack_trace and token; safe for dashboards and triage.
+-- Hides stack_trace/token; adds hex helpers and ip_pretty (from inet).
 CREATE OR REPLACE VIEW vw_system_errors AS
 SELECT
   id,
@@ -737,9 +772,12 @@ SELECT
   occurrences,
   user_id,
   ip_hash,
+  encode(ip_hash, 'hex') AS ip_hash_hex,
   ip_hash_key_version,
   ip_text,
+  ip_text::text AS ip_pretty,
   ip_bin,
+  encode(ip_bin, 'hex') AS ip_bin_hex,
   user_agent,
   url,
   method,
@@ -822,7 +860,7 @@ FROM user_identities;
 
 -- === user_profiles ===
 -- Contract view for [user_profiles]
--- Omits large encrypted profile blob by default; add it back only if needed.
+-- Omits large encrypted profile blob by default.
 CREATE OR REPLACE VIEW vw_user_profiles AS
 SELECT
   user_id,
@@ -833,11 +871,12 @@ FROM user_profiles;
 
 -- === users ===
 -- Contract view for [users]
--- Hides password_* columns. Keeps operational flags and audit fields.
+-- Hides password_* columns. Adds hex helpers.
 CREATE OR REPLACE VIEW vw_users AS
 SELECT
   id,
   email_hash,
+  encode(email_hash, 'hex') AS email_hash_hex,
   email_hash_key_version,
   is_active,
   is_locked,
@@ -845,6 +884,7 @@ SELECT
   must_change_password,
   last_login_at,
   last_login_ip_hash,
+  encode(last_login_ip_hash, 'hex') AS last_login_ip_hash_hex,
   last_login_ip_key_version,
   created_at,
   updated_at,
@@ -854,14 +894,15 @@ FROM users;
 
 -- === vat_validations ===
 -- Contract view for [vat_validations]
--- Hides raw provider response JSON.
+-- Hides raw provider response; adds freshness flag (30 days).
 CREATE OR REPLACE VIEW vw_vat_validations AS
 SELECT
   id,
   vat_id,
   country_iso2,
   valid,
-  checked_at
+  checked_at,
+  (checked_at > now() - interval '30 days') AS is_fresh
 FROM vat_validations;
 
 -- === verify_events ===
@@ -872,6 +913,7 @@ SELECT
   user_id,
   type,
   ip_hash,
+  encode(ip_hash, 'hex') AS ip_hash_hex,
   ip_hash_key_version,
   user_agent,
   occurred_at,

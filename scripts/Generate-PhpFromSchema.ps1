@@ -19,7 +19,11 @@ param(
 
   [switch]$Force,
   [switch]$WhatIf,
-  [switch]$AllowUnresolved                      # pokud máš rozpracované šablony, můžeš dočasně povolit nedořešené tokeny
+  [switch]$AllowUnresolved,                     # pokud máš rozpracované šablony, můžeš dočasně povolit nedořešené tokeny
+  [switch]$JoinAsInner,                         # (legacy) alias pro JoinPolicy 'all'
+  [switch]$JoinAsInnerStrict,                   # (legacy) alias pro JoinPolicy 'any'
+  [ValidateSet('left','all','any')]
+  [string]$JoinPolicy = 'left'                  # explicitní politika JOINů pro FK (left|all|any)
 )
 
 Set-StrictMode -Version Latest
@@ -53,7 +57,15 @@ function Get-Templates([string]$Root) {
     }
   }
 }
-
+function ConvertTo-PhpAssoc([hashtable]$ht) {
+  if (-not $ht -or $ht.Keys.Count -eq 0) { return '[]' }
+  $pairs = New-Object System.Collections.Generic.List[string]
+  foreach ($k in ($ht.Keys | Sort-Object)) {
+    $v = [string]$ht[$k]
+    if ($k -and $v) { $pairs.Add("'$k' => '$v'") }
+  }
+  return "[ " + ($pairs -join ', ') + " ]"
+}
 function ConvertTo-PascalCase([string]$snake) {
   ($snake -split '[_\s\-]+' | ForEach-Object { if ($_ -ne '') { $_.Substring(0,1).ToUpper() + $_.Substring(1).ToLower() } }) -join ''
 }
@@ -100,6 +112,130 @@ function Resolve-PackagePath {
     if (Test-Path -LiteralPath $c) { return (Resolve-Path -LiteralPath $c).Path }
   }
   return $null
+}
+function Get-IndexNamesFromSql([array]$IndexSqls) {
+  $names = @()
+  foreach ($ix in @($IndexSqls)) {
+    if (-not $ix) { continue }
+    # PG / MySQL: CREATE [UNIQUE] INDEX [IF NOT EXISTS] idx_name ON ...
+    if ($ix -match '(?i)CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?([`"\[]?)([A-Za-z0-9_]+)\1\s+ON') {
+      $names += $matches[2]
+    }
+  }
+  @($names | Sort-Object -Unique)
+}
+
+function Get-ForeignKeyNamesFromSql([array]$FkSqls) {
+  $names = @()
+  foreach ($fk in @($FkSqls)) {
+    if (-not $fk) { continue }
+    # ALTER TABLE ... ADD CONSTRAINT fk_name FOREIGN KEY (...)
+    if ($fk -match '(?i)ADD\s+CONSTRAINT\s+([`"\[]?)([a-z0-9_]+)\1\s+FOREIGN\s+KEY') {
+      $names += $matches[2]
+    }
+  }
+  @($names | Sort-Object -Unique)
+}
+
+# Vygeneruje PHP metody join*() z definic cizích klíčů.
+# - Preferuje $ForeignKeySqls (schema map -> .foreign_keys)
+# - Fallback: pokusí se parsovat i přímo z CREATE TABLE (pokud je v seznamu)
+function New-JoinMethods {
+  param(
+    [Parameter(Mandatory=$true)][string]$ThisTable,
+    [Parameter(Mandatory=$true)][array]$ForeignKeySqls,
+    [Parameter(Mandatory=$true)][hashtable]$LocalNullabilityMap,
+    [ValidateSet('left','all','any')][string]$JoinPolicy = 'left'
+  )
+
+  $pairs = @()
+  foreach ($raw in @($ForeignKeySqls)) {
+    if (-not $raw) { continue }
+    $text = [string]$raw
+    $text = ($text -replace '\s+', ' ')
+    $rx1 = [regex]'(?is)FOREIGN\s+KEY\s*\(\s*([^)]+?)\s*\)\s*REFERENCES\s+[`"]?([a-z0-9_]+)[`"]?\s*\(\s*([^)]+?)\s*\)'
+    foreach ($m in $rx1.Matches($text)) {
+      $localCols = ($m.Groups[1].Value -replace '"','' -replace '`','' -replace '\s','') -split ','
+      $refTable  = $m.Groups[2].Value
+      $refCols   = ($m.Groups[3].Value -replace '"','' -replace '`','' -replace '\s','') -split ','
+      if ($localCols.Count -eq $refCols.Count -and $localCols.Count -gt 0) {
+        $pairs += [PSCustomObject]@{ Local=$localCols; RefTable=$refTable; Ref=$refCols }
+      }
+    }
+  }
+
+  if ($pairs.Count -eq 0) { return '' }
+
+  $methods = New-Object System.Collections.Generic.List[string]
+  $idx = 0
+  $nameCounts = @{}
+  foreach ($p in $pairs) {
+    $refTable = [string]$p.RefTable
+    $refView  = 'vw_' + $refTable
+    $baseName = 'join' + (ConvertTo-PascalCase $refTable)
+    if ($nameCounts.ContainsKey($baseName)) { $nameCounts[$baseName]++ } else { $nameCounts[$baseName] = 1 }
+    $methodName = if ($nameCounts[$baseName] -eq 1) {
+        $baseName
+    } else {
+        $suffix = ($p.Local | ForEach-Object { ConvertTo-PascalCase $_ }) -join 'And'
+        $baseName + 'By' + $suffix
+    }
+    $aliasDefault = 'j' + ($idx)
+
+    # rozhodni JOIN podle JoinPolicy (nejdřív spočti nullability)
+    $allNotNull = $true
+    $anyNotNull = $false
+    foreach ($lc in $p.Local) {
+      $isNullable = $true
+      if ($LocalNullabilityMap.ContainsKey($lc)) { $isNullable = [bool]$LocalNullabilityMap[$lc] }
+      if ($isNullable) { $allNotNull = $false } else { $anyNotNull = $true }
+    }
+    switch ($JoinPolicy) {
+      'all' {
+        if ($allNotNull) { $joinKind = 'INNER JOIN' } else { $joinKind = 'LEFT JOIN' }
+      }
+      'any' {
+        if ($anyNotNull) { $joinKind = 'INNER JOIN' } else { $joinKind = 'LEFT JOIN' }
+      }
+      default { $joinKind = 'LEFT JOIN' }
+    }
+
+    # Složení ON podmínky – dvě verze:
+    #  - $onVerbose: jen pro log/komentář (obsahuje literály `$as`, `$alias`)
+    #  - $onPhp: pro vložení do PHP (konkatenace s proměnnými $as / $alias)
+    $onVerboseParts = @()
+    $onPhpParts     = @()
+    for ($i=0; $i -lt $p.Local.Count; $i++) {
+      $lc = $p.Local[$i]
+      $rc = $p.Ref[$i]
+      # pro log:
+      $onVerboseParts += ("`$as.$rc = `$alias.$lc")
+      # pro PHP: každý dílek *sám* uzavírá poslední stringovou uvozovku,
+      # takže později nemusíme přidávat žádnou koncovou "'"
+      $onPhpParts += ("`$as . '." + $rc + " = ' . `$alias . '." + $lc + "'")
+    }
+    $onVerbose = ($onVerboseParts -join ' AND ')
+    $onPhp     = ($onPhpParts -join " . ' AND ' . ")
+    # nic neescapujeme — $onPhp je řetězec složený z kousků do PHP konkatenací
+
+    Write-Verbose ("JOIN[{0}] {1} -> {2} (policy={3}; local={4}) ON {5}" -f `
+      $ThisTable, $methodName, $joinKind, $JoinPolicy, ($p.Local -join ','), $onVerbose)
+
+    $methods.Add(@"
+    /**
+     * FK: $($ThisTable) -> $($refTable)
+     * $joinKind $refView AS `$as ON $onVerbose
+     * @return array{0:string,1:array}
+     */
+    public function $methodName(string `$alias = 't', string `$as = '$aliasDefault'): array {
+        [`$alias, `$as] = `$this->assertAliasPair(`$alias, `$as);
+        return [' $joinKind $refView AS ' . `$as . ' ON ' . $onPhp . ' ', []];
+    }
+"@)
+    $idx++
+  }
+
+  return ("`n" + ($methods -join "`n") + "`n")
 }
 function New-AutowireTokens {
   param(
@@ -170,7 +306,7 @@ function New-Directory([string]$dir) {
 # Return: @{ Table='users'; Columns = [ @{Name='id'; SqlType='BIGINT UNSIGNED'; Nullable=$false; Base='BIGINT';}, ... ] }
 function ConvertFrom-CreateSql([string]$tableName, [string]$sql) {
   # vyzobneme sekci se sloupci (do prvního řádku, který začíná INDEX|UNIQUE KEY|CONSTRAINT|) ENGINE
-  $lines = ($sql -split "`r?`n") | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+  $lines = ($sql -split '\r?\n') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
   # najít začátek seznamu sloupců po "CREATE TABLE ..."
   $startIdx = ($lines | Select-String -Pattern "^\s*CREATE\s+TABLE" -SimpleMatch:$false | Select-Object -First 1).LineNumber
   if (-not $startIdx) { $startIdx = 1 }
@@ -285,13 +421,16 @@ function Get-PhpTypeFromSqlBase([string]$base, [bool]$nullable) {
     default                                             { 'string' }
   }
   if ($t -eq 'array') {
-    # array může být null
-    return ($nullable ? 'array|null' : 'array')
+    if ($nullable) { return 'array|null' } else { return 'array' }
   }
   if ($t -eq '\DateTimeImmutable') {
-    return ($nullable ? '?\DateTimeImmutable' : '\DateTimeImmutable')
+    if ($nullable) { return '?\DateTimeImmutable' } else { return '\DateTimeImmutable' }
   }
-  return ($nullable -and $t -ne 'array' -and $t -ne 'array|null') ? ("?{0}" -f $t) : $t
+  if ($nullable -and $t -ne 'array' -and $t -ne 'array|null') {
+    return ("?{0}" -f $t)
+  } else {
+    return $t
+  }
 }
 
 function New-DtoConstructorParameters($columns) {
@@ -383,7 +522,7 @@ if ($MapPath) {
     'both'     { $mapPaths = @($pgPaths + $myPaths + $othPaths) }
     default {
       # auto: preferuj PG, jinak MySQL
-      $prefer = if ($pgPaths.Count -gt 0) { $pgPaths } else { $myPaths }
+      $prefer = if (@($pgPaths).Count -gt 0) { $pgPaths } else { $myPaths }
       $mapPaths = @($prefer + $othPaths)
     }
   }
@@ -412,6 +551,10 @@ foreach ($mp in $mapPaths) {
 
   $parsed = ConvertFrom-CreateSql -tableName $table -sql $createSql
   $cols   = @($parsed.Columns)
+
+  # Mapa nullability lokálních sloupců (name => $true pokud nullable, $false pokud NOT NULL)
+  $nullMap = @{}
+  foreach ($c in $cols) { $nullMap[$c.Name] = [bool]$c.Nullable }
 
   if ((@($cols)).Count -eq 0) { Write-Warning "No columns parsed for table '$table'."; continue }
 
@@ -451,6 +594,14 @@ foreach ($mp in $mapPaths) {
     'PACKAGE_NAME'           = $packagePascal
     'AGGREGATE_METHODS'      = ''
   }
+  # Aliasy sloupců pro vstupní řádky (API), např. k->setting_key, value->setting_value
+  $aliasMap = @{}
+  if ($spec -is [hashtable] -and $spec.ContainsKey('Aliases')) {
+    foreach ($ak in $spec.Aliases.Keys) {
+      $aliasMap[[string]$ak] = [string]$spec.Aliases[$ak]
+    }
+  }
+  $tokenCommon['PARAM_ALIASES_ARRAY'] = ConvertTo-PhpAssoc $aliasMap
     # ---- doplňkové tokeny pro všechny šablony ----
     # seznam názvů sloupců
     $colNames = @($cols | ForEach-Object { $_.Name })
@@ -463,12 +614,62 @@ foreach ($mp in $mapPaths) {
     # PK: preferuj 'id', jinak první sloupec
     $pk = ($colNames | Where-Object { $_ -eq 'id' } | Select-Object -First 1)
     if (-not $pk) { $pk = $colNames[0] }
+    # --- PK strategy (identity|uuid|natural|composite) ---
+    # Zkus vytáhnout seznam PK sloupců přímo z CREATE (kvůli composite)
+    $pkCols = @()
+    if ($createSql -match '(?is)PRIMARY\s+KEY\s*\(\s*([^)]+)\)') {
+      $pkCols = ($matches[1] -replace '[`"\s]','' -split ',')
+    }
+
+    # Auto-increment heuristiky (MySQL i PG identity)
+    $autoId = $false
+    if ($createSql -match '(?im)^\s*id\s+[^\r\n]*\bAUTO_INCREMENT\b') { $autoId = $true }
+    if ($createSql -match '(?im)GENERATED\s+(ALWAYS|BY\s+DEFAULT)\s+AS\s+IDENTITY') { $autoId = $true }
+    if ($createSql -match '(?im)\bSERIAL\b')                           { $autoId = $true }
+
+    # Typ PK sloupce pro uuid variace
+    $pkCol = ($cols | Where-Object { $_.Name -eq $pk } | Select-Object -First 1)
+    $looksUuid =
+      ($pkCol -and (
+        $pkCol.SqlType -match 'CHAR\(\s*36\)' -or
+        $pkCol.SqlType -match 'BINARY\(\s*16\)' -or
+        $pkCol.Base    -match '^UUID$'
+      ))
+
+    if ($pkCols.Count -gt 1) {
+      $pkStrategy = 'composite'
+    } elseif ($autoId) {
+      $pkStrategy = 'identity'
+    } elseif ($looksUuid -or $pk -match '^(uuid|uuid_bin)$') {
+      $pkStrategy = 'uuid'
+    } else {
+      $pkStrategy = 'natural'
+    }
+
+    $tokenCommon['PK_STRATEGY'] = $pkStrategy
+
+    # --- isRowLockSafe (pro testy a ukázky) ---
+    $fkList = @($spec.foreign_keys | Where-Object { $_ })
+    $hasFk  = $fkList.Count -gt 0
+    $hasLarge = @($cols | Where-Object { $_.Base -match '(BLOB|TEXT|JSON)$' }).Count -gt 0
+    $tooWide = $cols.Count -gt 20
+
+    $rowLockSafe = (-not $hasFk) -and (-not $hasLarge) -and (-not $tooWide) -and ($pkStrategy -eq 'identity')
+
+    # Volitelný whitelist – chceš mít jistotu, že něco je true
+    if ($table -in @('authors')) { $rowLockSafe = $true }
+
+    $tokenCommon['IS_ROWLOCK_SAFE'] = if ($rowLockSafe) { 'true' } else { 'false' }
 
     # výchozí ORDER
-    $defaultOrder =
-        if ($hasCreatedAt) { 'created_at DESC, id DESC' }
-        elseif ($colNames -contains 'id') { 'id DESC' }
-        else { $pk + ' DESC' }
+    if ($hasCreatedAt) {
+      $idOrPk = if ($colNames -contains 'id') { 'id' } else { $pk }
+      $defaultOrder = "created_at DESC, $idOrPk DESC"
+    } elseif ($colNames -contains 'id') {
+      $defaultOrder = 'id DESC'
+    } else {
+      $defaultOrder = "$pk DESC"
+    }
 
     # textové sloupce pro vyhledávání (LIKE)
     $textCols = @($cols | Where-Object {
@@ -492,7 +693,8 @@ foreach ($mp in $mapPaths) {
     $tokenCommon['PK']                      = $pk
     $tokenCommon['SOFT_DELETE_COLUMN']      = ($hasDeletedAt ? 'deleted_at' : '')
     $tokenCommon['UPDATED_AT_COLUMN']       = ($hasUpdatedAt ? 'updated_at' : '')
-    $tokenCommon['VERSION_COLUMN']          = ''                      # pokud budeš používat optimistic locking
+    $hasVersion = $colNames -contains 'version'
+    $tokenCommon['VERSION_COLUMN']          = ($hasVersion ? 'version' : '')
     $tokenCommon['DEFAULT_ORDER_CLAUSE']    = $defaultOrder
     $tokenCommon['UNIQUE_KEYS_ARRAY']       = '[]'                    # prozatím prázdné
     # JSON_COLUMNS_ARRAY už máš
@@ -502,11 +704,90 @@ foreach ($mp in $mapPaths) {
     $tokenCommon['MAX_PER_PAGE']            = '500'
     $tokenCommon['VERSION']                 = '1.0.0'
     $tokenCommon['DIALECTS_ARRAY']          = "[ 'mysql', 'postgres' ]"
-    $tokenCommon['INDEX_NAMES_ARRAY']       = '[]'
-    $tokenCommon['FK_NAMES_ARRAY']          = '[]'
-    $tokenCommon['UPSERT_KEYS_ARRAY']       = '[]'
-    $tokenCommon['UPSERT_UPDATE_COLUMNS_ARRAY'] = '[]'
-    $tokenCommon['JOIN_METHODS']            = ''   # šablona Joins chce [[JOIN_METHODS]]
+    # INDEX/FK names ze schéma mapy (pokud k dispozici)
+    $idxNames = Get-IndexNamesFromSql       @($spec.indexes)
+    $fkNames  = Get-ForeignKeyNamesFromSql  @($spec.foreign_keys)
+    $tokenCommon['INDEX_NAMES_ARRAY'] = if (@($idxNames).Count -gt 0) {
+      "[ " + (($idxNames | ForEach-Object { "'$_'" }) -join ', ') + " ]"
+    } else { '[]' }
+
+    $tokenCommon['FK_NAMES_ARRAY'] = if (@($fkNames).Count -gt 0) {
+      "[ " + (($fkNames | ForEach-Object { "'$_'" }) -join ', ') + " ]"
+    } else { '[]' }
+
+    # ---- UPSERT (robustně – klíč může chybět) ----
+    $ukeys = @()
+    $uupd  = @()
+    $up    = $null
+
+    if ($spec -is [hashtable] -and $spec.ContainsKey('Upsert')) {
+      $up = $spec['Upsert']
+    } elseif ($spec.PSObject -and $spec.PSObject.Properties.Match('Upsert').Count -gt 0) {
+      # fallback, kdyby to náhodou nebyl čistý hashtable
+      $up = $spec.Upsert
+    }
+
+    if ($null -ne $up) {
+      if ($up -is [hashtable]) {
+        $ukeys = @($up['Keys'])
+        $uupd  = @($up['Update'])
+      } else {
+        # Toleruj zjednodušený zápis: Upsert = 'email' / @('email')
+        $ukeys = @($up)
+      }
+    }
+
+    $ukeysQuoted = @($ukeys | Where-Object { $_ -ne $null -and $_ -ne '' } | ForEach-Object { "'$_'" })
+    $uupdQuoted  = @($uupd  | Where-Object { $_ -ne $null -and $_ -ne '' } | ForEach-Object { "'$_'" })
+
+    $tokenCommon['UPSERT_KEYS_ARRAY'] = if (@($ukeysQuoted).Count -gt 0) {
+      "[ " + ($ukeysQuoted -join ', ') + " ]"
+    } else { '[]' }
+
+    $tokenCommon['UPSERT_UPDATE_COLUMNS_ARRAY'] = if (@($uupdQuoted).Count -gt 0) {
+      "[ " + ($uupdQuoted -join ', ') + " ]"
+    } else { '[]' }
+
+    # UNIQUE kombinace (pokud jsou v CREATE UNIQUE INDEX …)
+    $uniqueCombos = @()
+    foreach ($ix in @($spec.indexes)) {
+      if ($ix -match '(?i)CREATE\s+UNIQUE\s+INDEX\s+[^\(]+\(\s*([a-z0-9_,\s"]+)\s*\)') {
+        $cols = ($matches[1] -replace '"','' -replace '\s','') -split ','
+        if ($cols) { $uniqueCombos += ,$cols }
+      }
+    }
+    if (@($uniqueCombos).Count -gt 0) {
+      $render = @()
+      foreach ($arr in $uniqueCombos) {
+        $render += "[ " + (($arr | ForEach-Object { "'$_'" }) -join ', ') + " ]"
+      }
+      $tokenCommon['UNIQUE_KEYS_ARRAY'] = "[ " + ($render -join ', ') + " ]"
+    }
+
+    # JOIN metody (z foreign_keys; fallback použije i CREATE text)
+    $fkSqls = @()
+    $fkSqls += @($spec.foreign_keys)
+    $fkSqls += @($createSql) # fallback parsing inline
+
+    # Urči JoinPolicy z přepínačů (explicítní -JoinPolicy má prioritu; pak legacy aliasy)
+    if ($PSBoundParameters.ContainsKey('JoinPolicy') -and ($JoinAsInner -or $JoinAsInnerStrict)) {
+      Write-Warning "Předány i legacy přepínače (-JoinAsInner*). Ignoruji je a použiji -JoinPolicy '$JoinPolicy'."
+    }
+    $joinPolicy = if ($PSBoundParameters.ContainsKey('JoinPolicy')) {
+      $JoinPolicy
+    } elseif ($JoinAsInnerStrict) {
+      'any'
+    } elseif ($JoinAsInner) {
+      'all'
+    } else {
+      'left'
+    }
+
+    $tokenCommon['JOIN_METHODS'] = New-JoinMethods `
+        -ThisTable $table `
+        -ForeignKeySqls $fkSqls `
+        -LocalNullabilityMap $nullMap `
+        -JoinPolicy $joinPolicy
     $tokenCommon['DEPENDENCIES_ARRAY'] = (ConvertTo-PhpArray $depNames)
 
     # výstupní adresář EXISTUJÍCÍHO balíčku (submodulu) – hledej pascal/snake/kebab

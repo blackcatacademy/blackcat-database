@@ -48,7 +48,7 @@ final class [[DTO_CLASS]]Mapper
     private const TZ = '[[TIMEZONE]]';
 
     private static function colToProp(string $col): string {
-        return self::COL_TO_PROP[$col] ?? $col; // fallback 1:1
+        return self::COL_TO_PROP[$col] ?? $col;
     }
     private static function propToCol(string $prop): string {
         static $rev = null;
@@ -77,7 +77,14 @@ final class [[DTO_CLASS]]Mapper
         if ($v === null || $v === '') return null;
         $tz = new DateTimeZone(self::TZ);
         if ($v instanceof DateTimeImmutable) return $v->setTimezone($tz);
-        return new DateTimeImmutable((string)$v, $tz);
+        if (is_int($v) || (is_string($v) && ctype_digit($v))) {
+            return (new DateTimeImmutable('@'.(string)$v))->setTimezone($tz);
+        }
+        try {
+            return new DateTimeImmutable((string)$v, $tz);
+        } catch (\Throwable) {
+            return null; // tolerantní fallback – neházej výjimky
+        }
     }
 
     private static function decodeJson(mixed $v): ?array {
@@ -89,30 +96,33 @@ final class [[DTO_CLASS]]Mapper
             $t = trim($v);
             if ($t === '' || $t === 'null') return null;
             try {
-                return json_decode($t, true, 512, JSON_THROW_ON_ERROR);
+                /** @var mixed $x */
+                $x = json_decode($t, true, 512, JSON_THROW_ON_ERROR);
+                return is_array($x) ? $x : null;
             } catch (\JsonException) {
-                $x = json_decode($t, true); // best-effort bez výjimky
+                $x = json_decode($t, true); // best-effort
                 return is_array($x) ? $x : null;
             }
         }
-        // poslední možnost – „nějaké“ pole
         return (array)$v;
     }
 
-    /**
-     * Hydratuje DTO z řádku (sloupce -> vlastnosti + casty).
-     */
     public static function fromRow(array $row): [[DTO_CLASS]] {
         $vals = [];
 
         foreach ($row as $col => $val) {
-            $prop = self::colToProp((string)$col);
+            $col = (string)$col;
+            $prop = self::colToProp($col);
 
             if (in_array($col, self::BOOL_COLS, true))      { $val = self::toBool($val); }
             elseif (in_array($col, self::INT_COLS, true))   { $val = self::toInt($val); }
             elseif (in_array($col, self::FLOAT_COLS, true)) { $val = self::toFloat($val); }
             elseif (in_array($col, self::JSON_COLS, true))  { $val = self::decodeJson($val); }
-            elseif (in_array($col, self::DATE_COLS, true))  { $val = self::toDate($val); }
+            else {
+                $isDate = in_array($col, self::DATE_COLS, true)
+                    || preg_match('/(^date$|_at$|_on$|_time$)/i', $col) === 1;
+                if ($isDate) { $val = self::toDate($val); }
+            }
             // BIN_COLS ponecháváme jako raw string/resource
 
             $vals[$prop] = $val;
@@ -135,9 +145,9 @@ final class [[DTO_CLASS]]Mapper
 
     /**
      * Mapuje DTO zpět na asociativní řádek pro DB (insert/update).
-     * - JSON sloupce se enkódují JSONem.
-     * - DATETIME se formátuje na 'Y-m-d H:i:s.u' (MySQL DATETIME(6) / PG timestamptz).
-     * - bool -> 0/1 (kvůli MySQL).
+     * - JSON -> string (UTF-8, bez escapování lomítek)
+     * - DATETIME -> 'Y-m-d H:i:s.u'
+     * - bool -> 0/1 (kvůli MySQL)
      */
     public static function toRow([[DTO_CLASS]] $dto, ?array $onlyProps = null): array {
         $out = [];
@@ -170,14 +180,12 @@ final class [[DTO_CLASS]]Mapper
             } elseif (in_array($col, self::FLOAT_COLS, true)) {
                 $val = $val === null ? null : (float)$val;
             }
-            // BIN_COLS ponecháváme beze změny
-
             $out[$col] = $val;
         }
         return $out;
     }
 
-    /** Batch varianta: mapuje pole řádků na pole DTO. */
+    /** Batch: pole řádků -> pole DTO. */
     public static function hydrateList(array $rows): array {
         $out = [];
         foreach ($rows as $r) { $out[] = self::fromRow($r); }

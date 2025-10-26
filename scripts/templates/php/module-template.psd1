@@ -27,12 +27,10 @@ final class [[CLASS]] implements ModuleInterface {
         $dir  = __DIR__ . '/../schema';
         $dial = $d->isMysql() ? 'mysql' : 'postgres';
 
-        // Najdi soubory ve tvaru 000_nazev.<dial>.sql NEBO 000_nazev_<dial>.sql
         $files = array_merge(
             glob($dir.'/*.'. $dial .'.sql') ?: [],
             glob($dir.'/*_' . $dial .'.sql') ?: []
         );
-        // odstraň duplicity a seřaď podle číselného prefixu
         $files = array_values(array_unique($files));
         usort($files, static function($a, $b) {
             $pa = (int)preg_replace('~^.*?/([0-9]{3})_.*$~', '$1', $a);
@@ -41,42 +39,149 @@ final class [[CLASS]] implements ModuleInterface {
         });
 
         foreach ($files as $path) {
-            $this->execSqlFileStreamed($db, $path);
+            $this->execSqlFileStreamed($db, $path, $d);
+        }
+        // --- Zajisti kontraktní view ---
+        $table = $this->table();
+        $view  = self::contractView();
+
+        if ($d->isMysql()) {
+            $db->exec("DROP VIEW IF EXISTS `{$view}`");
+            $db->exec("CREATE VIEW `{$view}` AS SELECT * FROM `{$table}`");
+        } else {
+            $db->exec("DROP VIEW IF EXISTS {$view} CASCADE");
+            $db->exec("CREATE VIEW {$view} AS SELECT * FROM {$table}");
         }
     }
 
-    /** Provede SQL soubor po částech (streamovaně), aby se nealokoval celý obsah do paměti. */
-    private function execSqlFileStreamed(Database $db, string $path): void {
+    private function execSqlFileStreamed(Database $db, string $path, SqlDialect $d): void {
         $fh = @fopen($path, 'rb');
         if ($fh === false) { return; }
-
         $buf = '';
         while (!feof($fh)) {
             $chunk = fread($fh, 65536);
             if ($chunk === false) { break; }
             $buf .= $chunk;
 
-            while (true) {
-                $posN  = strpos($buf, ";\n");
-                $posRN = strpos($buf, ";\r\n");
-                $pos = ($posN === false) ? $posRN : (($posRN === false) ? $posN : min($posN, $posRN));
-                if ($pos === false) { break; }
-
-                $stmt = trim(substr($buf, 0, $pos));
-                $buf  = substr($buf, ($pos === $posRN) ? $pos + 3 : $pos + 2);
+            foreach ($this->splitStatements($buf, $d) as $stmt) {
                 if ($stmt !== '') { $this->safeExec($db, $stmt); }
             }
+            // zbytek neúplného statementu v $buf
+            $buf = $this->remainder;
         }
         fclose($fh);
-
         $tail = trim($buf);
         if ($tail !== '') { $this->safeExec($db, $tail); }
     }
 
-    /** Provede DDL, ale toleruje „already exists / duplicate / unknown“ situace pro idempotenci. */
+    private string $remainder = '';
+
+    /**
+     * Rozdělí buffer na kompletní SQL statementy (ignoruje ; uvnitř stringů/dollar-quotů).
+     * Jednoduchý state machine pro běžné DDL.
+     */
+    private function splitStatements(string $buf, SqlDialect $d): array {
+        $out = [];
+        $state = 'code';
+        $q = '';
+        $i = 0;
+        $start = 0;
+        $len = strlen($buf);
+
+        // přidej zbytek z minula
+        if ($this->remainder !== '') {
+            $buf = $this->remainder . $buf;
+            $len = strlen($buf);
+            $this->remainder = '';
+        }
+
+        while ($i < $len) {
+            $ch = $buf[$i];
+            $ch2 = ($i+1 < $len) ? $buf[$i+1] : '';
+
+            if ($state === 'code') {
+                if ($ch === "'" || $ch === '"') { $state='str'; $q=$ch; $i++; continue; }
+                if (!$d->isMysql() && $ch === '$') {
+                    // PG dollar-quote: $tag$ ... $tag$
+                    if (preg_match('/\G\$([a-zA-Z0-9_]*)\$/A', substr($buf, $i), $m)) {
+                        $state = 'dollar';
+                        $q = '$'.$m[1].'$';
+                        $i += strlen($q);
+                        continue;
+                    }
+                }
+                if ($ch === '-' && $ch2 === '-') { // -- comment
+                    $nl = strpos($buf, "\n", $i+2); $i = ($nl === false) ? $len : $nl+1; continue;
+                }
+                if ($ch === '/' && $ch2 === '*') { // /* comment */
+                    $end = strpos($buf, '*/', $i+2); $i = ($end === false) ? $len : $end+2; continue;
+                }
+                if ($ch === ';') {
+                    $out[] = trim(substr($buf, $start, $i - $start));
+                    $start = $i+1;
+                }
+                $i++; continue;
+            }
+
+            if ($state === 'str') {
+                if ($ch === '\\') { $i += 2; continue; } // escape
+                if ($ch === $q) { $state = 'code'; $i++; continue; }
+                $i++; continue;
+            }
+
+            if ($state === 'dollar') {
+                if (substr($buf, $i, strlen($q)) === $q) {
+                    $i += strlen($q);
+                    $state = 'code';
+                    continue;
+                }
+                $i++; continue;
+            }
+        }
+
+        // zbytek ulož
+        $this->remainder = substr($buf, $start);
+        return array_filter($out, static fn($s) => $s !== '');
+    }
+
+    /** DDL s tolerancí duplicít pro idempotenci. */
     private function safeExec(Database $db, string $sql): void {
+        $sqlTrim = trim($sql);
+        if ($sqlTrim === '') { return; }
+
+        // --- Idempotentní CHECK: DROP před ADD ---
+        if (preg_match('~(?is)^ALTER\s+TABLE\s+([`"]?[\w\.]+[`"]?)\s+ADD\s+CONSTRAINT\s+([`"]?[\w]+[`"]?)\s+CHECK\s*\(~', $sqlTrim, $m)) {
+            $table = $m[1]; // může už být v uvozovkách/backtickách
+            $name  = $m[2];
+
+            // odstripované názvy pro dotaz do information_schema
+            $tabName = trim($table, '`"');
+            $chkName = trim($name,  '`"');
+
+            if ($db->isMysql()) {
+                // MySQL NEMÁ "DROP CHECK IF EXISTS" → udělej předcheck
+                $exists = (int)$db->fetchOne(
+                    "SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
+                    WHERE CONSTRAINT_SCHEMA = DATABASE()
+                    AND TABLE_NAME = :t
+                    AND CONSTRAINT_NAME = :c
+                    AND CONSTRAINT_TYPE = 'CHECK'",
+                    [':t'=>$tabName, ':c'=>$chkName]
+                ) > 0;
+
+                if ($exists) {
+                    // bez IF EXISTS
+                    $db->exec("ALTER TABLE $table DROP CHECK $name");
+                }
+            } else {
+                // Postgres: má IF EXISTS
+                $db->exec("ALTER TABLE $table DROP CONSTRAINT IF EXISTS $name");
+            }
+            // pak teprve ADD …
+        }
+
         try {
-            $db->exec($sql);
+            $db->exec($sqlTrim);
         } catch (\BlackCat\Core\DatabaseException $e) {
             $prev = $e->getPrevious();
             $msg  = strtolower((string)$e->getMessage());
@@ -87,32 +192,25 @@ final class [[CLASS]] implements ModuleInterface {
 
             $tolerate = false;
             if ($isMy) {
-                // MySQL duplicitní/již existující objekt apod.
-                // 1050 table exists, 1051 unknown table, 1060 dup column, 1061 dup index,
-                // 1091 unknown key/column in drop, 1826 dup foreign key, 1832 cannot change column (při opakovaném add)
-                $tolerate = in_array($code, [1050,1051,1060,1061,1091,1826], true)
+                $tolerate = in_array($code, [1050,1051,1060,1061,1091,1826,3822], true) // ← přidáno 3822
                             || str_contains($msg, 'already exists')
                             || str_contains($msg, 'duplicate')
                             || str_contains($msg, 'cannot drop index')
-                            || str_contains($msg, 'cannot add foreign key constraint and it already exists');
+                            || str_contains($msg, 'cannot add foreign key constraint');
             } else {
-                // Postgres duplicitní/již existující objekt
-                // 42P07 duplicate_table, 42710 duplicate_object, 42701 duplicate_column
                 $tolerate = in_array($sqlstate, ['42P07','42710','42701'], true)
                             || str_contains($msg, 'already exists');
             }
-
-            // DROP IF EXISTS by problém řeší, ale když ho schema soubory nemají, tolerujme opakovaný běh
             if ($tolerate) { return; }
             throw $e;
         }
     }
- 
+
     public function upgrade(Database $db, SqlDialect $d, string $from): void {
-        // sem může generátor vkládat idempotentní ALTER/CREATE kroky na základě $from
+        // místo pro řízené upgrade kroky
     }
 
-    /** Volitelné: nenabízí DROP TABLE, pouze kontrakt (view). */
+    /** Nenabízí DROP TABLE, pouze kontrakt (view). */
     public function uninstall(Database $db, SqlDialect $d): void {
         $view = '[[VIEW]]';
         if ($d->isMysql()) {
@@ -126,7 +224,6 @@ final class [[CLASS]] implements ModuleInterface {
         $table = '[[TABLE]]';
         $view  = '[[VIEW]]';
 
-        // ---- existence table/view
         $hasTable = (int)$db->fetchOne(
             $d->isMysql()
               ? "SELECT COUNT(*) FROM information_schema.TABLES
@@ -144,7 +241,7 @@ final class [[CLASS]] implements ModuleInterface {
             [':v' => $view]
         ) > 0;
 
-        // ---- rychlá kontrola indexů/FK (pokud generátor dodal názvy)
+        // quick check indexů/FK – generátor doplní názvy
         $indexes = [[INDEX_NAMES_ARRAY]];
         $fks     = [[FK_NAMES_ARRAY]];
         $missingIdx = [];

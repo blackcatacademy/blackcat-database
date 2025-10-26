@@ -1,5 +1,5 @@
 @{
-  FormatVersion = '1.0'
+  FormatVersion = '1.1'
 
   Tables = @{
 
@@ -21,19 +21,31 @@ CREATE TABLE IF NOT EXISTS users (
   last_login_ip_key_version VARCHAR(64) NULL,
   created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT chk_users_version CHECK (version >= 0),
   deleted_at TIMESTAMPTZ(6) NULL,
   actor_role TEXT NOT NULL DEFAULT 'customer',
   CONSTRAINT chk_users_actor_role CHECK (actor_role IN ('customer','admin'))
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_users_last_login_at ON users (last_login_at)',
-        'CREATE INDEX idx_users_is_active ON users (is_active)',
-        'CREATE INDEX idx_users_actor_role ON users (actor_role)',
-        'CREATE INDEX idx_users_last_login_ip_hash ON users (last_login_ip_hash)',
-        'CREATE UNIQUE INDEX ux_users_email_hash ON users (email_hash)'
+        'CREATE INDEX IF NOT EXISTS idx_users_last_login_at ON users (last_login_at)',
+        'CREATE INDEX IF NOT EXISTS idx_users_is_active ON users (is_active)',
+        'CREATE INDEX IF NOT EXISTS idx_users_actor_role ON users (actor_role)',
+        'CREATE INDEX IF NOT EXISTS idx_users_last_login_ip_hash ON users (last_login_ip_hash)',
+        'CREATE UNIQUE INDEX IF NOT EXISTS ux_users_email_hash ON users (email_hash)'
       )
       foreign_keys = @()
+      Upsert = @{
+        Keys   = @('email_hash')  # UNIQUE
+        Update = @('email_hash_key_version','password_hash','password_algo','password_key_version',
+                   'is_active','is_locked','failed_logins','must_change_password',
+                   'last_login_at','last_login_ip_hash','last_login_ip_key_version',
+                   'actor_role','updated_at','deleted_at')
+      }
+      UpdatedAt    = 'updated_at'
+      SoftDelete   = 'deleted_at'
+      DefaultOrder = 'id DESC'
     }
 
     login_attempts = @{
@@ -45,14 +57,15 @@ CREATE TABLE IF NOT EXISTS login_attempts (
   success BOOLEAN NOT NULL DEFAULT FALSE,
   user_id BIGINT NULL,
   username_hash BYTEA NULL,
-  auth_event_id BIGINT NULL
+  auth_event_id BIGINT NULL,
+  CONSTRAINT chk_login_success CHECK (success IN (FALSE, TRUE))
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_login_ip_success_time ON login_attempts (ip_hash, success, attempted_at)',
-        'CREATE INDEX idx_login_attempted_at ON login_attempts (attempted_at)',
-        'CREATE INDEX idx_login_username_hash ON login_attempts (username_hash)',
-        'CREATE INDEX idx_login_user_time ON login_attempts (user_id, attempted_at)'
+        'CREATE INDEX IF NOT EXISTS idx_login_ip_success_time ON login_attempts (ip_hash, success, attempted_at)',
+        'CREATE INDEX IF NOT EXISTS idx_login_attempted_at ON login_attempts (attempted_at)',
+        'CREATE INDEX IF NOT EXISTS idx_login_username_hash ON login_attempts (username_hash)',
+        'CREATE INDEX IF NOT EXISTS idx_login_user_time ON login_attempts (user_id, attempted_at)'
       )
       foreign_keys = @(
         'ALTER TABLE login_attempts ADD CONSTRAINT fk_login_attempts_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL',
@@ -67,13 +80,21 @@ CREATE TABLE IF NOT EXISTS user_profiles (
   profile_enc BYTEA NULL,
   key_version VARCHAR(64) NULL,
   encryption_meta JSONB NULL,
-  updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+  updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT chk_user_profiles_version CHECK (version >= 0)
 );
 '@
       indexes = @()
       foreign_keys = @(
         'ALTER TABLE user_profiles ADD CONSTRAINT fk_user_profiles_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE'
       )
+      Upsert = @{
+        Keys   = @('user_id')   # PK
+        Update = @('profile_enc','key_version','encryption_meta','updated_at')
+      }
+      UpdatedAt    = 'updated_at'
+      DefaultOrder = 'user_id DESC'
     }
 
     user_identities = @{
@@ -88,12 +109,18 @@ CREATE TABLE IF NOT EXISTS user_identities (
 );
 '@
       indexes = @(
-        'CREATE UNIQUE INDEX ux_provider_user ON user_identities (provider, provider_user_id)',
-        'CREATE INDEX idx_user_identities_user ON user_identities (user_id)'
+        'CREATE UNIQUE INDEX IF NOT EXISTS ux_provider_user ON user_identities (provider, provider_user_id)',
+        'CREATE INDEX IF NOT EXISTS idx_user_identities_user ON user_identities (user_id)'
       )
       foreign_keys = @(
         'ALTER TABLE user_identities ADD CONSTRAINT fk_user_identities_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE'
       )
+      Upsert = @{
+        Keys   = @('provider','provider_user_id') # UNIQUE
+        Update = @('user_id','updated_at')
+      }
+      UpdatedAt    = 'updated_at'
+      DefaultOrder = 'id DESC'
     }
 
     permissions = @{
@@ -108,6 +135,12 @@ CREATE TABLE IF NOT EXISTS permissions (
 '@
       indexes = @()
       foreign_keys = @()
+      Upsert = @{
+        Keys   = @('name')  # UNIQUE
+        Update = @('description','updated_at')
+      }
+      UpdatedAt    = 'updated_at'
+      DefaultOrder = 'id DESC'
     }
 
     two_factor = @{
@@ -120,14 +153,22 @@ CREATE TABLE IF NOT EXISTS two_factor (
   hotp_counter BIGINT NULL,
   enabled BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT chk_two_factor_version CHECK (version >= 0),
   last_used_at TIMESTAMPTZ(6) NULL,
-  PRIMARY KEY (user_id, method)
+  PRIMARY KEY (user_id, method),
+  CONSTRAINT chk_two_factor_hotp_counter CHECK (hotp_counter IS NULL OR hotp_counter >= 0)
 );
 '@
       indexes = @()
       foreign_keys = @(
         'ALTER TABLE two_factor ADD CONSTRAINT fk_two_factor_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE'
       )
+      Upsert = @{
+        Keys   = @('user_id','method')
+        Update = @('secret','recovery_codes_enc','hotp_counter','enabled','last_used_at')
+      }
+      DefaultOrder = 'user_id DESC, method DESC'
     }
 
     session_audit = @{
@@ -149,20 +190,21 @@ CREATE TABLE IF NOT EXISTS session_audit (
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_session_audit_token ON session_audit (session_token)',
-        'CREATE INDEX idx_session_audit_session_id ON session_audit (session_id)',
-        'CREATE INDEX idx_session_audit_user_id ON session_audit (user_id)',
-        'CREATE INDEX idx_session_audit_created_at ON session_audit (created_at)',
-        'CREATE INDEX idx_session_audit_event ON session_audit (event)',
-        'CREATE INDEX idx_session_audit_ip_hash ON session_audit (ip_hash)',
-        'CREATE INDEX idx_session_audit_ip_key ON session_audit (ip_hash_key_version)',
-        'CREATE INDEX idx_session_audit_event_time ON session_audit (event, created_at)',
-        'CREATE INDEX idx_session_audit_user_event_time ON session_audit (user_id, event, created_at)',
-        'CREATE INDEX idx_session_audit_token_time ON session_audit (session_token, created_at)'
+        'CREATE INDEX IF NOT EXISTS idx_session_audit_token ON session_audit (session_token)',
+        'CREATE INDEX IF NOT EXISTS idx_session_audit_session_id ON session_audit (session_id)',
+        'CREATE INDEX IF NOT EXISTS idx_session_audit_user_id ON session_audit (user_id)',
+        'CREATE INDEX IF NOT EXISTS idx_session_audit_created_at ON session_audit (created_at)',
+        'CREATE INDEX IF NOT EXISTS idx_session_audit_event ON session_audit (event)',
+        'CREATE INDEX IF NOT EXISTS idx_session_audit_ip_hash ON session_audit (ip_hash)',
+        'CREATE INDEX IF NOT EXISTS idx_session_audit_ip_key ON session_audit (ip_hash_key_version)',
+        'CREATE INDEX IF NOT EXISTS idx_session_audit_event_time ON session_audit (event, created_at)',
+        'CREATE INDEX IF NOT EXISTS idx_session_audit_user_event_time ON session_audit (user_id, event, created_at)',
+        'CREATE INDEX IF NOT EXISTS idx_session_audit_token_time ON session_audit (session_token, created_at)'
       )
       foreign_keys = @(
         'ALTER TABLE session_audit ADD CONSTRAINT fk_session_audit_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL'
       )
+      DefaultOrder = 'created_at DESC'
     }
 
     sessions = @{
@@ -175,6 +217,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   token_issued_at TIMESTAMPTZ(6) NULL,
   user_id BIGINT NULL,
   created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT chk_sessions_version CHECK (version >= 0),
   last_seen_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   expires_at TIMESTAMPTZ(6) NULL,
   failed_decrypt_count INTEGER NOT NULL DEFAULT 0,
@@ -184,20 +228,29 @@ CREATE TABLE IF NOT EXISTS sessions (
   ip_hash_key_version VARCHAR(64) NULL,
   user_agent VARCHAR(1024) NULL,
   session_blob BYTEA NULL,
-  CONSTRAINT uq_sessions_token_hash UNIQUE (token_hash)
+  CONSTRAINT uq_sessions_token_hash UNIQUE (token_hash),
+  CONSTRAINT chk_sessions_failed_decrypt_count CHECK (failed_decrypt_count >= 0)
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_sessions_user_created ON sessions (user_id, created_at)',
-        'CREATE INDEX idx_sessions_user ON sessions (user_id)',
-        'CREATE INDEX idx_sessions_expires_at ON sessions (expires_at)',
-        'CREATE INDEX idx_sessions_last_seen ON sessions (last_seen_at)',
-        'CREATE INDEX idx_sessions_token_hash_key ON sessions (token_hash_key_version)',
-        'CREATE INDEX idx_sessions_created_at ON sessions (created_at)'
+        'CREATE INDEX IF NOT EXISTS idx_sessions_user_created ON sessions (user_id, created_at)',
+        'CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id)',
+        'CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions (expires_at)',
+        'CREATE INDEX IF NOT EXISTS idx_sessions_last_seen ON sessions (last_seen_at)',
+        'CREATE INDEX IF NOT EXISTS idx_sessions_token_hash_key ON sessions (token_hash_key_version)',
+        'CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions (created_at)'
       )
       foreign_keys = @(
         'ALTER TABLE sessions ADD CONSTRAINT fk_sessions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL'
       )
+      Upsert = @{
+        Keys   = @('token_hash')  # UNIQUE
+        Update = @('token_hash_key_version','token_fingerprint','token_issued_at',
+                   'user_id','last_seen_at','expires_at','failed_decrypt_count',
+                   'last_failed_decrypt_at','revoked','ip_hash','ip_hash_key_version',
+                   'user_agent','session_blob')
+      }
+      DefaultOrder = 'created_at DESC'
     }
 
     auth_events = @{
@@ -216,11 +269,11 @@ CREATE TABLE IF NOT EXISTS auth_events (
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_auth_meta_email ON auth_events (meta_email)',
-        'CREATE INDEX idx_auth_user ON auth_events (user_id)',
-        'CREATE INDEX idx_auth_time ON auth_events (occurred_at)',
-        'CREATE INDEX idx_auth_type_time ON auth_events (type, occurred_at)',
-        'CREATE INDEX idx_auth_ip_hash ON auth_events (ip_hash)'
+        'CREATE INDEX IF NOT EXISTS idx_auth_meta_email ON auth_events (meta_email)',
+        'CREATE INDEX IF NOT EXISTS idx_auth_user ON auth_events (user_id)',
+        'CREATE INDEX IF NOT EXISTS idx_auth_time ON auth_events (occurred_at)',
+        'CREATE INDEX IF NOT EXISTS idx_auth_type_time ON auth_events (type, occurred_at)',
+        'CREATE INDEX IF NOT EXISTS idx_auth_ip_hash ON auth_events (ip_hash)'
       )
       foreign_keys = @(
         'ALTER TABLE auth_events ADD CONSTRAINT fk_auth_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL'
@@ -242,10 +295,10 @@ CREATE TABLE IF NOT EXISTS register_events (
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_reg_user ON register_events (user_id)',
-        'CREATE INDEX idx_reg_time ON register_events (occurred_at)',
-        'CREATE INDEX idx_reg_type_time ON register_events (type, occurred_at)',
-        'CREATE INDEX idx_reg_ip ON register_events (ip_hash)'
+        'CREATE INDEX IF NOT EXISTS idx_reg_user ON register_events (user_id)',
+        'CREATE INDEX IF NOT EXISTS idx_reg_time ON register_events (occurred_at)',
+        'CREATE INDEX IF NOT EXISTS idx_reg_type_time ON register_events (type, occurred_at)',
+        'CREATE INDEX IF NOT EXISTS idx_reg_ip ON register_events (ip_hash)'
       )
       foreign_keys = @(
         'ALTER TABLE register_events ADD CONSTRAINT fk_register_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL'
@@ -267,10 +320,10 @@ CREATE TABLE IF NOT EXISTS verify_events (
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_ver_user ON verify_events (user_id)',
-        'CREATE INDEX idx_ver_time ON verify_events (occurred_at)',
-        'CREATE INDEX idx_ver_type_time ON verify_events (type, occurred_at)',
-        'CREATE INDEX idx_ver_ip ON verify_events (ip_hash)'
+        'CREATE INDEX IF NOT EXISTS idx_ver_user ON verify_events (user_id)',
+        'CREATE INDEX IF NOT EXISTS idx_ver_time ON verify_events (occurred_at)',
+        'CREATE INDEX IF NOT EXISTS idx_ver_type_time ON verify_events (type, occurred_at)',
+        'CREATE INDEX IF NOT EXISTS idx_ver_ip ON verify_events (ip_hash)'
       )
       foreign_keys = @(
         'ALTER TABLE verify_events ADD CONSTRAINT fk_verify_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL'
@@ -291,6 +344,7 @@ CREATE TABLE IF NOT EXISTS system_errors (
   context JSONB NULL,
   fingerprint VARCHAR(64) NULL,
   occurrences INTEGER NOT NULL DEFAULT 1,
+  CONSTRAINT chk_system_errors_occurrences CHECK (occurrences >= 0),
   user_id BIGINT NULL,
   ip_hash BYTEA NULL,
   ip_hash_key_version VARCHAR(64) NULL,
@@ -306,21 +360,30 @@ CREATE TABLE IF NOT EXISTS system_errors (
   created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   last_seen TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   CONSTRAINT chk_err_level CHECK (level IN ('notice','warning','error','critical')),
-  CONSTRAINT uq_err_fp UNIQUE (fingerprint)
+  CONSTRAINT uq_err_fp UNIQUE (fingerprint),
+  CONSTRAINT chk_system_errors_http_status CHECK (http_status IS NULL OR http_status >= 0)
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_err_level ON system_errors (level)',
-        'CREATE INDEX idx_err_time ON system_errors (created_at)',
-        'CREATE INDEX idx_err_user ON system_errors (user_id)',
-        'CREATE INDEX idx_err_ip ON system_errors (ip_hash)',
-        'CREATE INDEX idx_err_resolved ON system_errors (resolved)',
-        'CREATE INDEX idx_system_errors_last_seen ON system_errors (last_seen)'
+        'CREATE INDEX IF NOT EXISTS idx_err_level ON system_errors (level)',
+        'CREATE INDEX IF NOT EXISTS idx_err_time ON system_errors (created_at)',
+        'CREATE INDEX IF NOT EXISTS idx_err_user ON system_errors (user_id)',
+        'CREATE INDEX IF NOT EXISTS idx_err_ip ON system_errors (ip_hash)',
+        'CREATE INDEX IF NOT EXISTS idx_err_resolved ON system_errors (resolved)',
+        'CREATE INDEX IF NOT EXISTS idx_system_errors_last_seen ON system_errors (last_seen)'
       )
       foreign_keys = @(
         'ALTER TABLE system_errors ADD CONSTRAINT fk_err_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL',
         'ALTER TABLE system_errors ADD CONSTRAINT fk_err_resolved_by FOREIGN KEY (resolved_by) REFERENCES users(id) ON DELETE SET NULL'
       )
+      Upsert = @{
+        Keys   = @('fingerprint')  # UNIQUE
+        Update = @('level','message','exception_class','file','line','stack_trace','token',
+                   'context','occurrences','user_id','ip_hash','ip_hash_key_version',
+                   'ip_text','ip_bin','user_agent','url','method','http_status',
+                   'resolved','resolved_by','resolved_at','last_seen')
+      }
+      DefaultOrder = 'last_seen DESC'
     }
 
     user_consents = @{
@@ -337,11 +400,17 @@ CREATE TABLE IF NOT EXISTS user_consents (
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_user_consents_user ON user_consents (user_id)'
+        'CREATE INDEX IF NOT EXISTS idx_user_consents_user ON user_consents (user_id)',
+        'CREATE UNIQUE INDEX IF NOT EXISTS ux_user_consents ON user_consents (user_id, consent_type, version)'
       )
       foreign_keys = @(
         'ALTER TABLE user_consents ADD CONSTRAINT fk_user_consents_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE'
       )
+      Upsert = @{
+        Keys   = @('user_id','consent_type','version')
+        Update = @('granted','granted_at','source','meta')
+      }
+      DefaultOrder = 'id DESC'
     }
 
     authors = @{
@@ -360,14 +429,24 @@ CREATE TABLE IF NOT EXISTS authors (
   last_rating_at TIMESTAMPTZ(6) NULL,
   created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT chk_authors_version CHECK (version >= 0),
   deleted_at TIMESTAMPTZ(6) NULL
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_authors_avg_rating ON authors (avg_rating)',
-        'CREATE INDEX idx_authors_books_count ON authors (books_count)'
+        'CREATE INDEX IF NOT EXISTS idx_authors_avg_rating ON authors (avg_rating)',
+        'CREATE INDEX IF NOT EXISTS idx_authors_books_count ON authors (books_count)'
       )
       foreign_keys = @()
+      Upsert = @{
+        Keys   = @('slug')  # UNIQUE
+        Update = @('name','bio','photo_url','story','books_count','ratings_count',
+                   'rating_sum','avg_rating','last_rating_at','updated_at','deleted_at')
+      }
+      UpdatedAt    = 'updated_at'
+      SoftDelete   = 'deleted_at'
+      DefaultOrder = 'id DESC'
     }
 
     categories = @{
@@ -379,15 +458,24 @@ CREATE TABLE IF NOT EXISTS categories (
   parent_id BIGINT NULL,
   created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT chk_categories_version CHECK (version >= 0),
   deleted_at TIMESTAMPTZ(6) NULL
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_categories_parent ON categories (parent_id)'
+        'CREATE INDEX IF NOT EXISTS idx_categories_parent ON categories (parent_id)'
       )
       foreign_keys = @(
         'ALTER TABLE categories ADD CONSTRAINT fk_categories_parent FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE SET NULL'
       )
+      Upsert = @{
+        Keys   = @('slug')  # UNIQUE
+        Update = @('name','parent_id','updated_at','deleted_at')
+      }
+      UpdatedAt    = 'updated_at'
+      SoftDelete   = 'deleted_at'
+      DefaultOrder = 'id DESC'
     }
 
     books = @{
@@ -413,19 +501,33 @@ CREATE TABLE IF NOT EXISTS books (
   stock_quantity INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT chk_books_version CHECK (version >= 0),
   deleted_at TIMESTAMPTZ(6) NULL,
+  CONSTRAINT chk_books_pages      CHECK (pages IS NULL OR pages >= 0),
+  CONSTRAINT chk_books_stock_qty  CHECK (stock_quantity >= 0),
   CONSTRAINT chk_books_currency CHECK (currency ~ '^[A-Z]{3}$')
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_books_author_id ON books (author_id)',
-        'CREATE INDEX idx_books_main_category_id ON books (main_category_id)',
-        'CREATE INDEX idx_books_sku ON books (sku)'
+        'CREATE INDEX IF NOT EXISTS idx_books_author_id ON books (author_id)',
+        'CREATE INDEX IF NOT EXISTS idx_books_main_category_id ON books (main_category_id)',
+        'CREATE INDEX IF NOT EXISTS idx_books_sku ON books (sku)'
       )
       foreign_keys = @(
         'ALTER TABLE books ADD CONSTRAINT fk_books_author FOREIGN KEY (author_id) REFERENCES authors(id) ON DELETE RESTRICT',
         'ALTER TABLE books ADD CONSTRAINT fk_books_category FOREIGN KEY (main_category_id) REFERENCES categories(id) ON DELETE RESTRICT'
       )
+      Upsert = @{
+        Keys   = @('slug')  # UNIQUE
+        Update = @('title','short_description','full_description','price','currency',
+                   'author_id','main_category_id','isbn','language','pages','publisher',
+                   'published_at','sku','is_active','is_available','stock_quantity',
+                   'updated_at','deleted_at')
+      }
+      UpdatedAt    = 'updated_at'
+      SoftDelete   = 'deleted_at'
+      DefaultOrder = 'id DESC'
     }
 
     reviews = @{
@@ -442,13 +544,17 @@ CREATE TABLE IF NOT EXISTS reviews (
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_reviews_book_id ON reviews (book_id)',
-        'CREATE INDEX idx_reviews_created_at ON reviews (created_at)'
+        'CREATE UNIQUE INDEX IF NOT EXISTS ux_reviews_book_user ON reviews (book_id, user_id)',
+        'CREATE INDEX IF NOT EXISTS idx_reviews_book_id ON reviews (book_id)',
+        'CREATE INDEX IF NOT EXISTS idx_reviews_created_at ON reviews (created_at)',
+        'CREATE INDEX IF NOT EXISTS idx_reviews_user_id ON reviews (user_id)'
       )
       foreign_keys = @(
         'ALTER TABLE reviews ADD CONSTRAINT fk_reviews_book FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE',
         'ALTER TABLE reviews ADD CONSTRAINT fk_reviews_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL'
       )
+      UpdatedAt    = 'updated_at'
+      DefaultOrder = 'created_at DESC'
     }
 
     crypto_keys = @{
@@ -480,7 +586,7 @@ CREATE TABLE IF NOT EXISTS crypto_keys (
   CONSTRAINT chk_keys_type    CHECK (key_type IS NULL OR key_type IN ('dek','kek','hmac','pepper')),
   CONSTRAINT chk_keys_origin  CHECK (origin IS NULL OR origin IN ('local','kms','imported')),
   CONSTRAINT chk_keys_status  CHECK (status IN ('active','retired','compromised','archived')),
-  CONSTRAINT chk_keys_usage   CHECK (usage IS NULL OR usage <@ ARRAY['encrypt','decrypt','sign','verify','wrap','unwrap'])
+  CONSTRAINT chk_keys_usage   CHECK ("usage" IS NULL OR "usage" <@ ARRAY['encrypt','decrypt','sign','verify','wrap','unwrap'])
 );
 '@
       indexes = @()
@@ -488,6 +594,13 @@ CREATE TABLE IF NOT EXISTS crypto_keys (
         'ALTER TABLE crypto_keys ADD CONSTRAINT fk_keys_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL',
         'ALTER TABLE crypto_keys ADD CONSTRAINT fk_keys_replaced_by FOREIGN KEY (replaced_by) REFERENCES crypto_keys(id) ON DELETE SET NULL'
       )
+      Upsert = @{
+        Keys   = @('basename','version')  # UNIQUE
+        Update = @('filename','file_path','fingerprint','key_meta','key_type','algorithm',
+                   'length_bits','origin','usage','scope','status','is_backup_encrypted',
+                   'backup_blob','created_by','activated_at','retired_at','replaced_by','notes')
+      }
+      DefaultOrder = 'id DESC'
     }
 
     key_events = @{
@@ -504,17 +617,18 @@ CREATE TABLE IF NOT EXISTS key_events (
   "source" TEXT NOT NULL DEFAULT 'admin',
   created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   CONSTRAINT chk_key_events_type CHECK (event_type IN ('created','rotated','activated','retired','compromised','deleted','used_encrypt','used_decrypt','access_failed','backup','restore')),
-  CONSTRAINT chk_key_events_source CHECK (source IN ('cron','admin','api','manual'))
+  CONSTRAINT chk_key_events_source CHECK ("source" IN ('cron','admin','api','manual'))
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_key_events_key_created ON key_events (key_id, created_at)',
-        'CREATE INDEX idx_key_events_basename ON key_events (basename)'
+        'CREATE INDEX IF NOT EXISTS idx_key_events_key_created ON key_events (key_id, created_at)',
+        'CREATE INDEX IF NOT EXISTS idx_key_events_basename ON key_events (basename)'
       )
       foreign_keys = @(
         'ALTER TABLE key_events ADD CONSTRAINT fk_key_events_key FOREIGN KEY (key_id) REFERENCES crypto_keys(id) ON DELETE SET NULL',
         'ALTER TABLE key_events ADD CONSTRAINT fk_key_events_actor FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE SET NULL'
       )
+      DefaultOrder = 'created_at DESC'
     }
 
     key_rotation_jobs = @{
@@ -535,11 +649,12 @@ CREATE TABLE IF NOT EXISTS key_rotation_jobs (
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_key_rotation_jobs_basename_sched ON key_rotation_jobs (basename, scheduled_at)'
+        'CREATE INDEX IF NOT EXISTS idx_key_rotation_jobs_basename_sched ON key_rotation_jobs (basename, scheduled_at)'
       )
       foreign_keys = @(
         'ALTER TABLE key_rotation_jobs ADD CONSTRAINT fk_key_rotation_jobs_user FOREIGN KEY (executed_by) REFERENCES users(id) ON DELETE SET NULL'
       )
+      DefaultOrder = 'created_at DESC'
     }
 
     key_usage = @{
@@ -547,18 +662,29 @@ CREATE TABLE IF NOT EXISTS key_rotation_jobs (
 CREATE TABLE IF NOT EXISTS key_usage (
   id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
   key_id BIGINT NOT NULL,
-  "date" DATE NOT NULL,
+  usage_date DATE NOT NULL,
   encrypt_count INTEGER NOT NULL DEFAULT 0,
   decrypt_count INTEGER NOT NULL DEFAULT 0,
   verify_count  INTEGER NOT NULL DEFAULT 0,
   last_used_at TIMESTAMPTZ(6) NULL,
-  CONSTRAINT uq_key_usage_key_date UNIQUE (key_id, "date")
+  CONSTRAINT chk_key_usage_counts CHECK (
+    encrypt_count >= 0 AND decrypt_count >= 0 AND verify_count >= 0
+  ),
+  CONSTRAINT uq_key_usage_key_date UNIQUE (key_id, usage_date)
 );
 '@
       indexes = @()
       foreign_keys = @(
         'ALTER TABLE key_usage ADD CONSTRAINT fk_key_usage_key FOREIGN KEY (key_id) REFERENCES crypto_keys(id) ON DELETE CASCADE'
       )
+      Upsert = @{
+        Keys   = @('key_id','usage_date') # UNIQUE
+        Update = @('encrypt_count','decrypt_count','verify_count','last_used_at')
+      }
+      Aliases = @{
+        date = 'usage_date'
+      }
+      DefaultOrder = 'usage_date DESC'
     }
 
     jwt_tokens = @{
@@ -573,6 +699,8 @@ CREATE TABLE IF NOT EXISTS jwt_tokens (
   type TEXT NOT NULL DEFAULT 'refresh',
   scopes VARCHAR(255) NULL,
   created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT chk_jwt_tokens_version CHECK (version >= 0),
   expires_at TIMESTAMPTZ(6) NULL,
   last_used_at TIMESTAMPTZ(6) NULL,
   ip_hash BYTEA NULL,
@@ -585,15 +713,23 @@ CREATE TABLE IF NOT EXISTS jwt_tokens (
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_jwt_user ON jwt_tokens (user_id)',
-        'CREATE INDEX idx_jwt_expires ON jwt_tokens (expires_at)',
-        'CREATE INDEX idx_jwt_revoked_user ON jwt_tokens (revoked, user_id)',
-        'CREATE INDEX idx_jwt_last_used ON jwt_tokens (last_used_at)'
+        'CREATE INDEX IF NOT EXISTS idx_jwt_user ON jwt_tokens (user_id)',
+        'CREATE INDEX IF NOT EXISTS idx_jwt_expires ON jwt_tokens (expires_at)',
+        'CREATE INDEX IF NOT EXISTS idx_jwt_revoked_user ON jwt_tokens (revoked, user_id)',
+        'CREATE INDEX IF NOT EXISTS idx_jwt_last_used ON jwt_tokens (last_used_at)',
+        'CREATE INDEX IF NOT EXISTS idx_jwt_replaced_by ON jwt_tokens (replaced_by)'
       )
       foreign_keys = @(
         'ALTER TABLE jwt_tokens ADD CONSTRAINT fk_jwt_tokens_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL',
         'ALTER TABLE jwt_tokens ADD CONSTRAINT fk_jwt_tokens_replaced_by FOREIGN KEY (replaced_by) REFERENCES jwt_tokens(id) ON DELETE SET NULL'
       )
+      Upsert = @{
+        Keys   = @('token_hash')   # UNIQUE
+        Update = @('jti','user_id','token_hash_algo','token_hash_key_version',
+                   'type','scopes','expires_at','last_used_at','ip_hash',
+                   'ip_hash_key_version','replaced_by','revoked','meta')
+      }
+      DefaultOrder = 'created_at DESC'
     }
 
     book_assets = @{
@@ -622,13 +758,21 @@ CREATE TABLE IF NOT EXISTS book_assets (
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_book_assets_book ON book_assets (book_id)',
-        'CREATE INDEX idx_book_assets_type ON book_assets (asset_type)'
+        'CREATE INDEX IF NOT EXISTS idx_book_assets_book ON book_assets (book_id)',
+        'CREATE INDEX IF NOT EXISTS idx_book_assets_type ON book_assets (asset_type)',
+        'CREATE UNIQUE INDEX IF NOT EXISTS ux_book_assets_unique ON book_assets (book_id, asset_type)'
       )
       foreign_keys = @(
         'ALTER TABLE book_assets ADD CONSTRAINT fk_book_assets_key FOREIGN KEY (key_id) REFERENCES crypto_keys(id) ON DELETE SET NULL',
         'ALTER TABLE book_assets ADD CONSTRAINT fk_book_assets_book FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE'
       )
+      Upsert = @{
+        Keys   = @('book_id','asset_type')
+        Update = @('filename','mime_type','size_bytes','storage_path','content_hash',
+                   'download_filename','is_encrypted','encryption_algo','encryption_key_enc',
+                   'encryption_iv','encryption_tag','encryption_aad','encryption_meta',
+                   'key_version','key_id')
+      }
     }
 
     book_categories = @{
@@ -640,12 +784,14 @@ CREATE TABLE IF NOT EXISTS book_categories (
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_book_categories_category ON book_categories (category_id)'
+        'CREATE INDEX IF NOT EXISTS idx_book_categories_category ON book_categories (category_id)'
       )
       foreign_keys = @(
         'ALTER TABLE book_categories ADD CONSTRAINT fk_book_categories_book FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE',
         'ALTER TABLE book_categories ADD CONSTRAINT fk_book_categories_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE'
       )
+      Upsert = @{ Keys=@('book_id','category_id'); Update=@() }
+      DefaultOrder = 'book_id DESC, category_id DESC'
     }
 
     inventory_reservations = @{
@@ -658,18 +804,21 @@ CREATE TABLE IF NOT EXISTS inventory_reservations (
   reserved_until TIMESTAMPTZ(6) NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
   created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT chk_reservations_version CHECK (version >= 0),
   CONSTRAINT chk_res_qty CHECK (quantity > 0),
   CONSTRAINT chk_res_status CHECK (status IN ('pending','confirmed','expired','cancelled'))
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_res_book ON inventory_reservations (book_id)',
-        'CREATE INDEX idx_res_order ON inventory_reservations (order_id)',
-        'CREATE INDEX idx_res_status_until ON inventory_reservations (status, reserved_until)'
+        'CREATE INDEX IF NOT EXISTS idx_res_book ON inventory_reservations (book_id)',
+        'CREATE INDEX IF NOT EXISTS idx_res_order ON inventory_reservations (order_id)',
+        'CREATE INDEX IF NOT EXISTS idx_res_status_until ON inventory_reservations (status, reserved_until)'
       )
       foreign_keys = @(
         'ALTER TABLE inventory_reservations ADD CONSTRAINT fk_res_book FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE'
       )
+      DefaultOrder = 'created_at DESC'
     }
 
     carts = @{
@@ -678,13 +827,21 @@ CREATE TABLE IF NOT EXISTS carts (
   id CHAR(36) PRIMARY KEY,
   user_id BIGINT NULL,
   created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+  updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT chk_carts_version CHECK (version >= 0)
 );
 '@
       indexes = @()
       foreign_keys = @(
         'ALTER TABLE carts ADD CONSTRAINT fk_carts_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL'
       )
+      Upsert = @{
+        Keys   = @('id')  # PK
+        Update = @('user_id','updated_at')
+      }
+      UpdatedAt    = 'updated_at'
+      DefaultOrder = 'created_at DESC'
     }
 
     cart_items = @{
@@ -705,7 +862,8 @@ CREATE TABLE IF NOT EXISTS cart_items (
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_cart_items_cart_id ON cart_items (cart_id)'
+        'CREATE INDEX IF NOT EXISTS idx_cart_items_cart_id ON cart_items (cart_id)',
+        'CREATE UNIQUE INDEX IF NOT EXISTS ux_cart_items ON cart_items (cart_id, book_id, sku)'
       )
       foreign_keys = @(
         'ALTER TABLE cart_items ADD CONSTRAINT fk_cart_items_cart FOREIGN KEY (cart_id) REFERENCES carts(id) ON DELETE CASCADE',
@@ -734,21 +892,32 @@ CREATE TABLE IF NOT EXISTS orders (
   payment_method VARCHAR(100) NULL,
   created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT chk_orders_version CHECK (version >= 0),
   CONSTRAINT chk_orders_status CHECK (status IN ('pending','paid','failed','cancelled','refunded','completed')),
   CONSTRAINT chk_orders_currency CHECK (currency ~ '^[A-Z]{3}$'),
   CONSTRAINT ux_orders_uuid_bin UNIQUE (uuid_bin)
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_orders_user_id ON orders (user_id)',
-        'CREATE INDEX idx_orders_status ON orders (status)',
-        'CREATE INDEX idx_orders_user_status ON orders (user_id, status)',
-        'CREATE INDEX idx_orders_uuid ON orders (uuid)',
-        'CREATE INDEX idx_orders_created_at ON orders (created_at)'
+        'CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders (user_id)',
+        'CREATE INDEX IF NOT EXISTS idx_orders_status ON orders (status)',
+        'CREATE INDEX IF NOT EXISTS idx_orders_user_status ON orders (user_id, status)',
+        'CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders (created_at)',
+        'CREATE INDEX IF NOT EXISTS idx_orders_user_created ON orders (user_id, created_at)'
       )
       foreign_keys = @(
         'ALTER TABLE orders ADD CONSTRAINT fk_orders_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL'
       )
+      Upsert = @{
+        Keys   = @('uuid')  # UNIQUE
+        Update = @('uuid_bin','public_order_no','user_id','status','encrypted_customer_blob',
+                   'encrypted_customer_blob_key_version','encryption_meta','currency',
+                   'metadata','subtotal','discount_total','tax_total','total',
+                   'payment_method','updated_at')
+      }
+      UpdatedAt    = 'updated_at'
+      DefaultOrder = 'id DESC'
     }
 
     order_items = @{
@@ -769,12 +938,13 @@ CREATE TABLE IF NOT EXISTS order_items (
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_order_items_order_id ON order_items (order_id)',
-        'CREATE INDEX idx_order_items_book_id ON order_items (book_id)'
+        'CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items (order_id)',
+        'CREATE INDEX IF NOT EXISTS idx_order_items_book_id ON order_items (book_id)'
       )
       foreign_keys = @(
         'ALTER TABLE order_items ADD CONSTRAINT fk_order_items_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE',
-        'ALTER TABLE order_items ADD CONSTRAINT fk_order_items_book FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE SET NULL'
+        'ALTER TABLE order_items ADD CONSTRAINT fk_order_items_book FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE SET NULL',
+        'ALTER TABLE order_items ADD CONSTRAINT chk_order_items_tax_rate CHECK (tax_rate BETWEEN 0 AND 100)'
       )
     }
 
@@ -797,13 +967,20 @@ CREATE TABLE IF NOT EXISTS order_item_downloads (
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_oid_download_token_hash ON order_item_downloads (download_token_hash)'
+        'CREATE UNIQUE INDEX IF NOT EXISTS ux_oid_triplet ON order_item_downloads (order_id, book_id, asset_id)',
+        'CREATE INDEX IF NOT EXISTS idx_oid_download_token_hash ON order_item_downloads (download_token_hash)'
       )
       foreign_keys = @(
         'ALTER TABLE order_item_downloads ADD CONSTRAINT fk_oid_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE',
         'ALTER TABLE order_item_downloads ADD CONSTRAINT fk_oid_book FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE',
-        'ALTER TABLE order_item_downloads ADD CONSTRAINT fk_oid_asset FOREIGN KEY (asset_id) REFERENCES book_assets(id) ON DELETE CASCADE'
+        'ALTER TABLE order_item_downloads ADD CONSTRAINT fk_oid_asset FOREIGN KEY (asset_id) REFERENCES book_assets(id) ON DELETE CASCADE',
+        'ALTER TABLE order_item_downloads ADD CONSTRAINT chk_oid_uses CHECK (max_uses > 0 AND used >= 0 AND used <= max_uses)'
       )
+      Upsert = @{
+        Keys   = @('order_id','book_id','asset_id')
+        Update = @('download_token_hash','token_key_version','key_version','max_uses','used',
+                   'expires_at','last_used_at','ip_hash','ip_hash_key_version')
+      }
     }
 
     invoices = @{
@@ -829,6 +1006,11 @@ CREATE TABLE IF NOT EXISTS invoices (
       foreign_keys = @(
         'ALTER TABLE invoices ADD CONSTRAINT fk_invoices_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL'
       )
+      Upsert = @{
+        Keys   = @('invoice_number')  # UNIQUE
+        Update = @('order_id','variable_symbol','issue_date','due_date','subtotal','discount_total','tax_total','total','currency','qr_data')
+      }
+      DefaultOrder = 'id DESC'
     }
 
     invoice_items = @{
@@ -851,8 +1033,14 @@ CREATE TABLE IF NOT EXISTS invoice_items (
 '@
       indexes = @()
       foreign_keys = @(
-        'ALTER TABLE invoice_items ADD CONSTRAINT fk_invoice_items_invoice FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE'
+        'ALTER TABLE invoice_items ADD CONSTRAINT fk_invoice_items_invoice FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE',
+        'ALTER TABLE invoice_items ADD CONSTRAINT chk_invoice_items_tax_rate CHECK (tax_rate BETWEEN 0 AND 100)'
       )
+      Upsert = @{
+        Keys   = @('invoice_id','line_no')  # UNIQUE
+        Update = @('description','unit_price','quantity','tax_rate','tax_amount','line_total','currency')
+      }
+      DefaultOrder = 'invoice_id DESC, line_no DESC'
     }
 
     payments = @{
@@ -869,19 +1057,29 @@ CREATE TABLE IF NOT EXISTS payments (
   details JSONB NULL,
   created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT chk_payments_version CHECK (version >= 0),
   CONSTRAINT uq_payments_transaction_id UNIQUE (transaction_id),
   CONSTRAINT chk_payments_status CHECK (status IN ('initiated','pending','authorized','paid','cancelled','partially_refunded','refunded','failed')),
   CONSTRAINT chk_payments_currency CHECK (currency ~ '^[A-Z]{3}$')
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_payments_order ON payments (order_id)',
-        'CREATE INDEX idx_payments_provider_event ON payments (provider_event_id)',
-        'CREATE INDEX idx_payments_created_at ON payments (created_at)'
+        'CREATE INDEX IF NOT EXISTS idx_payments_order ON payments (order_id)',
+        'CREATE INDEX IF NOT EXISTS idx_payments_provider_event ON payments (provider_event_id)',
+        'CREATE INDEX IF NOT EXISTS idx_payments_created_at ON payments (created_at)'
       )
       foreign_keys = @(
-        'ALTER TABLE payments ADD CONSTRAINT fk_payments_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL'
+        'ALTER TABLE payments ADD CONSTRAINT fk_payments_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL',
+        'ALTER TABLE payments ADD CONSTRAINT chk_payments_amount CHECK (amount >= 0)'
       )
+      Upsert = @{
+        Keys   = @('transaction_id')  # UNIQUE
+        Update = @('order_id','gateway','provider_event_id','status','amount','currency',
+                   'details','updated_at')
+      }
+      UpdatedAt    = 'updated_at'
+      DefaultOrder = 'id DESC'
     }
 
     payment_logs = @{
@@ -897,6 +1095,7 @@ CREATE TABLE IF NOT EXISTS payment_logs (
       foreign_keys = @(
         'ALTER TABLE payment_logs ADD CONSTRAINT fk_payment_logs_payment FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE CASCADE'
       )
+      DefaultOrder = 'log_at DESC'
     }
 
     payment_webhooks = @{
@@ -912,13 +1111,14 @@ CREATE TABLE IF NOT EXISTS payment_webhooks (
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_payment_webhooks_payment ON payment_webhooks (payment_id)',
-        'CREATE INDEX idx_payment_webhooks_gw_id ON payment_webhooks (gateway_event_id)',
-        'CREATE INDEX idx_payment_webhooks_hash ON payment_webhooks (payload_hash)'
+        'CREATE INDEX IF NOT EXISTS idx_payment_webhooks_payment ON payment_webhooks (payment_id)',
+        'CREATE INDEX IF NOT EXISTS idx_payment_webhooks_gw_id ON payment_webhooks (gateway_event_id)',
+        'CREATE UNIQUE INDEX IF NOT EXISTS ux_payment_webhooks_payload ON payment_webhooks (payload_hash)'
       )
       foreign_keys = @(
         'ALTER TABLE payment_webhooks ADD CONSTRAINT fk_payment_webhooks_payment FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE SET NULL'
       )
+      DefaultOrder = 'created_at DESC'
     }
 
     idempotency_keys = @{
@@ -934,13 +1134,19 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_idemp_payment ON idempotency_keys (payment_id)',
-        'CREATE INDEX idx_idemp_order ON idempotency_keys (order_id)',
-        'CREATE INDEX idx_idemp_created_at ON idempotency_keys (created_at)'
+        'CREATE INDEX IF NOT EXISTS idx_idemp_payment ON idempotency_keys (payment_id)',
+        'CREATE INDEX IF NOT EXISTS idx_idemp_order ON idempotency_keys (order_id)',
+        'CREATE INDEX IF NOT EXISTS idx_idemp_created_at ON idempotency_keys (created_at)'
       )
       foreign_keys = @(
-        'ALTER TABLE idempotency_keys ADD CONSTRAINT fk_idemp_payment FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE SET NULL'
+        'ALTER TABLE idempotency_keys ADD CONSTRAINT fk_idemp_payment FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE SET NULL',
+        'ALTER TABLE idempotency_keys ADD CONSTRAINT chk_idemp_ttl CHECK (ttl_seconds > 0)'
       )
+      Upsert = @{
+        Keys   = @('key_hash')  # PK
+        Update = @('payment_id','order_id','gateway_payload','redirect_url','ttl_seconds')
+      }
+      DefaultOrder = 'created_at DESC'
     }
 
     refunds = @{
@@ -957,9 +1163,12 @@ CREATE TABLE IF NOT EXISTS refunds (
   CONSTRAINT chk_refunds_currency CHECK (currency ~ '^[A-Z]{3}$')
 );
 '@
-      indexes = @()
+      indexes = @(
+        'CREATE INDEX IF NOT EXISTS idx_refunds_payment ON refunds (payment_id)'
+      )
       foreign_keys = @(
-        'ALTER TABLE refunds ADD CONSTRAINT fk_refunds_payment FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE CASCADE'
+        'ALTER TABLE refunds ADD CONSTRAINT fk_refunds_payment FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE CASCADE',
+        'ALTER TABLE refunds ADD CONSTRAINT chk_refunds_amount CHECK (amount >= 0)'
       )
     }
 
@@ -987,6 +1196,12 @@ CREATE TABLE IF NOT EXISTS coupons (
 '@
       indexes = @()
       foreign_keys = @()
+      Upsert = @{
+        Keys   = @('code')  # UNIQUE
+        Update = @('type','value','currency','starts_at','ends_at','max_redemptions','min_order_amount','applies_to','is_active','updated_at')
+      }
+      UpdatedAt    = 'updated_at'
+      DefaultOrder = 'id DESC'
     }
 
     coupon_redemptions = @{
@@ -1000,12 +1215,17 @@ CREATE TABLE IF NOT EXISTS coupon_redemptions (
   amount_applied NUMERIC(12,2) NOT NULL
 );
 '@
-      indexes = @()
+      indexes = @(
+        'CREATE INDEX IF NOT EXISTS idx_cr_coupon ON coupon_redemptions (coupon_id)',
+        'CREATE INDEX IF NOT EXISTS idx_cr_user   ON coupon_redemptions (user_id)',
+        'CREATE INDEX IF NOT EXISTS idx_cr_order  ON coupon_redemptions (order_id)'
+      )
       foreign_keys = @(
         'ALTER TABLE coupon_redemptions ADD CONSTRAINT fk_cr_coupon FOREIGN KEY (coupon_id) REFERENCES coupons(id) ON DELETE CASCADE',
         'ALTER TABLE coupon_redemptions ADD CONSTRAINT fk_cr_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE',
         'ALTER TABLE coupon_redemptions ADD CONSTRAINT fk_cr_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE'
       )
+      DefaultOrder = 'redeemed_at DESC'
     }
 
     countries = @{
@@ -1018,6 +1238,11 @@ CREATE TABLE IF NOT EXISTS countries (
 '@
       indexes = @()
       foreign_keys = @()
+      Upsert = @{
+        Keys   = @('iso2') # PK
+        Update = @('name')
+      }
+      DefaultOrder = 'iso2 ASC'
     }
 
     tax_rates = @{
@@ -1032,10 +1257,18 @@ CREATE TABLE IF NOT EXISTS tax_rates (
   CONSTRAINT chk_tax_category CHECK (category IN ('ebook','physical'))
 );
 '@
-      indexes = @()
-      foreign_keys = @(
-        'ALTER TABLE tax_rates ADD CONSTRAINT fk_tax_rates_country FOREIGN KEY (country_iso2) REFERENCES countries(iso2) ON DELETE CASCADE'
+      indexes = @(
+        'CREATE UNIQUE INDEX IF NOT EXISTS ux_tax_rates_country_cat_from ON tax_rates (country_iso2, category, valid_from)'
       )
+      foreign_keys = @(
+        'ALTER TABLE tax_rates ADD CONSTRAINT fk_tax_rates_country FOREIGN KEY (country_iso2) REFERENCES countries(iso2) ON DELETE CASCADE',
+        'ALTER TABLE tax_rates ADD CONSTRAINT chk_tax_rates_rate CHECK (rate BETWEEN 0 AND 100)'
+      )
+      Upsert = @{
+        Keys   = @('country_iso2','category','valid_from')
+        Update = @('rate','valid_to')
+      }
+      DefaultOrder = 'valid_from DESC'
     }
 
     vat_validations = @{
@@ -1065,14 +1298,22 @@ CREATE TABLE IF NOT EXISTS app_settings (
   description TEXT NULL,
   is_protected BOOLEAN NOT NULL DEFAULT FALSE,
   updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT chk_app_settings_version CHECK (version >= 0),
   updated_by BIGINT NULL,
-  CONSTRAINT chk_app_settings_type CHECK (type IN ('string','int','bool','json','secret'))
+  CONSTRAINT chk_app_settings_type CHECK ("type" IN ('string','int','bool','json','secret'))
 );
 '@
       indexes = @()
       foreign_keys = @(
         'ALTER TABLE app_settings ADD CONSTRAINT fk_app_settings_user FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL'
       )
+      Upsert = @{
+        Keys   = @('setting_key')  # PK
+        Update = @('setting_value','type','section','description','is_protected','updated_at','updated_by')
+      }
+      UpdatedAt    = 'updated_at'
+      DefaultOrder = 'setting_key ASC'
     }
 
     audit_log = @{
@@ -1092,7 +1333,11 @@ CREATE TABLE IF NOT EXISTS audit_log (
   CONSTRAINT chk_audit_change_type CHECK (change_type IN ('INSERT','UPDATE','DELETE'))
 );
 '@
-      indexes = @()
+      indexes = @(
+        'CREATE INDEX IF NOT EXISTS idx_audit_table_record ON audit_log (table_name, record_id, changed_at)',
+        'CREATE INDEX IF NOT EXISTS idx_audit_changed_at   ON audit_log (changed_at)',
+        'CREATE INDEX IF NOT EXISTS idx_audit_request_id   ON audit_log (request_id)'
+      )
       foreign_keys = @(
         'ALTER TABLE audit_log ADD CONSTRAINT fk_audit_log_user FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL'
       )
@@ -1109,37 +1354,49 @@ CREATE TABLE IF NOT EXISTS webhook_outbox (
   next_attempt_at TIMESTAMPTZ(6) NULL,
   created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT chk_webhook_outbox_version CHECK (version >= 0),
   CONSTRAINT chk_webhook_status CHECK (status IN ('pending','sent','failed'))
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_webhook_status_scheduled ON webhook_outbox (status, next_attempt_at)',
-        'CREATE INDEX idx_webhook_created_at ON webhook_outbox (created_at)'
+        'CREATE INDEX IF NOT EXISTS idx_webhook_status_scheduled ON webhook_outbox (status, next_attempt_at)',
+        'CREATE INDEX IF NOT EXISTS idx_webhook_created_at ON webhook_outbox (created_at)'
       )
       foreign_keys = @()
+      UpdatedAt    = 'updated_at'
+      DefaultOrder = 'created_at DESC'
     }
 
     payment_gateway_notifications = @{
       create = @'
 CREATE TABLE IF NOT EXISTS payment_gateway_notifications (
   id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-  transaction_id VARCHAR(255) NULL,
+  transaction_id VARCHAR(255) NOT NULL,
   received_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT chk_pg_notify_version CHECK (version >= 0),
   processing_by VARCHAR(100) NULL,
   processing_until TIMESTAMPTZ(6) NULL,
   attempts INTEGER NOT NULL DEFAULT 0,
   last_error VARCHAR(255) NULL,
   status TEXT NOT NULL DEFAULT 'pending',
   CONSTRAINT ux_pg_notify_tx UNIQUE (transaction_id),
-  CONSTRAINT chk_pg_notify_status CHECK (status IN ('pending','processing','done','failed'))
+  CONSTRAINT chk_pg_notify_status CHECK (status IN ('pending','processing','done','failed')),
+  CONSTRAINT chk_pg_notify_attempts CHECK (attempts >= 0)
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_pg_notify_status_received ON payment_gateway_notifications (status, received_at)'
+        'CREATE INDEX IF NOT EXISTS idx_pg_notify_status_received ON payment_gateway_notifications (status, received_at)'
       )
       foreign_keys = @(
         'ALTER TABLE payment_gateway_notifications ADD CONSTRAINT fk_pg_notify_payment FOREIGN KEY (transaction_id) REFERENCES payments(transaction_id) ON DELETE CASCADE'
       )
+      Upsert = @{
+        Keys   = @('transaction_id')  # UNIQUE
+        Update = @('received_at','processing_by','processing_until','attempts','last_error','status')
+      }
+      DefaultOrder = 'received_at DESC'
     }
 
     email_verifications = @{
@@ -1157,13 +1414,19 @@ CREATE TABLE IF NOT EXISTS email_verifications (
 );
 '@
       indexes = @(
-        'CREATE UNIQUE INDEX ux_ev_selector ON email_verifications (selector)',
-        'CREATE INDEX idx_ev_user ON email_verifications (user_id)',
-        'CREATE INDEX idx_ev_expires ON email_verifications (expires_at)'
+        'CREATE UNIQUE INDEX IF NOT EXISTS ux_ev_selector ON email_verifications (selector)',
+        'CREATE INDEX IF NOT EXISTS idx_ev_user ON email_verifications (user_id)',
+        'CREATE INDEX IF NOT EXISTS idx_ev_expires ON email_verifications (expires_at)'
       )
       foreign_keys = @(
         'ALTER TABLE email_verifications ADD CONSTRAINT fk_ev_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE'
       )
+      Upsert = @{
+        Keys   = @('selector')   # UNIQUE
+        Update = @('user_id','token_hash','validator_hash','key_version',
+                   'expires_at','created_at','used_at')
+      }
+      DefaultOrder = 'id DESC'
     }
 
     notifications = @{
@@ -1187,18 +1450,23 @@ CREATE TABLE IF NOT EXISTS notifications (
   priority INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT chk_notifications_version CHECK (version >= 0),
   CONSTRAINT chk_notifications_channel CHECK (channel IN ('email','push')),
   CONSTRAINT chk_notifications_status CHECK (status IN ('pending','processing','sent','failed'))
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_notifications_status_scheduled ON notifications (status, scheduled_at)',
-        'CREATE INDEX idx_notifications_next_attempt ON notifications (next_attempt_at)',
-        'CREATE INDEX idx_notifications_locked_until ON notifications (locked_until)'
+        'CREATE INDEX IF NOT EXISTS idx_notifications_status_scheduled ON notifications (status, scheduled_at)',
+        'CREATE INDEX IF NOT EXISTS idx_notifications_next_attempt ON notifications (next_attempt_at)',
+        'CREATE INDEX IF NOT EXISTS idx_notifications_locked_until ON notifications (locked_until)'
       )
       foreign_keys = @(
-        'ALTER TABLE notifications ADD CONSTRAINT fk_notifications_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE'
+        'ALTER TABLE notifications ADD CONSTRAINT fk_notifications_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE',
+        'ALTER TABLE notifications ADD CONSTRAINT chk_notifications_retries CHECK (retries >= 0 AND max_retries >= 0)'
       )
+      UpdatedAt    = 'updated_at'
+      DefaultOrder = 'created_at DESC'
     }
 
     newsletter_subscribers = @{
@@ -1206,7 +1474,7 @@ CREATE TABLE IF NOT EXISTS notifications (
 CREATE TABLE IF NOT EXISTS newsletter_subscribers (
   id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
   user_id BIGINT NULL,
-  email_hash BYTEA NULL,
+  email_hash BYTEA NOT NULL,
   email_hash_key_version VARCHAR(64) NULL,
   email_enc BYTEA NULL,
   email_key_version VARCHAR(64) NULL,
@@ -1223,19 +1491,31 @@ CREATE TABLE IF NOT EXISTS newsletter_subscribers (
   ip_hash_key_version VARCHAR(64) DEFAULT NULL,
   meta JSONB DEFAULT NULL,
   created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+  updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT chk_ns_version CHECK (version >= 0)
 );
 '@
       indexes = @(
-        'CREATE UNIQUE INDEX ux_ns_email_hash ON newsletter_subscribers (email_hash)',
-        'CREATE UNIQUE INDEX ux_ns_confirm_selector ON newsletter_subscribers (confirm_selector)',
-        'CREATE INDEX idx_ns_user ON newsletter_subscribers (user_id)',
-        'CREATE INDEX idx_ns_confirm_expires ON newsletter_subscribers (confirm_expires)',
-        'CREATE INDEX idx_ns_unsubscribed_at ON newsletter_subscribers (unsubscribed_at)'
+        'CREATE UNIQUE INDEX IF NOT EXISTS ux_ns_email_hash ON newsletter_subscribers (email_hash)',
+        'CREATE UNIQUE INDEX IF NOT EXISTS ux_ns_confirm_selector ON newsletter_subscribers (confirm_selector)',
+        'CREATE INDEX IF NOT EXISTS idx_ns_user ON newsletter_subscribers (user_id)',
+        'CREATE INDEX IF NOT EXISTS idx_ns_confirm_expires ON newsletter_subscribers (confirm_expires)',
+        'CREATE INDEX IF NOT EXISTS idx_ns_unsubscribed_at ON newsletter_subscribers (unsubscribed_at)'
       )
       foreign_keys = @(
         'ALTER TABLE newsletter_subscribers ADD CONSTRAINT fk_ns_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL'
       )
+      Upsert = @{
+        Keys   = @('email_hash')  # UNIQUE
+        Update = @('user_id','email_hash_key_version','email_enc','email_key_version',
+                   'confirm_selector','confirm_validator_hash','confirm_key_version',
+                   'confirm_expires','confirmed_at','unsubscribe_token_hash',
+                   'unsubscribe_token_key_version','unsubscribed_at','origin',
+                   'ip_hash','ip_hash_key_version','meta','updated_at')
+      }
+      UpdatedAt    = 'updated_at'
+      DefaultOrder = 'id DESC'
     }
 
     system_jobs = @{
@@ -1252,13 +1532,17 @@ CREATE TABLE IF NOT EXISTS system_jobs (
   error TEXT NULL,
   created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  version INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT chk_system_jobs_version CHECK (version >= 0),
   CONSTRAINT chk_system_jobs_status CHECK (status IN ('pending','processing','done','failed'))
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_system_jobs_status_sched ON system_jobs (status, scheduled_at)'
+        'CREATE INDEX IF NOT EXISTS idx_system_jobs_status_sched ON system_jobs (status, scheduled_at)'
       )
       foreign_keys = @()
+      UpdatedAt    = 'updated_at'
+      DefaultOrder = 'created_at DESC'
     }
 
     worker_locks = @{
@@ -1269,7 +1553,7 @@ CREATE TABLE IF NOT EXISTS worker_locks (
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_worker_locks_until ON worker_locks (locked_until)'
+        'CREATE INDEX IF NOT EXISTS idx_worker_locks_until ON worker_locks (locked_until)'
       )
       foreign_keys = @()
     }
@@ -1289,10 +1573,16 @@ CREATE TABLE IF NOT EXISTS encrypted_fields (
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_enc_entity ON encrypted_fields (entity_table, entity_pk)',
-        'CREATE INDEX idx_encrypted_fields_field ON encrypted_fields (field_name)'
+        'CREATE INDEX IF NOT EXISTS idx_enc_entity ON encrypted_fields (entity_table, entity_pk)',
+        'CREATE INDEX IF NOT EXISTS idx_encrypted_fields_field ON encrypted_fields (field_name)'
       )
       foreign_keys = @()
+      Upsert = @{
+        Keys   = @('entity_table','entity_pk','field_name') # UNIQUE
+        Update = @('ciphertext','meta','updated_at')
+      }
+      UpdatedAt    = 'updated_at'
+      DefaultOrder = 'id DESC'
     }
 
     kms_providers = @{
@@ -1308,8 +1598,15 @@ CREATE TABLE IF NOT EXISTS kms_providers (
   CONSTRAINT chk_kms_provider CHECK (provider IN ('gcp','aws','azure','vault'))
 );
 '@
-      indexes = @()
+      indexes = @(
+        'CREATE UNIQUE INDEX IF NOT EXISTS ux_kms_providers_name ON kms_providers (name)'
+      )
       foreign_keys = @()
+      Upsert = @{
+        Keys   = @('name')
+        Update = @('provider','location','project_tenant','is_enabled')
+      }
+      DefaultOrder = 'id DESC'
     }
 
     kms_keys = @{
@@ -1326,10 +1623,17 @@ CREATE TABLE IF NOT EXISTS kms_keys (
   CONSTRAINT chk_kms_status  CHECK (status  IN ('active','retired','disabled'))
 );
 '@
-      indexes = @()
+      indexes = @(
+        'CREATE UNIQUE INDEX IF NOT EXISTS ux_kms_keys_provider_ref ON kms_keys (provider_id, external_key_ref)'
+      )
       foreign_keys = @(
         'ALTER TABLE kms_keys ADD CONSTRAINT fk_kms_keys_provider FOREIGN KEY (provider_id) REFERENCES kms_providers(id) ON DELETE CASCADE'
       )
+      Upsert = @{
+        Keys   = @('provider_id','external_key_ref')
+        Update = @('purpose','algorithm','status')
+      }
+      DefaultOrder = 'id DESC'
     }
 
     encryption_policies = @{
@@ -1350,6 +1654,11 @@ CREATE TABLE IF NOT EXISTS encryption_policies (
 '@
       indexes = @()
       foreign_keys = @()
+      Upsert = @{
+        Keys   = @('policy_name') # UNIQUE
+        Update = @('mode','layer_selection','min_layers','max_layers','aad_template','notes')
+      }
+      DefaultOrder = 'id DESC'
     }
 
     policy_kms_keys = @{
@@ -1367,6 +1676,8 @@ CREATE TABLE IF NOT EXISTS policy_kms_keys (
         'ALTER TABLE policy_kms_keys ADD CONSTRAINT fk_policy_kms_keys_policy FOREIGN KEY (policy_id) REFERENCES encryption_policies(id) ON DELETE CASCADE',
         'ALTER TABLE policy_kms_keys ADD CONSTRAINT fk_policy_kms_keys_key FOREIGN KEY (kms_key_id) REFERENCES kms_keys(id) ON DELETE CASCADE'
       )
+      Upsert = @{ Keys=@('policy_id','kms_key_id'); Update=@('weight','priority') }
+      DefaultOrder = 'policy_id DESC, kms_key_id DESC'
     }
 
     encryption_events = @{
@@ -1388,7 +1699,7 @@ CREATE TABLE IF NOT EXISTS encryption_events (
 );
 '@
       indexes = @(
-        'CREATE INDEX idx_enc_events_entity ON encryption_events (entity_table, entity_pk, created_at)'
+        'CREATE INDEX IF NOT EXISTS idx_enc_events_entity ON encryption_events (entity_table, entity_pk, created_at)'
       )
       foreign_keys = @()
     }
