@@ -22,7 +22,7 @@ if ($Exclude.Count -gt 0){ $pkgs = $pkgs | Where-Object { $Exclude -notcontains 
 $removed = 0; $missing = 0; $failed = 0
 
 foreach ($pkg in $pkgs) {
-  $schemaDir = Join-Path $pkg.FullName 'schema'
+  $schemaDir = Join-Path $pkg.FullName 'src'
   if (!(Test-Path -LiteralPath $schemaDir)) {
     Write-Host ("[SKIP] {0} – není 'schema'" -f $pkg.Name) -ForegroundColor DarkGray
     $missing++

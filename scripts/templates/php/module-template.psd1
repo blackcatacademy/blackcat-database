@@ -15,6 +15,15 @@ use BlackCat\Database\Contracts\ModuleInterface;
 use BlackCat\Core\Database;
 
 final class [[CLASS]] implements ModuleInterface {
+
+    private function qi(SqlDialect $d, string $ident): string {
+        $parts = explode('.', $ident);
+        if ($d->isMysql()) {
+            return implode('.', array_map(fn($p) => "`$p`", $parts));
+        }
+        return implode('.', array_map(fn($p) => '"' . $p . '"', $parts));
+    }
+
     public function name(): string { return 'table-[[TABLE]]'; }
     public function table(): string { return '[[TABLE]]'; }
     public function version(): string { return '[[VERSION]]'; }
@@ -42,12 +51,12 @@ final class [[CLASS]] implements ModuleInterface {
             $this->execSqlFileStreamed($db, $path, $d);
         }
         // --- Zajisti kontraktní view ---
-        $table = $this->table();
-        $view  = self::contractView();
+        $table = $this->qi($d, $this->table());
+        $view  = $this->qi($d, self::contractView());
 
         if ($d->isMysql()) {
-            $db->exec("DROP VIEW IF EXISTS `{$view}`");
-            $db->exec("CREATE VIEW `{$view}` AS SELECT * FROM `{$table}`");
+            $db->exec("DROP VIEW IF EXISTS {$view}");
+            $db->exec("CREATE VIEW {$view} AS SELECT * FROM {$table}");
         } else {
             $db->exec("DROP VIEW IF EXISTS {$view} CASCADE");
             $db->exec("CREATE VIEW {$view} AS SELECT * FROM {$table}");
@@ -72,6 +81,7 @@ final class [[CLASS]] implements ModuleInterface {
         fclose($fh);
         $tail = trim($buf);
         if ($tail !== '') { $this->safeExec($db, $tail); }
+        $this->remainder = ''; // ← důležité: nepropaguj zbytek do dalšího souboru
     }
 
     private string $remainder = '';

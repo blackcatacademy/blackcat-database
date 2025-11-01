@@ -22,30 +22,28 @@ final class RowLocksAndDeadlocksTest extends TestCase
         // modulární instalace (idempotent)
         DbHarness::ensureInstalled();
 
-        // najdi “bezpečnou” tabulku s identity PK 'id' a updatovatelným sloupcem
+        // najdi “bezpečnou” tabulku s identity PK 'id' a updatovatelným sloupcem (jen přes Definitions)
         foreach (glob(__DIR__ . '/../../packages/*/src/Definitions.php') as $df) {
             require_once $df;
             if (!preg_match('~[\\\\/]packages[\\\\/]([A-Za-z0-9_]+)[\\\\/]src[\\\\/]Definitions\.php$~i', $df, $m)) continue;
             $ns = $m[1];
             $defs = "BlackCat\\Database\\Packages\\{$ns}\\Definitions";
             if (!class_exists($defs)) continue;
+            if (!$defs::isIdentityPk()) continue;
+            if ($defs::pk() !== 'id') continue;
+
             $table = $defs::table();
-
-            // sample data + zjisti sloupce
+            if (method_exists($defs, 'isRowLockSafe') && !$defs::isRowLockSafe()) continue;
             [$sample, $updatable] = RowFactory::makeSample($table);
-            if ($sample === null) continue; // povinný NOT NULL FK => přeskočit
+            if ($sample === null) continue; // povinné FK apod. – přeskoč
 
-            $cols = DbHarness::columns($table);
-            $hasId = false; $updCol = null;
-            foreach ($cols as $c) {
-                if ($c['name'] === 'id' && $c['is_identity']) $hasId = true;
-            }
-            if (!$hasId) continue;
-
-            // vyber nějaký běžný updatovatelný sloupec (ne id)
-            foreach ($cols as $c) {
-                if ($c['name'] === 'id' || $c['is_identity']) continue;
-                $updCol = $c['name']; break;
+            // vyber běžný updatovatelný sloupec z Definitions (≠ id, ≠ audit)
+            $bad    = ['id', 'created_at', 'updated_at', 'deleted_at', (string)$defs::versionColumn()];
+            $updCol = null;
+            foreach ((array)$defs::columns() as $name) {
+                $name = (string)$name;
+                if ($name === '' || in_array($name, $bad, true)) continue;
+                $updCol = $name; break;
             }
             if (!$updCol) continue;
 
@@ -60,20 +58,8 @@ final class RowLocksAndDeadlocksTest extends TestCase
 
     private function insertRow(\PDO $pdo): int
     {
-        [$row] = RowFactory::makeSample(self::$table);
-        // sestav INSERT
-        $cols = array_keys($row);
-        $ph   = array_map(fn($c)=>":$c", $cols);
-        $sql  = "INSERT INTO ".self::$table." (".implode(',', $cols).") VALUES (".implode(',', $ph).")";
-        $which = getenv('BC_DB') ?: 'mysql';
-        if ($which === 'postgres') { $sql .= " RETURNING id"; }
-        $stmt = $pdo->prepare($sql);
-        foreach ($row as $k=>$v) { $stmt->bindValue(":$k", $v); }
-        $stmt->execute();
-        if ($which === 'postgres') {
-            return (int)$stmt->fetchColumn();
-        }
-        return (int)$pdo->lastInsertId();
+        $ins = RowFactory::insertSample(self::$table);
+        return (int)$ins['pk'];
     }
 
     public function test_row_lock_wait_timeout_then_success_after_release(): void

@@ -54,7 +54,7 @@ class GenericCrudService
         // nebo máme fallback (viz upsert()).
     }
 
-    /** @return array{id:int|string|null} */
+    /** @return array{id:int|string|array|null} */
     public function create(array $row): array
     {
         return $this->txn(function () use ($row) {
@@ -76,7 +76,7 @@ class GenericCrudService
 
             if ($id !== null) {
                 // nově vytvořený řádek – případný stale cache pro jistotu pryč
-                $this->invalidatePk((string)$id);
+                $this->invalidatePk($id);
             }
             return ['id' => $id];
         });
@@ -125,7 +125,7 @@ class GenericCrudService
         $this->invalidateByPkIfPresent($row);
     }
 
-    public function updateById(int|string $id, array $row): int
+    public function updateById(int|string|array $id, array $row): int
     {
         $n = $this->txn(fn() => $this->repository->updateById($id, $row));
         $this->invalidatePk($id);
@@ -133,7 +133,7 @@ class GenericCrudService
     }
 
     /** Update s optimistic locking – očekává název verze v konstruktoru. */
-    public function updateByIdOptimistic(int|string $id, array $row, int $expectedVersion): int
+    public function updateByIdOptimistic(int|string|array $id, array $row, int $expectedVersion): int
     {
         if ($this->versionCol) {
             $row[$this->versionCol] = $expectedVersion;
@@ -142,36 +142,40 @@ class GenericCrudService
     }
 
     /** Update s automatickým retry (deadlock/serialization). */
-    public function updateByIdWithRetry(int|string $id, array $row, int $attempts = 3): int
+    public function updateByIdWithRetry(int|string|array $id, array $row, int $attempts = 3): int
     {
         return $this->retry($attempts, fn() => $this->updateById($id, $row));
     }
 
-    public function deleteById(int|string $id): int
+    public function deleteById(int|string|array $id): int
     {
         $n = $this->txn(fn() => $this->repository->deleteById($id));
         $this->invalidatePk($id);
         return $n;
     }
 
-    public function restoreById(int|string $id): int
+    public function restoreById(int|string|array $id): int
     {
         $n = $this->txn(fn() => $this->repository->restoreById($id));
         $this->invalidatePk($id);
         return $n;
     }
 
-    public function getById(int|string $id, int $ttl = 15): ?array
+    public function getById(int|string|array $id, int $ttl = 15): ?array
     {
         if (!$this->qcache || !$this->cacheNs) {
             return $this->repository->findById($id);
         }
-        $key = $this->idKey($this->cacheNs, (string)$id);
+        $key = $this->idKey($this->cacheNs, $this->idKeyFor($id));
         return $this->qcache->remember($key, $ttl, fn() => $this->repository->findById($id));
     }
 
-    public function existsById(int|string $id): bool
+    public function existsById(int|string|array $id): bool
     {
+        if (is_array($id)) {
+            // neutrální cesta pro composite PK, necháme na repo
+            return $this->repository->findById($id) !== null;
+        }
         return $this->repository->exists($this->pkCol . ' = :id', [':id' => $id]);
     }
 
@@ -185,7 +189,7 @@ class GenericCrudService
      * Spusť práci v jedné transakci s řádkovým zámkem (SELECT … FOR UPDATE).
      * $fn = function(array $lockedRow, Database $db): mixed
      */
-    public function withRowLock(int|string $id, callable $fn): mixed
+    public function withRowLock(int|string|array $id, callable $fn): mixed
     {
         return $this->txn(function () use ($id, $fn) {
             $row = $this->repository->lockById($id);
@@ -199,10 +203,10 @@ class GenericCrudService
     /** ------ interní/rozšiřitelné pomocníky ------ */
 
     /** Umožni potomkům čistit cache ručně. */
-    protected function invalidatePk(int|string $id): void
+    protected function invalidatePk(int|string|array $id): void
     {
         if (!$this->qcache || !$this->cacheNs) return;
-        $key = $this->idKey($this->cacheNs, (string)$id);
+        $key = $this->idKey($this->cacheNs, $this->idKeyFor($id));
 
         // best-effort invalidace (QueryCache + PSR-16, pokud je k dispozici)
         try { $this->qcache->remember($key, -1, fn() => null); } catch (\Throwable) {
@@ -218,7 +222,7 @@ class GenericCrudService
     protected function invalidateByPkIfPresent(array $row): void
     {
         if (array_key_exists($this->pkCol, $row)) {
-            $this->invalidatePk((string)$row[$this->pkCol]);
+            $this->invalidatePk($row[$this->pkCol]);
         }
     }
     public function insertMany(array $rows): void
@@ -232,5 +236,17 @@ class GenericCrudService
                 }
             }
         });
+    }
+
+    /** Deterministický klíč pro cache i pro složené PK. */
+    private function idKeyFor(mixed $id): string
+    {
+        if (is_array($id)) {
+            $norm = $id;
+            // asociativní pole → seřaď klíče, poziční nech v pořadí
+            if (array_keys($norm) !== range(0, count($norm) - 1)) { ksort($norm); }
+            return 'ck:' . hash('sha256', json_encode($norm, JSON_UNESCAPED_UNICODE));
+        }
+        return (string)$id;
     }
 }

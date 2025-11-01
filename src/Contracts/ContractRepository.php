@@ -59,35 +59,35 @@ interface ContractRepository
      * Má-li tabulka verzi pro optimistic locking, očekává, že
      * do $row můžeš poslat i aktuální hodnotu verze (na kterou se udělá podmínka).
      *
-     * @param int|string              $id
+     * @param int|string|array        $id  Složené PK: asociativní ['col'=>val,...] nebo poziční pole.
      * @param array<string,mixed>     $row
      * @return int počet změněných řádků
      */
-    public function updateById(int|string $id, array $row): int;
+    public function updateById(int|string|array $id, array $row): int;
 
     /**
      * Smaže řádek dle PK; pokud je povoleno soft-delete, provede soft-delete.
      *
-     * @param int|string $id
+     * @param int|string|array $id
      * @return int počet změněných/ovlivněných řádků
      */
-    public function deleteById(int|string $id): int;
+    public function deleteById(int|string|array $id): int;
 
     /**
      * Obnoví soft-smazaný řádek dle PK (pokud tabulka soft-delete podporuje).
      *
-     * @param int|string $id
+     * @param int|string|array $id
      * @return int počet změněných/ovlivněných řádků
      */
-    public function restoreById(int|string $id): int;
+    public function restoreById(int|string|array $id): int;
 
     /**
      * Najde řádek dle PK (respektuje soft-delete guard).
      *
-     * @param int|string $id
+     * @param int|string|array $id
      * @return array<string,mixed>|null
      */
-    public function findById(int|string $id): ?array;
+    public function findById(int|string|array $id): ?array;
 
     /**
      * Ověří existenci řádku dle WHERE.
@@ -119,8 +119,8 @@ interface ContractRepository
     /**
      * Přečte a zamkne řádek dle PK (SELECT … FOR UPDATE) pro transakční práci.
      *
-     * @param int|string $id
+     * @param int|string|array $id
      * @return array<string,mixed>|null
      */
-    public function lockById(int|string $id): ?array;
+    public function lockById(int|string|array $id): ?array;
 }

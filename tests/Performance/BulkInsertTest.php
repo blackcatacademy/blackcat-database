@@ -75,8 +75,18 @@ final class BulkInsertTest extends TestCase
                 unset($row['id']);
             }
 
-            // Zajisti unikátnost pro všechny unikátní sloupce (PK i ostatní)
+            // Z unikátních sloupců vynecháme ty „enum-like“, které by porušily CHECK (typicky 'type', případně 'status' apod.)
+            $skipForEnumLike = ['type','status','state','level'];
+
+            $toVary = [];
             foreach (array_keys($uniqueCols) as $col) {
+                if (in_array($col, $skipForEnumLike, true)) continue;
+                $toVary[] = $col;
+            }
+            // Kdyby náhodou všechny byly enum-like (velmi nepravděpodobné), spadneme na původní chování:
+            if (!$toVary) { $toVary = array_keys($uniqueCols); }
+
+            foreach ($toVary as $col) {
                 if (!array_key_exists($col, $row)) continue;
 
                 $val = $row[$col];
@@ -85,7 +95,6 @@ final class BulkInsertTest extends TestCase
                 } elseif (is_int($val)) {
                     $row[$col] = $val + $i + 1;
                 } else {
-                    // fallback: stringová reprezentace + suffix
                     $row[$col] = (string)$val . '-' . $i;
                 }
             }

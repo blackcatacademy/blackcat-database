@@ -7,6 +7,8 @@ use BlackCat\Database\Runtime;
 
 interface ActionInterface
 {
-    /** @return OperationResult */
+    /**
+     * @param array<string,mixed> $input
+     */
     public function __invoke(Runtime $rt, array $input): OperationResult;
 }

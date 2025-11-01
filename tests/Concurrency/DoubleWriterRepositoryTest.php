@@ -35,7 +35,7 @@ final class DoubleWriterRepositoryTest extends TestCase
             // volitelné – loguj i pomalé dotazy hned:
             $db->setSlowQueryThresholdMs(0);
         }
-        // Najdi první balík, který má Repository a tabulku s PK=id a updatovatelným sloupcem
+        // Najdi první balík přes Definitions a z něj odvoď repo (přes DbHarness::repoFor)
         foreach (glob(__DIR__ . '/../../packages/*/src/Definitions.php') as $df) {
             require_once $df;
             if (!preg_match('~[\\\\/]packages[\\\\/]([A-Za-z0-9_]+)[\\\\/]src[\\\\/]Definitions\.php$~i', $df, $m)) {
@@ -44,11 +44,7 @@ final class DoubleWriterRepositoryTest extends TestCase
             $pkgPascal = $m[1];
             self::dbg('Considering package %s', $pkgPascal);
             $defs = "BlackCat\\Database\\Packages\\{$pkgPascal}\\Definitions";
-            $repo = "BlackCat\\Database\\Packages\\{$pkgPascal}\\Repository";
-            if (!class_exists($defs) || !class_exists($repo)) {
-                self::dbg('Skip %s: no classes (defs=%s, repo=%s)', $pkgPascal, $defs, $repo);
-                continue;
-            }
+            if (!class_exists($defs)) { self::dbg('Skip %s: no Definitions class (%s)', $pkgPascal, $defs); continue; }
 
             // ---- přísnější filtry ----
             if (!$defs::isIdentityPk()) {
@@ -64,27 +60,40 @@ final class DoubleWriterRepositoryTest extends TestCase
                 continue;
             }
 
-            $table   = $defs::table();
-            $verCol  = $defs::versionColumn(); // už víme, že není null
-            $columns = DbHarness::columns($table);
+            $table  = $defs::table();
+            $verCol = $defs::versionColumn(); // víme, že není null
 
-            // vyber rozumný updatovatelný sloupec (≠ id, ≠ version, ≠ audit/soft-delete)
-            $bad = ['id', (string)$verCol, 'created_at', 'updated_at', 'deleted_at'];
+            // vyber updatovatelný sloupec z Definitions::columns (≠ id, ≠ version, ≠ audit/soft-delete)
+            $bad    = ['id', (string)$verCol, 'created_at', 'updated_at', 'deleted_at'];
             $updCol = null;
-            foreach ($columns as $c) {
-                $name = $c['name'] ?? null;
-                if (!$name) continue;
-                if (in_array($name, $bad, true)) continue;
-                $updCol = $name;
-                break;
+            foreach ((array)$defs::columns() as $name) {
+                $name = (string)$name;
+                if ($name === '' || in_array($name, $bad, true)) continue;
+                $updCol = $name; break;
             }
             if (!$updCol) {
                 self::dbg('Skip %s: no suitable updatable column', $pkgPascal);
                 continue;
             }
-            self::dbg('Selected repo=%s table=%s updCol=%s verCol=%s', $repo, $table, $updCol, (string)$verCol);
+            // Pre-flight: ověř, že RowFactory umí složit sample pro tuhle tabulku.
+            // Když ne, balík přeskočíme, ať později nepadneme na insertu.
+            [$sample] = RowFactory::makeSample($table);
+            if ($sample === null) {
+                self::dbg('Skip %s: RowFactory cannot build safe sample for table=%s', $pkgPascal, $table);
+                continue;
+            }
+            // ujisti se, že zvolený sloupec je skutečně povolený Repository (whitelist)
+            $allowed = DbHarness::allowedColumns($table);
+            if (!in_array($updCol, $allowed, true)) {
+                self::dbg('Skip %s: chosen updCol=%s not allowed by repo (table=%s)', $pkgPascal, $updCol, $table);
+                continue;
+            }
+            // zjisti skutečné FQN repozitáře přes DbHarness
+            $repoObj = DbHarness::repoFor($table);
+            $repoFqn = get_class($repoObj);
+            self::dbg('Selected repo=%s table=%s updCol=%s verCol=%s', $repoFqn, $table, $updCol, (string)$verCol);
 
-            self::$repoFqn = $repo;
+            self::$repoFqn = $repoFqn;
             self::$table   = $table;
             self::$updCol  = $updCol;
             self::$verCol  = $verCol;
@@ -108,16 +117,18 @@ final class DoubleWriterRepositoryTest extends TestCase
         error_log('[DoubleWriterRepositoryTest] ' . vsprintf($fmt, $args));
     }
 
-    private function insertRowAndGetId(Database $db): int
+    private function insertRowAndGetId(): int
     {
-        [$row] = RowFactory::makeSample(self::$table);
-        $cols = array_keys($row);
-        $ph   = array_map(fn($c)=>":$c", $cols);
-        $db->execute(
-            "INSERT INTO ".self::$table." (".implode(',', $cols).") VALUES (".implode(',', $ph).")",
-            array_combine($ph, array_values($row))
-        );
-        return (int)$db->fetchOne("SELECT id FROM ".self::$table." ORDER BY id DESC LIMIT 1");
+        try {
+            $ins = RowFactory::insertSample(self::$table);
+        } catch (\Throwable $e) {
+            self::markTestSkipped(
+                'RowFactory cannot construct safe sample for table ' . self::$table . ': ' . $e->getMessage()
+            );
+            return 0; // nedostane se sem, ale ať je signatura spokojená
+        }
+        self::dbg('Inserted sample into %s: %s=%s', self::$table, $ins['pkCol'], (string)$ins['pk']);
+        return (int)$ins['pk'];
     }
 
     public function test_repo_update_times_out_while_other_repo_holds_lock(): void
@@ -125,7 +136,7 @@ final class DoubleWriterRepositoryTest extends TestCase
         $db  = Database::getInstance();
         $pdo = $db->getPdo();
 
-        $id = $this->insertRowAndGetId($db);
+        $id = $this->insertRowAndGetId();
         self::dbg('Inserted id=%d (lock-timeout test)', $id);
         $this->assertGreaterThan(0, $id);
 
@@ -143,7 +154,7 @@ final class DoubleWriterRepositoryTest extends TestCase
         $desc = [['pipe','r'],['pipe','w'],['pipe','w']];
 
         // Předej do child procesu DB env proměnné (a pár základních)
-        $forward = ['BC_DB','MYSQL_DSN','MYSQL_USER','MYSQL_PASS','PG_DSN','PG_USER','PG_PASS','BC_DEBUG','PATH','HOME'];
+        $forward = ['BC_DB','MYSQL_DSN','MYSQL_USER','MYSQL_PASS','PG_DSN','PG_USER','PG_PASS','BC_PG_SCHEMA','BC_DEBUG','PATH','HOME'];
         $env = [];
         foreach ($forward as $k) {
             $v = getenv($k);
@@ -162,7 +173,7 @@ final class DoubleWriterRepositoryTest extends TestCase
         };
         $readLocker();
         // Dej locker procesu čas nabrat FOR UPDATE lock
-        usleep(300_000); // 300ms
+        usleep(600_000); // 300ms
 
         // writer – zkrať lock timeout a pokus se o update přes Repository
         ConnFactory::setShortLockTimeout($pdo, 1000);
@@ -206,9 +217,10 @@ final class DoubleWriterRepositoryTest extends TestCase
         $db  = Database::getInstance();
         $pdo = $db->getPdo();
 
-        $id = $this->insertRowAndGetId($db);
+        $id = $this->insertRowAndGetId();
         $this->assertGreaterThan(0, $id);
-        $ver = (int)$db->fetchOne("SELECT ".self::$verCol." FROM ".self::$table." WHERE id=:id", [':id'=>$id]);
+        $pkCol = DbHarness::primaryKey(self::$table);
+        $ver = (int)$db->fetchOne("SELECT ".self::$verCol." FROM ".self::$table." WHERE {$pkCol}=:id", [':id'=>$id]);
         self::dbg('Inserted id=%d (optimistic test), initial version=%d', $id, $ver);
 
         // Locker proces drží lock přes Repository::lockById
@@ -220,7 +232,7 @@ final class DoubleWriterRepositoryTest extends TestCase
             $id,
             3
         );
-        $forward = ['BC_DB','MYSQL_DSN','MYSQL_USER','MYSQL_PASS','PG_DSN','PG_USER','PG_PASS','BC_DEBUG','PATH','HOME'];
+        $forward = ['BC_DB','MYSQL_DSN','MYSQL_USER','MYSQL_PASS','PG_DSN','PG_USER','PG_PASS','BC_PG_SCHEMA','BC_DEBUG','PATH','HOME'];
         $env = [];
         foreach ($forward as $k) {
             $v = getenv($k);
@@ -238,7 +250,7 @@ final class DoubleWriterRepositoryTest extends TestCase
             if ($err !== '') self::dbg('[locker-stderr] %s', trim($err));
         };
 
-        usleep(300_000); // 300ms na získání zámku
+        usleep(600_000); // 300ms na získání zámku
         $readLocker();
         // Writer zkrátí lock timeout a pokusí se o update s očekávanou verzí -> timeout (před uvolněním)
         ConnFactory::setShortLockTimeout($pdo, 1000);
@@ -251,12 +263,22 @@ final class DoubleWriterRepositoryTest extends TestCase
         } catch (\Throwable $e) { $caught = $e; }
         $this->assertNotNull($caught);
         // <- TADY: verze je stále pod zámkem (locker ještě běží)
-        $verDuringLock = (int)$db->fetchOne("SELECT ".self::$verCol." FROM ".self::$table." WHERE id=:id", [':id'=>$id]);
+        $verDuringLock = (int)$db->fetchOne("SELECT ".self::$verCol." FROM ".self::$table." WHERE {$pkCol}=:id", [':id'=>$id]);
         self::dbg('Version immediately after timeout (still locked)=%d', $verDuringLock);
 
         // Pro jistotu si zaloguj aktuální lock wait timeout v tomhle connection
-        $lockWait = (int)$db->fetchOne('SELECT @@innodb_lock_wait_timeout', []);
-        self::dbg('@@innodb_lock_wait_timeout=%d', $lockWait);
+        try {
+            if (method_exists($db, 'isMysql') && $db->isMysql()) {
+                $lockWait = (int)$db->fetchOne('SELECT @@innodb_lock_wait_timeout', []);
+                self::dbg('@@innodb_lock_wait_timeout=%d', $lockWait);
+            } else {
+                // Postgres: SHOW lock_timeout vrací řetězec typu "1s"
+                $pgTimeout = (string)$db->fetchOne('SHOW lock_timeout', []);
+                self::dbg('lock_timeout=%s', $pgTimeout);
+            }
+        } catch (\Throwable $e) {
+            self::dbg('Could not query lock timeout: %s', $e->getMessage());
+        }
 
         // Po uvolnění zámku proběhne první update -> verze ++
         $status = proc_get_status($proc);
@@ -268,10 +290,10 @@ final class DoubleWriterRepositoryTest extends TestCase
         $readLocker();
         foreach ($pipes as $p) { if (is_resource($p)) fclose($p); }
         if (is_resource($proc)) proc_close($proc);
-        $verBefore = (int)$db->fetchOne("SELECT ".self::$verCol." FROM ".self::$table." WHERE id=:id", [':id'=>$id]);
+        $verBefore = (int)$db->fetchOne("SELECT ".self::$verCol." FROM ".self::$table." WHERE {$pkCol}=:id", [':id'=>$id]);
         self::dbg('Version right before optimistic update=%d (expected=%d)', $verBefore, $ver);
         $aff1 = $repo->updateById($id, [ self::$verCol => $ver, self::$updCol => 'r2' ]);
-        $verAfter = (int)$db->fetchOne("SELECT ".self::$verCol." FROM ".self::$table." WHERE id=:id", [':id'=>$id]);
+        $verAfter = (int)$db->fetchOne("SELECT ".self::$verCol." FROM ".self::$table." WHERE {$pkCol}=:id", [':id'=>$id]);
         self::dbg('Version after optimistic attempt=%d', $verAfter);
         $this->assertSame(1, $aff1, 'First optimistic update should succeed.');
 

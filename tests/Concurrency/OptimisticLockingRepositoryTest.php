@@ -23,33 +23,36 @@ final class OptimisticLockingRepositoryTest extends TestCase
     {
         DbHarness::ensureInstalled();
 
-        // najdi první balíček s versionColumn()
+        // najdi první balíček s versionColumn() a odvoď repo přes DbHarness
         foreach (glob(__DIR__ . '/../../packages/*/src/Definitions.php') as $df) {
             require_once $df;
             if (!preg_match('~[\\\\/]packages[\\\\/]([A-Za-z0-9_]+)[\\\\/]src[\\\\/]Definitions\.php$~i', $df, $m)) continue;
             $ns = $m[1];
             $defs = "BlackCat\\Database\\Packages\\{$ns}\\Definitions";
-            $repo = "BlackCat\\Database\\Packages\\{$ns}\\Repository";
-            if (!class_exists($defs) || !class_exists($repo)) continue;
+            if (!class_exists($defs)) continue;
 
             $ver = $defs::versionColumn();
             if (!$ver) continue;
 
             $table = $defs::table();
-            [$row, $upd] = RowFactory::makeSample($table);
+            $repoFqn = self::resolveRepoFqn($ns, $defs);
+            if (!$repoFqn) continue;
+
+            [$row] = RowFactory::makeSample($table);
             if ($row === null) continue;
 
-            // najdi updatovatelný sloupec odlišný od version
+            // najdi updatovatelný sloupec z Definitions::columns() (≠ PK, ≠ version, ≠ audit)
+            $bad    = [$defs::pk(), (string)$ver, 'created_at', 'updated_at', 'deleted_at'];
             $updCol = null;
-            foreach (DbHarness::columns($table) as $c) {
-                if ($c['name'] === 'id' || $c['is_identity']) continue;
-                if ($c['name'] === $ver) continue;
-                $updCol = $c['name']; break;
+            foreach ((array)$defs::columns() as $name) {
+                $name = (string)$name;
+                if ($name === '' || in_array($name, $bad, true)) continue;
+                $updCol = $name; break;
             }
             if (!$updCol) continue;
 
             self::$table = $table;
-            self::$repoFqn = $repo;
+            self::$repoFqn = get_class(DbHarness::repoFor($table));
             self::$verCol = $ver;
             self::$updCol = $updCol;
             break;
@@ -57,6 +60,41 @@ final class OptimisticLockingRepositoryTest extends TestCase
         if (!self::$table) {
             self::markTestSkipped('No table with versionColumn() found.');
         }
+    }
+
+    private static function resolveRepoFqn(string $pkgPascal, string $defsFqn): ?string
+    {
+        try { $table = $defsFqn::table(); } catch (\Throwable) { return null; }
+        $entityPascal = self::toPascalCase(self::singularize($table));
+        $cand = "BlackCat\\Database\\Packages\\{$pkgPascal}\\Repository\\{$entityPascal}Repository";
+        if (class_exists($cand)) { return $cand; }
+
+        $dir = __DIR__ . "/../../packages/{$pkgPascal}/src/Repository";
+        foreach (glob($dir . '/*Repository.php') ?: [] as $file) {
+            $base = basename($file, '.php');
+            $fqn  = "BlackCat\\Database\\Packages\\{$pkgPascal}\\Repository\\{$base}";
+            if (class_exists($fqn)) { return $fqn; }
+            require_once $file;
+            if (class_exists($fqn)) { return $fqn; }
+        }
+        return null;
+    }
+
+    private static function singularize(string $word): string
+    {
+        if (preg_match('~ies$~i', $word))   return preg_replace('~ies$~i', 'y', $word);
+        if (preg_match('~sses$~i', $word))  return preg_replace('~es$~i',  '',  $word);
+        if (preg_match('~s$~i', $word) && !preg_match('~(news|status)$~i', $word)) {
+            return substr($word, 0, -1);
+        }
+        return $word;
+    }
+
+    private static function toPascalCase(string $snakeOrKebab): string
+    {
+        $parts = preg_split('~[_\-]+~', $snakeOrKebab) ?: [];
+        $parts = array_map(fn($p) => $p === '' ? $p : (mb_strtoupper(mb_substr($p,0,1)).mb_strtolower(mb_substr($p,1))), $parts);
+        return implode('', $parts);
     }
 
     public function test_optimistic_locking_succeeds_then_fails_with_stale_version(): void
@@ -67,16 +105,12 @@ final class OptimisticLockingRepositoryTest extends TestCase
         DbHarness::begin();
         try {
             // vlož řádek (přes čisté SQL – Repository insert by taky šel)
-            [$row] = RowFactory::makeSample(self::$table);
-            $cols = array_keys($row);
-            $ph   = array_map(fn($c)=>":$c", $cols);
-            $db->execute("INSERT INTO ".self::$table." (".implode(',', $cols).") VALUES (".implode(',', $ph).")",
-                array_combine($ph, array_values($row)));
+            $ins   = RowFactory::insertSample(self::$table);
+            $pkCol = DbHarness::primaryKey(self::$table);
+            $id    = $ins['pk'];
+            $this->assertNotEmpty($id);
 
-            $id = (int)$db->fetchOne("SELECT id FROM ".self::$table." ORDER BY id DESC LIMIT 1");
-            $this->assertGreaterThan(0, $id);
-
-            $ver = (int)($db->fetchOne("SELECT ".self::$verCol." FROM ".self::$table." WHERE id = :id", [':id'=>$id]) ?? 0);
+            $ver = (int)($db->fetchOne("SELECT ".self::$verCol." FROM ".self::$table." WHERE {$pkCol} = :id", [':id'=>$id]) ?? 0);
 
             // 1) korektní update s očekávanou verzí
             $aff = $repo->updateById($id, [ self::$verCol => $ver, self::$updCol => 'x1' ]);

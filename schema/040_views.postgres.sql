@@ -5,12 +5,13 @@ CREATE OR REPLACE VIEW vw_app_settings AS
 SELECT
   setting_key,
   CASE WHEN "type" = 'secret' OR is_protected THEN NULL ELSE setting_value END AS setting_value,
-  (setting_value IS NOT NULL) AS has_value,
+  CASE WHEN app_settings.setting_value IS NOT NULL THEN 1 ELSE 0 END AS has_value,
   "type",
   section,
   description,
   is_protected,
   updated_at,
+  version,
   updated_by
 FROM app_settings;
 
@@ -64,6 +65,7 @@ SELECT
   last_rating_at,
   created_at,
   updated_at,
+  version,
   deleted_at
 FROM authors;
 
@@ -86,7 +88,11 @@ SELECT
   encryption_meta,
   key_version,
   key_id,
-  created_at
+  created_at,
+  encode(encryption_key_enc, 'hex') AS encryption_key_enc_hex,
+  encode(encryption_iv,  'hex')     AS encryption_iv_hex,
+  encode(encryption_tag, 'hex')     AS encryption_tag_hex,
+  encode(encryption_aad, 'hex')     AS encryption_aad_hex
 FROM book_assets;
 
 -- === book_categories ===
@@ -120,9 +126,10 @@ SELECT
   is_active,
   is_available,
   stock_quantity,
-  (is_active AND is_available AND (stock_quantity IS NULL OR stock_quantity > 0)) AS is_saleable,
+  CASE WHEN (is_active AND is_available AND (stock_quantity IS NULL OR stock_quantity > 0)) THEN 1 ELSE 0 END AS is_saleable,
   created_at,
   updated_at,
+  version,
   deleted_at
 FROM books;
 
@@ -148,8 +155,10 @@ CREATE OR REPLACE VIEW vw_carts AS
 SELECT
   id,
   user_id,
+  note,
   created_at,
-  updated_at
+  updated_at,
+  version
 FROM carts;
 
 -- === categories ===
@@ -162,6 +171,7 @@ SELECT
   parent_id,
   created_at,
   updated_at,
+  version,
   deleted_at
 FROM categories;
 
@@ -201,7 +211,7 @@ SELECT
   min_order_amount,
   applies_to,
   is_active,
-  (is_active AND now() >= starts_at AND (ends_at IS NULL OR now() <= ends_at)) AS is_current,
+  CASE WHEN (is_active AND (starts_at IS NULL OR now() >= starts_at) AND (ends_at IS NULL OR now() <= ends_at)) THEN 1 ELSE 0 END AS is_current,
   created_at,
   updated_at
 FROM coupons;
@@ -231,7 +241,8 @@ SELECT
   activated_at,
   retired_at,
   replaced_by,
-  notes
+  notes,
+  encode(backup_blob, 'hex') AS backup_blob_hex
 FROM crypto_keys;
 
 -- === email_verifications ===
@@ -245,7 +256,8 @@ SELECT
   key_version,
   expires_at,
   created_at,
-  used_at
+  used_at,
+  encode(validator_hash, 'hex') AS validator_hash_hex
 FROM email_verifications;
 
 -- === encrypted_fields ===
@@ -259,7 +271,8 @@ SELECT
   field_name,
   meta,
   created_at,
-  updated_at
+  updated_at,
+  encode(ciphertext, 'hex') AS ciphertext_hex
 FROM encrypted_fields;
 
 -- === encryption_events ===
@@ -300,13 +313,14 @@ FROM encryption_policies;
 CREATE OR REPLACE VIEW vw_idempotency_keys AS
 SELECT
   key_hash,
+  encode(key_hash, 'hex') AS key_hash_hex,
   payment_id,
   order_id,
   redirect_url,
   created_at,
   ttl_seconds,
   (created_at + make_interval(secs => ttl_seconds)) AS expires_at,
-  ((created_at + make_interval(secs => ttl_seconds)) < now()) AS is_expired
+  CASE WHEN (ttl_seconds IS NOT NULL AND created_at IS NOT NULL AND (created_at + make_interval(secs => ttl_seconds)) <= now()) THEN 1 ELSE 0 END AS is_expired
 FROM idempotency_keys;
 
 -- === inventory_reservations ===
@@ -319,9 +333,10 @@ SELECT
   book_id,
   quantity,
   reserved_until,
-  (now() > reserved_until) AS is_expired,
+  CASE WHEN now() > reserved_until THEN 1 ELSE 0 END AS is_expired,
   status,
-  created_at
+  created_at,
+  version
 FROM inventory_reservations;
 
 -- === invoice_items ===
@@ -373,6 +388,7 @@ SELECT
   type,
   scopes,
   created_at,
+  version,
   expires_at,
   last_used_at,
   ip_hash,
@@ -380,7 +396,8 @@ SELECT
   ip_hash_key_version,
   replaced_by,
   revoked,
-  meta
+  meta,
+  encode(token_hash, 'hex') AS token_hash_hex
 FROM jwt_tokens;
 
 -- === key_events ===
@@ -497,7 +514,9 @@ SELECT
   ip_hash_key_version,
   meta,
   created_at,
-  updated_at
+  updated_at,
+  version,
+  encode(email_enc, 'hex') AS email_enc_hex
 FROM newsletter_subscribers;
 
 -- === notifications ===
@@ -519,11 +538,12 @@ SELECT
   error,
   last_attempt_at,
   locked_until,
-  (locked_until IS NOT NULL AND locked_until > now()) AS is_locked,
+  CASE WHEN (locked_until IS NOT NULL AND locked_until > now()) THEN 1 ELSE 0 END AS is_locked,
   locked_by,
   priority,
   created_at,
-  updated_at
+  updated_at,
+  version
 FROM notifications;
 
 -- === order_item_downloads ===
@@ -539,13 +559,15 @@ SELECT
   key_version,
   max_uses,
   used,
-  GREATEST(max_uses - used, 0) AS uses_left,
-  (used < max_uses AND (expires_at IS NULL OR expires_at > now())) AS is_valid,
+  GREATEST(0, COALESCE(max_uses,0) - COALESCE(used,0)) AS uses_left,
+  CASE WHEN (GREATEST(0, COALESCE(max_uses,0) - COALESCE(used,0)) > 0
+        AND (expires_at IS NULL OR expires_at > now())) THEN 1 ELSE 0 END AS is_valid,
   expires_at,
   last_used_at,
   ip_hash,
   encode(ip_hash, 'hex') AS ip_hash_hex,
-  ip_hash_key_version
+  ip_hash_key_version,
+  encode(download_token_hash, 'hex') AS download_token_hash_hex
 FROM order_item_downloads;
 
 -- === order_items ===
@@ -573,11 +595,13 @@ SELECT
   id,
   uuid,
   uuid::text AS uuid_text,
-  replace(uuid::text, '-','') AS uuid_hex,
+  upper(replace(uuid::text, '-','')) AS uuid_hex,
+  encode(uuid_bin, 'hex') AS uuid_bin_hex,
   public_order_no,
   user_id,
   status,
   encrypted_customer_blob_key_version,
+  encode(encrypted_customer_blob, 'hex') AS encrypted_customer_blob_hex,
   encryption_meta,
   currency,
   metadata,
@@ -587,7 +611,8 @@ SELECT
   total,
   payment_method,
   created_at,
-  updated_at
+  updated_at,
+  version
 FROM orders;
 
 -- === payment_gateway_notifications ===
@@ -597,6 +622,7 @@ SELECT
   id,
   transaction_id,
   received_at,
+  version,
   processing_by,
   processing_until,
   attempts,
@@ -623,7 +649,7 @@ SELECT
   payment_id,
   gateway_event_id,
   payload_hash,
-  (payload IS NOT NULL) AS has_payload,
+  CASE WHEN payload IS NOT NULL THEN 1 ELSE 0 END AS has_payload,
   from_cache,
   created_at
 FROM payment_webhooks;
@@ -643,7 +669,8 @@ SELECT
   currency,
   details,
   created_at,
-  updated_at
+  updated_at,
+  version
 FROM payments;
 
 -- === permissions ===
@@ -708,7 +735,7 @@ SELECT
   review_text,
   created_at,
   updated_at,
-  (updated_at IS NOT NULL) AS is_edited
+  CASE WHEN updated_at IS NOT NULL THEN 1 ELSE 0 END AS is_edited
 FROM reviews;
 
 -- === session_audit ===
@@ -745,16 +772,19 @@ SELECT
   token_issued_at,
   user_id,
   created_at,
+  version,
   last_seen_at,
   expires_at,
-  (NOT revoked AND (expires_at IS NULL OR expires_at > now())) AS is_active,
+  CASE WHEN (NOT revoked AND (expires_at IS NULL OR expires_at > now())) THEN 1 ELSE 0 END AS is_active,
   failed_decrypt_count,
   last_failed_decrypt_at,
   revoked,
   ip_hash,
   encode(ip_hash, 'hex') AS ip_hash_hex,
   ip_hash_key_version,
-  user_agent
+  user_agent,
+  encode(token_hash,  'hex') AS token_hash_hex,
+  encode(session_blob,'hex') AS session_blob_hex
 FROM sessions;
 
 -- === system_errors ===
@@ -768,6 +798,7 @@ SELECT
   exception_class,
   file,
   line,
+  context,
   fingerprint,
   occurrences,
   user_id,
@@ -786,8 +817,7 @@ SELECT
   resolved_by,
   resolved_at,
   created_at,
-  last_seen,
-  context
+  last_seen
 FROM system_errors;
 
 -- === system_jobs ===
@@ -804,7 +834,8 @@ SELECT
   finished_at,
   error,
   created_at,
-  updated_at
+  updated_at,
+  version
 FROM system_jobs;
 
 -- === tax_rates ===
@@ -829,7 +860,10 @@ SELECT
   hotp_counter,
   enabled,
   created_at,
-  last_used_at
+  version,
+  last_used_at,
+  encode(secret, 'hex')            AS secret_hex,
+  encode(recovery_codes_enc, 'hex') AS recovery_codes_enc_hex
 FROM two_factor;
 
 -- === user_consents ===
@@ -866,7 +900,9 @@ SELECT
   user_id,
   key_version,
   encryption_meta,
-  updated_at
+  updated_at,
+  version,
+  encode(profile_enc, 'hex') AS profile_enc_hex
 FROM user_profiles;
 
 -- === users ===
@@ -888,6 +924,7 @@ SELECT
   last_login_ip_key_version,
   created_at,
   updated_at,
+  version,
   deleted_at,
   actor_role
 FROM users;
@@ -902,7 +939,7 @@ SELECT
   country_iso2,
   valid,
   checked_at,
-  (checked_at > now() - interval '30 days') AS is_fresh
+  CASE WHEN checked_at > now() - interval '30 days' THEN 1 ELSE 0 END AS is_fresh
 FROM vat_validations;
 
 -- === verify_events ===
@@ -931,7 +968,8 @@ SELECT
   retries,
   next_attempt_at,
   created_at,
-  updated_at
+  updated_at,
+  version
 FROM webhook_outbox;
 
 -- === worker_locks ===

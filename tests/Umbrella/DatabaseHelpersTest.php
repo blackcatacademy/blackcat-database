@@ -72,10 +72,10 @@ final class DatabaseHelpersTest extends TestCase
         }
 
         $base = "SELECT * FROM kpag";
-        $page1 = $db->paginateKeyset($base, [], 'id', null, 10);
+        $page1 = $db->paginateKeyset($base, [], 'id', 'id', null, 10);
         $this->assertCount(10, $page1['items']);
 
-        $page2 = $db->paginateKeyset($base, [], 'id', $page1['nextAfter'], 10);
+        $page2 = $db->paginateKeyset($base, [], 'id', 'id', $page1['nextAfter'], 10);
         $this->assertCount(10, $page2['items']);
         $this->assertLessThan($page1['nextAfter'], $page2['nextAfter'] ?? 999999);
     }

@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS app_settings (
   setting_key VARCHAR(100) PRIMARY KEY,
   setting_value TEXT NULL,
-  type ENUM('string','int','bool','json','secret') NOT NULL,
+  `type` ENUM('string','int','bool','json','secret') NOT NULL,
   section VARCHAR(100) NULL,
   description TEXT NULL,
   is_protected BOOLEAN NOT NULL DEFAULT FALSE,
@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE TABLE IF NOT EXISTS auth_events (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT UNSIGNED NULL,
-  type ENUM('login_success','login_failure','logout','password_reset','lockout') NOT NULL,
+  `type` ENUM('login_success','login_failure','logout','password_reset','lockout') NOT NULL,
   ip_hash BINARY(32) NULL,
   ip_hash_key_version VARCHAR(64) NULL,
   user_agent VARCHAR(1024) NULL,
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS auth_events (
   INDEX idx_auth_meta_email (meta_email),
   INDEX idx_auth_user (user_id),
   INDEX idx_auth_time (occurred_at),
-  INDEX idx_auth_type_time (type, occurred_at),
+  INDEX idx_auth_type_time (`type`, occurred_at),
   INDEX idx_auth_ip_hash (ip_hash)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -150,6 +150,7 @@ CREATE TABLE IF NOT EXISTS cart_items (
 CREATE TABLE IF NOT EXISTS carts (
   id CHAR(36) PRIMARY KEY,
   user_id BIGINT UNSIGNED NULL,
+  note VARCHAR(200) NULL,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
   version INT UNSIGNED NOT NULL DEFAULT 0
@@ -189,7 +190,7 @@ CREATE TABLE IF NOT EXISTS coupon_redemptions (
 CREATE TABLE IF NOT EXISTS coupons (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   code VARCHAR(100) NOT NULL UNIQUE,
-  type ENUM('percent','fixed') NOT NULL,
+  `type` ENUM('percent','fixed') NOT NULL,
   value DECIMAL(12,2) NOT NULL,
   currency CHAR(3) NULL,
   starts_at DATE NOT NULL,
@@ -201,8 +202,8 @@ CREATE TABLE IF NOT EXISTS coupons (
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
   CONSTRAINT chk_coupon_percent_fixed CHECK (
-    (type='percent' AND value BETWEEN 0 AND 100 AND currency IS NULL)
-    OR (type='fixed' AND value >= 0 AND (currency REGEXP '^[A-Z]{3}$')))
+    (`type`='percent' AND value BETWEEN 0 AND 100 AND currency IS NULL)
+    OR (`type`='fixed' AND value >= 0 AND (currency REGEXP '^[A-Z]{3}$')))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- === crypto_keys ===
@@ -364,7 +365,7 @@ CREATE TABLE IF NOT EXISTS jwt_tokens (
   token_hash BINARY(32) NOT NULL,
   token_hash_algo VARCHAR(50) NULL,
   token_hash_key_version VARCHAR(64) NULL,
-  type ENUM('refresh','api') NOT NULL DEFAULT 'refresh',
+  `type` ENUM('refresh','api') NOT NULL DEFAULT 'refresh',
   scopes VARCHAR(255) NULL,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   version INT UNSIGNED NOT NULL DEFAULT 0,
@@ -676,7 +677,7 @@ CREATE TABLE IF NOT EXISTS refunds (
 CREATE TABLE IF NOT EXISTS register_events (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT UNSIGNED NULL,
-  type ENUM('register_success','register_failure') NOT NULL,
+  `type` ENUM('register_success','register_failure') NOT NULL,
   ip_hash BINARY(32) NULL,
   ip_hash_key_version VARCHAR(64) NULL,
   user_agent VARCHAR(1024) NULL,
@@ -684,7 +685,7 @@ CREATE TABLE IF NOT EXISTS register_events (
   meta JSON NULL,
   INDEX idx_reg_user (user_id),
   INDEX idx_reg_time (occurred_at),
-  INDEX idx_reg_type_time (type, occurred_at),
+  INDEX idx_reg_type_time (`type`, occurred_at),
   INDEX idx_reg_ip (ip_hash)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -709,7 +710,7 @@ CREATE TABLE IF NOT EXISTS session_audit (
   session_token_key_version VARCHAR(64) NULL,
   csrf_key_version VARCHAR(64) NULL,
   session_id VARCHAR(128) NULL,
-  event VARCHAR(64) NOT NULL,
+  `event` VARCHAR(64) NOT NULL,
   user_id BIGINT UNSIGNED NULL,
   ip_hash BINARY(32) NULL,
   ip_hash_key_version VARCHAR(64) NULL,
@@ -721,11 +722,11 @@ CREATE TABLE IF NOT EXISTS session_audit (
   INDEX idx_session_audit_session_id (session_id),
   INDEX idx_session_audit_user_id (user_id),
   INDEX idx_session_audit_created_at (created_at),
-  INDEX idx_session_audit_event (event),
+  INDEX idx_session_audit_event (`event`),
   INDEX idx_session_audit_ip_hash (ip_hash),
   INDEX idx_session_audit_ip_key (ip_hash_key_version),
-  INDEX idx_session_audit_event_time (event, created_at),
-  INDEX idx_session_audit_user_event_time (user_id, event, created_at),
+  INDEX idx_session_audit_event_time (`event`, created_at),
+  INDEX idx_session_audit_user_event_time (user_id, `event`, created_at),
   INDEX idx_session_audit_token_time (session_token, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
 
@@ -776,7 +777,7 @@ CREATE TABLE IF NOT EXISTS system_errors (
   ip_bin VARBINARY(16) NULL,
   user_agent VARCHAR(1024) NULL,
   url VARCHAR(2048) NULL,
-  method VARCHAR(10) NULL,
+  `method` VARCHAR(10) NULL,
   http_status SMALLINT UNSIGNED NULL,
   resolved BOOLEAN NOT NULL DEFAULT 0,
   resolved_by BIGINT UNSIGNED NULL,
@@ -821,7 +822,7 @@ CREATE TABLE IF NOT EXISTS tax_rates (
 -- === two_factor ===
 CREATE TABLE IF NOT EXISTS two_factor (
   user_id BIGINT UNSIGNED NOT NULL,
-  method VARCHAR(50) NOT NULL,
+  `method` VARCHAR(50) NOT NULL,
   secret VARBINARY(255) NULL,
   recovery_codes_enc LONGBLOB NULL,
   hotp_counter BIGINT UNSIGNED NULL,
@@ -829,7 +830,7 @@ CREATE TABLE IF NOT EXISTS two_factor (
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   version INT UNSIGNED NOT NULL DEFAULT 0,
   last_used_at DATETIME(6) NULL,
-  PRIMARY KEY (user_id, method)
+  PRIMARY KEY (user_id, `method`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- === user_consents ===
@@ -907,7 +908,7 @@ CREATE TABLE IF NOT EXISTS vat_validations (
 CREATE TABLE IF NOT EXISTS verify_events (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT UNSIGNED NULL,
-  type ENUM('verify_success','verify_failure') NOT NULL,
+  `type` ENUM('verify_success','verify_failure') NOT NULL,
   ip_hash BINARY(32) NULL,
   ip_hash_key_version VARCHAR(64) NULL,
   user_agent VARCHAR(1024) NULL,
@@ -915,7 +916,7 @@ CREATE TABLE IF NOT EXISTS verify_events (
   meta JSON NULL,
   INDEX idx_ver_user (user_id),
   INDEX idx_ver_time (occurred_at),
-  INDEX idx_ver_type_time (type, occurred_at),
+  INDEX idx_ver_type_time (`type`, occurred_at),
   INDEX idx_ver_ip (ip_hash)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

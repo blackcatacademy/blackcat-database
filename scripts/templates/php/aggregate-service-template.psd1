@@ -33,7 +33,7 @@ final class [[SERVICE_CLASS]]
     private function runInTransaction(callable $fn): mixed
     {
         if (method_exists($this->db, 'transaction')) {
-            return $this->db->transaction($fn);
+            return $this->db->transaction(fn() => $fn($this->db));
         }
 
         $hasTxApi = method_exists($this->db, 'beginTransaction')
@@ -86,7 +86,7 @@ final class [[SERVICE_CLASS]]
             } catch (\Throwable $e) {
                 $attempt++;
                 $sig   = strtolower($e->getMessage());
-                $state = ($e instanceof \PDOException) ? (string)($e->errorInfo[0] ?? '') : '';
+                $state = ($e instanceof \PDOException) ? strtolower((string)($e->errorInfo[0] ?? '')) : '';
                 $code  = ($e instanceof \PDOException) ? (int)($e->errorInfo[1] ?? 0) : 0;
 
                 $isPgDeadlock  = in_array($state, ['40001','40p01'], true);
@@ -108,7 +108,7 @@ final class [[SERVICE_CLASS]]
      * Zamkni řádek (FOR UPDATE) a proveď práci uvnitř téže transakce.
      * $fetch je callable(array $row, Database $db): mixed
      */
-    protected function withLock(callable $locker, int|string $id, callable $fetch): mixed
+    protected function withLock(callable $locker, int|string|array $id, callable $fetch): mixed
     {
         return $this->runInTransaction(function () use ($locker, $id, $fetch) {
             $row = $locker($id); // očekává se $repo->lockById($id)

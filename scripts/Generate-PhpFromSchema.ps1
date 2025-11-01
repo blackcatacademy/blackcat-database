@@ -8,32 +8,225 @@ param(
   [Parameter(Mandatory=$true)]
   [string]$TemplatesRoot,                     # ./templates/php (obsahuje *.psd1 šablony)
 
-  [string]$ModulesRoot = "./modules",         # kořen submodulů; pro tabulku 'users' => ./modules/Users
+  [string]$ModulesRoot = "./packages",        # kořen submodulů; pro tabulku 'users' => ./packages/users
   [ValidateSet('detect','snake','kebab','pascal')]
-  [string]$NameResolution = 'detect',   # jak hledat cílový balíček (složku)
-  [switch]$StrictSubmodules,            # vyžaduj, aby cíl byl zapsaný v .gitmodules
+  [string]$NameResolution = 'kebab',          # výchozí jen kebab
+  [switch]$StrictSubmodules,                  # vyžaduj, aby cíl byl zapsán v .gitmodules
 
   [string]$BaseNamespace = "BlackCat\Database\Packages", # základ pro NAMESPACE token
   [string]$DatabaseFQN = "BlackCat\Core\Database",
   [string]$Timezone = "UTC",
-
+  # Views (volitelné) – když nenecháš, autodetekuje se views-map-*.psd1 pod $ViewsDir/$SchemaDir
+  [string]$ViewsPath,
+  [string]$ViewsDir = "./schema",
+  [switch]$FailOnViewDrift,                   # když nepředáš, skript stejně failne na drift (viz níže)
   [switch]$Force,
   [switch]$WhatIf,
-  [switch]$AllowUnresolved,                     # pokud máš rozpracované šablony, můžeš dočasně povolit nedořešené tokeny
-  [switch]$JoinAsInner,                         # (legacy) alias pro JoinPolicy 'all'
-  [switch]$JoinAsInnerStrict,                   # (legacy) alias pro JoinPolicy 'any'
+  [switch]$AllowUnresolved,                   # pokud máš rozpracované šablony, můžeš dočasně povolit nedořešené tokeny
+  [switch]$JoinAsInner,                       # (legacy) alias pro JoinPolicy 'all'
+  [switch]$JoinAsInnerStrict,                 # (legacy) alias pro JoinPolicy 'any'
   [ValidateSet('left','all','any')]
-  [string]$JoinPolicy = 'left'                  # explicitní politika JOINů pro FK (left|all|any)
+  [string]$JoinPolicy = 'left',               # explicitní politika JOINů pro FK (left|all|any)
+
+  # === NOVÉ: tvrdý režim a kontrola „zastaralých“ vzorů ===
+  [switch]$TreatWarningsAsErrors,             # varování = chyba (non-zero exit)
+  [switch]$FailOnStale,                       # po generování projede repo a spadne na „stale“ vzorech
+  [string[]]$StalePatterns = @(
+    '(?i)""\s*\.\s*\$order',                  # prázdné "" + tečka + $order (typické lepení)
+    '(?i)"\s*ORDER\s*(BY)?\s*"\s*\.\s*\$order',
+    '(?i)\(\s*\$order\s*\?\s*"?\s*ORDER\s*(BY)?\s*"?\s*\.\s*\$order'
+  )
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+# --- Warning counter ---
+$script:WarnCount = 0
+function Write-Warning {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory, Position=0, ValueFromPipeline)]
+    [string]$Message
+  )
+  $script:WarnCount++
+  Microsoft.PowerShell.Utility\Write-Warning @PSBoundParameters
+}
+# --- Fail policy helpers (nové) ---
+function Test-StaleRepo {
+  param([string]$Root)
+  $hits = @()
+  $pkg  = Join-Path $Root 'packages'
+  $files = Get-ChildItem -Path $pkg -Filter *.php -File -Recurse -ErrorAction SilentlyContinue
+  foreach ($p in $StalePatterns) {
+    if ($files) {
+      $hits += Select-String -Path $files.FullName -Pattern $p -AllMatches -ErrorAction SilentlyContinue
+    }
+  }
+  ,$hits
+}
+
+function Stop-IfNeeded {
+  param([string]$RepoRoot)
+  Write-Host ("Warnings emitted: {0}" -f $script:WarnCount) -ForegroundColor Yellow
+
+  if ($TreatWarningsAsErrors -and $script:WarnCount -gt 0) {
+    throw "Failing due to $($script:WarnCount) warning(s) (TreatWarningsAsErrors)."
+  }
+
+  if ($FailOnStale) {
+    $stale = Test-StaleRepo -Root $RepoRoot
+    if ($stale.Count -gt 0) {
+      $preview = $stale |
+        Select-Object -First 8 |
+        ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" } |
+        Out-String
+      throw "Stale code patterns detected:`n$preview`n(Hits total: $($stale.Count))."
+    }
+  }
+}
 
 # -----------------------
 # Helpers
 # -----------------------
+function Split-ByCommaOutsideParens([string]$s) {
+  $out=@(); $buf=''; $depth=0; $q=$null
+  for ($i=0; $i -lt $s.Length; $i++) {
+    $ch = $s[$i]
+    if ($q) {                      # uvnitř uvozovek
+      $buf += $ch
+      if ($ch -eq $q) { $q=$null }
+      continue
+    }
+    if ($ch -eq "'" -or $ch -eq '"') { $q=$ch; $buf+=$ch; continue }
+    if ($ch -eq '(') { $depth++; $buf+=$ch; continue }
+    if ($ch -eq ')') { $depth=[Math]::Max(0,$depth-1); $buf+=$ch; continue }
+    if ($ch -eq ',' -and $depth -eq 0) { $out += $buf.Trim(); $buf=''; continue }
+    $buf += $ch
+  }
+  if ($buf.Trim()) { $out += $buf.Trim() }
+  return ,$out
+}
+function Get-PrimaryKeyCombosFromCreateSql {
+  param([string]$CreateSql)
+
+  if (-not $CreateSql) { return @() }
+  $combos = @()
+
+  # a) table-level: PRIMARY KEY (col[, col2...])
+  foreach ($m in [regex]::Matches($CreateSql, '(?is)PRIMARY\s+KEY\s*\(\s*([^)]+?)\s*\)')) {
+    $cols = ($m.Groups[1].Value -replace '[`"\s]','') -split ','
+    if ($cols -and $cols.Count -gt 0) { $combos += ,$cols }
+  }
+
+  # b) inline: <col> ... PRIMARY KEY
+  foreach ($m in [regex]::Matches($CreateSql, '(?im)^\s*[`"]?([a-z0-9_]+)[`"]?\s+[^,\r\n]*?\bPRIMARY\s+KEY\b')) {
+    $col = $m.Groups[1].Value
+    if ($col) { $combos += ,@($col) }
+  }
+
+  # deduplikace (case-insensitive, pořadí sloupců zachováno)
+  $seen = @{}
+  $out  = @()
+  foreach ($arr in $combos) {
+    $key = (($arr | ForEach-Object { $_.ToLower() }) -join '#')
+    if (-not $seen.ContainsKey($key)) { $seen[$key] = $true; $out += ,$arr }
+  }
+  return ,$out
+}
+function Get-UniqueCombosFromCreateSql {
+  param([string]$CreateSql)
+
+  if (-not $CreateSql) { return @() }
+  $combos = @()
+
+  # Table-level UNIQUE a UNIQUE KEY/INDEX (původní část)
+  $pattern = '(?isx)
+    (?:CONSTRAINT \s+ [`"]? [A-Za-z0-9_]+ [`"]? \s+ )?   # volitelné jméno constraintu
+    UNIQUE \s* (?:KEY|INDEX)? \s*                        # UNIQUE / UNIQUE KEY / UNIQUE INDEX
+    (?: [`"]? [A-Za-z0-9_]+ [`"]? \s* )?                 # volitelně jméno indexu
+    \(\s* ([^)]+?) \s*\)                                 # seznam sloupců v závorkách
+  '
+  foreach ($m in [regex]::Matches($CreateSql, $pattern)) {
+    $cols = ($m.Groups[1].Value -replace '[`"\s]','') -split ','
+    if ($cols -and $cols.Count -gt 0) { $combos += ,$cols }
+  }
+
+  # *** NEW ***: in-line UNIQUE u sloupce
+  # např.:   name VARCHAR(100) NOT NULL UNIQUE,
+  foreach ($m in [regex]::Matches($CreateSql, '(?im)^\s*[`"]?([a-z0-9_]+)[`"]?\s+[^,\r\n]*?\bUNIQUE\b(?!\s+(?:KEY|INDEX)\b)')) {
+    $col = $m.Groups[1].Value
+    if ($col) { $combos += ,@($col) }
+  }
+
+  return ,$combos
+}
+function Assert-UpsertConsistency {
+  param(
+    [string]$Table,
+    [string[]]$UpsertKeys,
+    [string[]]$UpsertUpdateCols,
+    [string[][]]$UniqueCombos,
+    [string]$UpdatedAtCol
+  )
+  if (-not $UpsertKeys -or $UpsertKeys.Count -eq 0) { return }
+  $keys = @($UpsertKeys | ForEach-Object { $_.ToLower() } | Sort-Object)
+  $match = $false
+  foreach ($combo in @($UniqueCombos)) {
+    $c = @($combo | ForEach-Object { $_.ToLower() } | Sort-Object)
+    if ($c.Count -eq $keys.Count -and (@(Compare-Object $c $keys).Count -eq 0)) { $match = $true; break }
+  }
+  if (-not $match) {
+    Write-Warning "Table '$Table' Upsert.Keys = [$($keys -join ', ')] does not match any UNIQUE index/PK."
+  }
+  foreach ($k in $keys) {
+    if ($UpsertUpdateCols -and ($UpsertUpdateCols | ForEach-Object { $_.ToLower() }) -contains $k) {
+      Write-Warning "Table '$Table' Upsert.Update contains key column '$k' – usually undesired."
+    }
+  }
+  if ($UpdatedAtCol -and $UpsertUpdateCols -and -not (($UpsertUpdateCols | ForEach-Object { $_.ToLower() }) -contains $UpdatedAtCol.ToLower())) {
+    Write-Warning "Table '$Table' Upsert.Update does not include '$UpdatedAtCol'."
+  }
+}
+function Get-FkLocalColumnsFromSql([array]$ForeignKeySqls) {
+  $out = New-Object System.Collections.Generic.List[string]
+  foreach ($raw in @($ForeignKeySqls)) {
+    if (-not $raw) { continue }
+    foreach ($m in [regex]::Matches([string]$raw, '(?is)FOREIGN\s+KEY\s*\(\s*([^)]+?)\s*\)\s*REFERENCES')) {
+      $loc = ($m.Groups[1].Value -replace '[`"\s]','') -split ','
+      foreach ($x in $loc) { if ($x) { $out.Add($x.ToLower()) } }
+    }
+  }
+  @($out | Select-Object -Unique)
+}
+function Assert-ReferencedViews {
+  param(
+    [string]$Table,
+    [array]$ForeignKeySqls,
+    [hashtable]$ViewsMap,
+    [switch]$FailHard
+  )
+  $missing = @()
+  foreach ($raw in @($ForeignKeySqls)) {
+    if (-not $raw) { continue }
+    foreach ($m in [regex]::Matches([string]$raw, '(?i)REFERENCES\s+[`"]?([a-z0-9_]+)[`"]?')) {
+      $ref = $m.Groups[1].Value
+      if (-not ($ViewsMap -and $ViewsMap.Views -and $ViewsMap.Views.ContainsKey($ref))) {
+        $missing += $ref
+      }
+    }
+  }
+  $missing = @($missing | Select-Object -Unique)
+  if ($missing.Count -gt 0) {
+    $msg = "Missing referenced views for '$Table': " + (($missing | ForEach-Object { "vw_$($_)" }) -join ', ')
+    if ($FailHard) { throw $msg } else { Write-Error $msg }
+  }
+}
 function Import-SchemaMap([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path)) { throw "Schema map not found at '$Path'." }
+  Import-PowerShellDataFile -Path $Path
+}
+function Import-ViewsMap([string]$Path) {
+  if (-not (Test-Path -LiteralPath $Path)) { throw "Views map not found at '$Path'." }
   Import-PowerShellDataFile -Path $Path
 }
 
@@ -135,6 +328,180 @@ function Get-ForeignKeyNamesFromSql([array]$FkSqls) {
     }
   }
   @($names | Sort-Object -Unique)
+}
+
+function Get-ProjectionColumnsFromViewSql([string]$viewSql) {
+  if (-not $viewSql) { return @() }
+
+  # --- 1) původní multi-line heuristika ---
+  $lines = ($viewSql -split '\r?\n')
+  $start = 0; $end = 0
+  for ($i=0; $i -lt $lines.Count; $i++) {
+    if ($lines[$i] -match '^\s*SELECT(\s+DISTINCT)?\b') { $start = $i + 1; break }
+  }
+  for ($j=$start; $j -lt $lines.Count; $j++) {
+    if ($lines[$j] -match '^\s*FROM\b') { $end = $j - 1; break }
+  }
+
+  $collect = New-Object System.Collections.Generic.List[string]
+  if ($end -gt $start) {
+    for ($k=$start; $k -le $end; $k++) {
+      $ln = $lines[$k].Trim().TrimEnd(',')
+      if ($ln -eq '') { continue }
+      if ($ln -match '(?i)\s+AS\s+[`"]?([A-Za-z0-9_]+)[`"]?\s*$') {
+        $collect.Add($matches[1].ToLower()); continue
+      }
+      $m = [regex]::Matches($ln, '[A-Za-z0-9_]+')
+      if ($m.Count -gt 0) { $collect.Add($m[$m.Count-1].Value.ToLower()); continue }
+    }
+  }
+
+  if ($collect.Count -gt 0) {
+    return @($collect | Select-Object -Unique)
+  }
+
+  # --- 2) fallback: jednorádkové SELECTy, DISTINCT apod. ---
+  $m2 = [regex]::Match($viewSql, '(?is)\bSELECT\b\s+(?:DISTINCT\s+)?(.*?)\bFROM\b')
+  if (-not $m2.Success) { return @() }
+
+  $segment = $m2.Groups[1].Value
+  # odstraň komentáře na konci a přebytečné whitespace
+  $segment = ($segment -replace '(?s)/\*.*?\*/','' -replace '--[^\r\n]*','') -replace '\s+',' '
+
+  $out = New-Object System.Collections.Generic.List[string]
+  foreach ($piece in (Split-ByCommaOutsideParens $segment)) {
+    $part = $piece.Trim()
+    if ($part -eq '') { continue }
+
+    # alias: "... AS name" nebo "... name" (poslední token)
+    if ($part -match '(?i)\bAS\s+[`"]?([A-Za-z0-9_]+)[`"]?\s*$') {
+      $out.Add($matches[1].ToLower()); continue
+    }
+
+    # odstraň backticky/uvozovky a vezmi poslední identifikátor
+    $plain = ($part -replace '[`"]','').Trim()
+    $ids = [regex]::Matches($plain, '[A-Za-z0-9_]+')
+    if ($ids.Count -gt 0) { $out.Add($ids[$ids.Count-1].Value.ToLower()) }
+  }
+
+  @($out | Select-Object -Unique)
+}
+
+function Assert-TableVsView {
+  param(
+    [Parameter(Mandatory)][string]$Table,
+    [Parameter(Mandatory)][string[]]$TableColumns,  # lowercased
+    [string[]]$Pk,
+    [string]$VersionColumn,
+    [string]$SoftDeleteColumn,
+    [string]$DefaultOrder,
+    [hashtable]$ViewsMap,
+    [string[]]$BinaryColumns = @(),
+    [hashtable]$PairColumns = $null,
+    [string[]]$FkLocalColumns = @(),
+    [switch]$FailHard
+  )
+  
+  $errs = New-Object System.Collections.Generic.List[string]
+  $warn = New-Object System.Collections.Generic.List[string]
+
+  # --- Normalize PK to a flat array of clean column names ---
+  [string[]]$PkColsNorm = @()
+  foreach ($item in @($Pk)) {
+    if ($null -eq $item) { continue }
+    if ($item -is [System.Array]) {
+      $PkColsNorm += @($item)
+    } else {
+      $PkColsNorm += @($item -split '[,\s]+' | Where-Object { $_ })
+    }
+  }
+  $PkColsNorm = @($PkColsNorm |
+    ForEach-Object { ($_ -replace '[`"]','').ToLower() } |
+    Select-Object -Unique)
+
+  $viewName = "vw_$Table"
+  $viewSql  = $null
+
+  if ($ViewsMap -and $ViewsMap.Views -and $ViewsMap.Views.ContainsKey($Table)) {
+    $viewSql = [string]$ViewsMap.Views[$Table].create
+  } else {
+    $errs.Add("Missing view SQL for '$Table' (expected $viewName).")
+  }
+
+  if ($viewSql) {
+    # Nejdřív si připrav sadu projekcí
+    $proj = @( Get-ProjectionColumnsFromViewSql $viewSql )
+    $projSet = @{}
+    foreach ($c in $proj) { $projSet[$c] = $true }
+
+    # 1) HEX helper doporučení: pokud view vystavuje binární/hash sloupec, doporuč i <col>_hex
+    if ($BinaryColumns -and $BinaryColumns.Count -gt 0) {
+      foreach ($b in $BinaryColumns) {
+        if ($projSet.ContainsKey($b) -and -not $projSet.ContainsKey("${b}_hex")) {
+          $warn.Add("$viewName exposes '$b' but not '${b}_hex' (hex helper recommended).")
+        }
+        if (-not $projSet.ContainsKey($b) -and -not $projSet.ContainsKey("${b}_hex")) {
+        $warn.Add("$viewName does not expose '$b' nor '${b}_hex' (consider adding hex helper).")
+      }
+      }
+    }
+    # 2) Páry hash/enc -> key_version (jen pokud oba sloupce v tabulce existují)
+    if ($PairColumns) {
+      foreach ($k in $PairColumns.Keys) {
+        $pair = $PairColumns[$k]
+        if ($projSet.ContainsKey($k) -and -not $projSet.ContainsKey($pair)) {
+          $errs.Add("$viewName exposes '$k' but is missing its key/version column '$pair'.")
+        }
+      }
+    }
+
+    # 3) FK lokální sloupce – je praktické je mít ve view (pro joiny)
+    foreach ($fkcol in $FkLocalColumns) {
+      if (-not $projSet.ContainsKey($fkcol)) {
+        $warn.Add("$viewName does not include FK column '$fkcol' (helpful for joins).")
+      }
+    }
+
+    # Povinné sloupce + DefaultOrder
+    if ($PkColsNorm.Count -gt 0) {
+      foreach ($p in $PkColsNorm) {
+        if (-not $projSet.ContainsKey($p)) {
+          $errs.Add("$viewName is missing required PK column '$p'.")
+        }
+      }
+    }
+    if ($SoftDeleteColumn -and -not $projSet.ContainsKey($SoftDeleteColumn.ToLower())) {
+      $errs.Add("$viewName is missing soft-delete column '$SoftDeleteColumn'.")
+    }
+    if ($VersionColumn -and -not $projSet.ContainsKey($VersionColumn.ToLower())) {
+      $errs.Add("$viewName is missing version column '$VersionColumn'.")
+    }
+
+    if ($DefaultOrder) {
+      $orderCols = @([regex]::Matches(
+        $DefaultOrder,
+        '\b[a-z_][a-z0-9_]*\b',
+        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+      ) | ForEach-Object { $_.Value.ToLower() } | Select-Object -Unique)
+      foreach ($oc in $orderCols) {
+        if ($TableColumns -contains $oc -and -not $projSet.ContainsKey($oc)) {
+          $errs.Add("$viewName does not expose column '$oc' used in DefaultOrder ('$DefaultOrder').")
+        }
+      }
+    }
+
+    foreach ($opt in @('created_at','updated_at')) {
+      if ($TableColumns -contains $opt -and -not $projSet.ContainsKey($opt)) {
+        $warn.Add("$viewName does not include '$opt' (recommended).")
+      }
+    }
+  }
+
+  if ($errs.Count -gt 0) {
+    $msg = "View drift for table '$Table':`n - " + ($errs -join "`n - ")
+    if ($FailHard) { throw $msg } else { Write-Error $msg }
+  }
+  foreach ($w in $warn) { Write-Warning $w }
 }
 
 # Vygeneruje PHP metody join*() z definic cizích klíčů.
@@ -488,6 +855,45 @@ function Test-TemplateTokens([string]$content) {
 # -----------------------
 # Main
 # -----------------------
+function Get-TablesFromFromJoin([string]$sql) {
+  if (-not $sql) { return @() }
+  $out = New-Object System.Collections.Generic.List[string]
+
+  # IGNORE table-functions jako json_table(...), inet6_ntoa(...), unnest(...):
+  # přidaný (?!\s*\() zajistí, že po zachyceném identifikátoru nesmí ihned následovat "("
+  $rx = [regex]'(?is)\b(?:FROM|JOIN(?:\s+LATERAL)?)\s+(?:ONLY\s+)?(?<ref>(?:"[^"]+"|`[^`]+`|[A-Za-z0-9_]+)(?:\.(?:"[^"]+"|`[^`]+`|[A-Za-z0-9_]+))*)(?!\s*\()'
+
+  foreach ($m in $rx.Matches($sql)) {
+    $ref   = $m.Groups['ref'].Value
+    $parts = $ref -split '\.'
+    $last  = $parts[$parts.Length - 1]
+    $name  = ($last -replace '^[`"]|[`"]$','')    # ořízni uvozovky/backtick
+    $name  = ($name -replace '^(vw_|v_)','')      # vw_* → tabulka
+    if ($name) { $out.Add($name.ToLower()) }
+  }
+  @($out | Select-Object -Unique)
+}
+
+function Resolve-ViewDependencies([string]$table, [hashtable]$views, [hashtable]$memo) {
+  # vrací množinu tabulek, které view pro $table (přímo/nepřímo) používá
+  if (-not $views -or -not $views.Views -or -not $views.Views.ContainsKey($table)) { return @() }
+  if ($memo.ContainsKey($table)) { return @() }
+  $memo[$table] = $true
+
+  $sql = [string]$views.Views[$table].create
+  $direct = @( Get-TablesFromFromJoin $sql )
+
+  $acc = New-Object System.Collections.Generic.List[string]
+  foreach ($t in $direct) {
+    if ($t -ne $table) { $acc.Add($t) }
+    # pokud existuje i view pro $t, jdi do rekurze (transitivní závislosti)
+    if ($views.Views.ContainsKey($t)) {
+      foreach ($x in (Resolve-ViewDependencies $t $views $memo)) { $acc.Add($x) }
+    }
+  }
+  @($acc | Select-Object -Unique)
+}
+
 $templates = @( Get-Templates -Root $TemplatesRoot )
 # Pro volitelnou kontrolu submodulů (.gitmodules)
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -536,6 +942,45 @@ if (-not $mapPaths -or $mapPaths.Count -eq 0) { throw "No schema maps selected."
 Write-Host "Selected maps ($($mapPaths.Count)):" -ForegroundColor Cyan
 $mapPaths | ForEach-Object { Write-Host "  - $_" -ForegroundColor DarkCyan }
 
+# --- Views map (optional; autodetect when not provided)
+if (-not $ViewsPath) {
+  # Pokud není ViewsDir předán nebo neexistuje, použij SchemaDir
+  $dirToSearch = $SchemaDir
+  if ($PSBoundParameters.ContainsKey('ViewsDir') -and (Test-Path -LiteralPath $ViewsDir)) {
+    $dirToSearch = $ViewsDir
+  }
+
+  if (Test-Path -LiteralPath $dirToSearch) {
+    # Podporuj oba patterny: views-map-* i schema-views-*
+    $allV = @(Get-ChildItem -LiteralPath $dirToSearch -File | Where-Object {
+      $_.Name -match '^(views-map-|schema-views-).+\.psd1$'
+    })
+    if ($allV.Count -gt 0) {
+      $pgV = @($allV | Where-Object { $_.Name -match 'postgres' } | Select-Object -First 1)
+      $myV = @($allV | Where-Object { $_.Name -match 'mysql' }   | Select-Object -First 1)
+      switch ($EnginePreference) {
+        'postgres' { if ($pgV) { $ViewsPath = $pgV.FullName } elseif ($myV) { $ViewsPath = $myV.FullName } }
+        'mysql'    { if ($myV) { $ViewsPath = $myV.FullName } elseif ($pgV) { $ViewsPath = $pgV.FullName } }
+        default    { if ($pgV) { $ViewsPath = $pgV.FullName } elseif ($myV) { $ViewsPath = $myV.FullName } }
+      }
+    }
+  }
+}
+
+$views = $null
+if ($ViewsPath) {
+  $views = Import-ViewsMap -Path $ViewsPath
+  Write-Host "Loaded views map: $ViewsPath" -ForegroundColor Cyan
+} else {
+  Write-Warning "No views map found (looking for 'views-map-*.psd1' or 'schema-views-*.psd1'). View drift checks will throw for missing views."
+}
+
+# Fail policy: default = hard fail; allow overriding by -FailOnViewDrift switch if explicitly passed false in future (kept for compatibility)
+$FailHardOnViewDrift = $true
+if ($PSBoundParameters.ContainsKey('FailOnViewDrift')) {
+  $FailHardOnViewDrift = [bool]$FailOnViewDrift
+}
+
 foreach ($mp in $mapPaths) {
   $schema  = Import-SchemaMap -Path $mp
   if (-not $schema.Tables) { Write-Warning "No 'Tables' in schema map: $mp"; continue }
@@ -559,7 +1004,7 @@ foreach ($mp in $mapPaths) {
   if ((@($cols)).Count -eq 0) { Write-Warning "No columns parsed for table '$table'."; continue }
 
   $classInfo = Get-ColumnClassification -columns $cols
-
+  $binaryCols = @($classInfo.Binary | ForEach-Object { $_.ToLower() })
   $packagePascal = ConvertTo-PascalCase $table                      # Users, UserIdentities, OrderItems...
   $entityPascal  = ConvertTo-PascalCase (Singularize $table)        # User, UserIdentity, OrderItem...
   $dtoClass      = "$($entityPascal)Dto"
@@ -605,6 +1050,21 @@ foreach ($mp in $mapPaths) {
     # ---- doplňkové tokeny pro všechny šablony ----
     # seznam názvů sloupců
     $colNames = @($cols | ForEach-Object { $_.Name })
+    # připrav páry pouze pokud obě pole v tabulce existují
+    $tcLower = @{}; foreach ($n in $colNames) { $tcLower[$n.ToLower()] = $true }
+    $pairMap = @{}
+    $knownPairs = @(
+      @{ a='email_hash';             b='email_hash_key_version' },
+      @{ a='ip_hash';                b='ip_hash_key_version' },
+      @{ a='last_login_ip_hash';     b='last_login_ip_key_version' },
+      @{ a='token_hash';             b='token_hash_key_version' },
+      @{ a='download_token_hash';    b='token_key_version' },
+      @{ a='unsubscribe_token_hash'; b='unsubscribe_token_key_version' },
+      @{ a='confirm_validator_hash'; b='confirm_key_version' }
+    )
+    foreach ($p in $knownPairs) {
+      if ($tcLower.ContainsKey($p.a) -and $tcLower.ContainsKey($p.b)) { $pairMap[$p.a] = $p.b }
+    }
 
     # heuristiky:
     $hasCreatedAt = $colNames -contains 'created_at'
@@ -615,11 +1075,18 @@ foreach ($mp in $mapPaths) {
     $pk = ($colNames | Where-Object { $_ -eq 'id' } | Select-Object -First 1)
     if (-not $pk) { $pk = $colNames[0] }
     # --- PK strategy (identity|uuid|natural|composite) ---
-    # Zkus vytáhnout seznam PK sloupců přímo z CREATE (kvůli composite)
-    $pkCols = @()
-    if ($createSql -match '(?is)PRIMARY\s+KEY\s*\(\s*([^)]+)\)') {
-      $pkCols = ($matches[1] -replace '[`"\s]','' -split ',')
+
+    # --- PK combos z CREATE ---
+    $pkCombos = @( Get-PrimaryKeyCombosFromCreateSql -CreateSql $createSql )
+
+    [string[]]$pkCols = @()
+    if ($pkCombos.Count -gt 0) {
+      # první kombinace → zajisti čisté string[]
+      $pkCols = @($pkCombos[0] | ForEach-Object { [string]$_ })
     }
+
+    # pro další logiku (DefaultOrder apod.) si nech 1. sloupec PK
+    if ($pkCols.Count -gt 0) { $pk = $pkCols[0] }
 
     # Auto-increment heuristiky (MySQL i PG identity)
     $autoId = $false
@@ -648,16 +1115,27 @@ foreach ($mp in $mapPaths) {
 
     $tokenCommon['PK_STRATEGY'] = $pkStrategy
 
-    # --- isRowLockSafe (pro testy a ukázky) ---
-    $fkList = @($spec.foreign_keys | Where-Object { $_ })
-    $hasFk  = $fkList.Count -gt 0
-    $hasLarge = @($cols | Where-Object { $_.Base -match '(BLOB|TEXT|JSON)$' }).Count -gt 0
-    $tooWide = $cols.Count -gt 20
+    # Připrav FK SQL (použijeme i CREATE TABLE jako fallback) – potřebujeme už teď
+    $fkSqls = @()
+    $fkSqls += @($spec.foreign_keys | Where-Object { $_ })
+    $fkSqls += @($createSql) # fallback parsing inline
 
-    $rowLockSafe = (-not $hasFk) -and (-not $hasLarge) -and (-not $tooWide) -and ($pkStrategy -eq 'identity')
+    # --- isRowLockSafe (pro testy a ukázky) ---
+    $hasLarge  = @($cols | Where-Object { $_.Base -match '(BLOB|JSONB?)$' }).Count -gt 0
+    $tooWide  = $cols.Count -gt 20
+
+    # které FK sloupce jsou lokálně povinné?
+    $fkLocalCols    = @( Get-FkLocalColumnsFromSql $fkSqls )
+    $hasRequiredFk  = $false
+    foreach ($lc in $fkLocalCols) {
+      if ($nullMap.ContainsKey($lc) -and (-not [bool]$nullMap[$lc])) { $hasRequiredFk = $true; break }
+    }
+
+    # Safe: identity PK + žádné povinné FK; toleruj nullable FK. Stále filtruj extrémní šířku/large typy.
+    $rowLockSafe = ($pkStrategy -eq 'identity') -and (-not $hasRequiredFk) -and (-not $hasLarge) -and (-not $tooWide)
 
     # Volitelný whitelist – chceš mít jistotu, že něco je true
-    if ($table -in @('authors')) { $rowLockSafe = $true }
+    if ($table -in @('authors','users')) { $rowLockSafe = $true }
 
     $tokenCommon['IS_ROWLOCK_SAFE'] = if ($rowLockSafe) { 'true' } else { 'false' }
 
@@ -676,26 +1154,72 @@ foreach ($mp in $mapPaths) {
         $_.Base -match '^(CHAR|VARCHAR|TEXT|TINYTEXT|MEDIUMTEXT|LONGTEXT)$'
     } | ForEach-Object { $_.Name })
 
-    # --- NEW: derive dependencies from foreign keys ---
-    $depNames = @()
-    foreach ($fk in @($spec.foreign_keys)) {
-      if ($fk -match 'REFERENCES\s+[`"]?([a-z0-9_]+)[`"]?') {
-        $ref = $matches[1]
-        if ($ref -and $ref -ne $table) { $depNames += "table-$ref" }
+    # --- derive dependencies from foreign keys (spec + inline in CREATE TABLE) ---
+    function Get-ReferencedTablesFromFkSqls([array]$fkSqls) {
+      $out = New-Object System.Collections.Generic.List[string]
+      foreach ($fk in @($fkSqls)) {
+        if (-not $fk) { continue }
+        foreach ($m in [regex]::Matches([string]$fk, '(?is)REFERENCES\s+[`"]?([a-z0-9_]+)[`"]?')) {
+          $t = $m.Groups[1].Value.ToLower()
+          if ($t) { $out.Add($t) }
+        }
       }
+      @($out | Select-Object -Unique)
     }
-    $depNames = @($depNames | Sort-Object -Unique)
+
+    $fkSqlsAll = @()
+    $fkSqlsAll += @($spec.foreign_keys)  # z mapy
+    $fkSqlsAll += @($createSql)          # fallback: inline FK v CREATE TABLE
+
+    $depTablesFk = @( Get-ReferencedTablesFromFkSqls $fkSqlsAll )
+    $depTablesFk = @($depTablesFk | Where-Object { $_ -and $_ -ne $table })
+
+    $depNames = @($depTablesFk | ForEach-Object { "table-$_" } | Sort-Object -Unique)
 
     # doplň tokeny:
     $tokenCommon['TABLE']                   = $table
     $tokenCommon['VIEW']                    = "vw_${table}"
     $tokenCommon['COLUMNS_ARRAY']           = (ConvertTo-PhpArray $colNames)
-    $tokenCommon['PK']                      = $pk
+    # [[PK]] může být "id" nebo "col1, col2" (pro Definitions::pkColumns)
+    if ($pkCols.Count -gt 1) {
+      $tokenCommon['PK'] = ($pkCols -join ', ')
+    } else {
+      $tokenCommon['PK'] = $pk
+    }
     $tokenCommon['SOFT_DELETE_COLUMN']      = ($hasDeletedAt ? 'deleted_at' : '')
     $tokenCommon['UPDATED_AT_COLUMN']       = ($hasUpdatedAt ? 'updated_at' : '')
-    $hasVersion = $colNames -contains 'version'
-    $tokenCommon['VERSION_COLUMN']          = ($hasVersion ? 'version' : '')
+    $verName = ''
+    if ($spec -is [hashtable] -and $spec.ContainsKey('VersionColumn')) {
+      $verName = [string]$spec.VersionColumn
+    } elseif ($colNames -contains 'version') {
+      $verName = 'version'
+    }
+    $tokenCommon['VERSION_COLUMN'] = $verName
     $tokenCommon['DEFAULT_ORDER_CLAUSE']    = $defaultOrder
+    # --- VIEW DRIFT CHECK ---
+    $softCol = if ($hasDeletedAt) { 'deleted_at' } else { '' }
+
+    # Zkontroluj, že všechny referenced tabulky mají view
+    if ($views) {
+      Assert-ReferencedViews -Table $table -ForeignKeySqls $fkSqls -ViewsMap $views -FailHard:$FailHardOnViewDrift
+    }
+
+    # Získat lokální FK sloupce pro varování ve view
+    $fkLocalCols = @( Get-FkLocalColumnsFromSql $fkSqls )
+
+    Assert-TableVsView `
+      -Table $table `
+      -TableColumns ($colNames | ForEach-Object { $_.ToLower() }) `
+      -Pk $pkCols `
+      -VersionColumn $verName `
+      -SoftDeleteColumn $softCol `
+      -DefaultOrder $defaultOrder `
+      -ViewsMap $views `
+      -BinaryColumns $binaryCols `
+      -PairColumns $pairMap `
+      -FkLocalColumns $fkLocalCols `
+      -FailHard:$FailHardOnViewDrift
+
     $tokenCommon['UNIQUE_KEYS_ARRAY']       = '[]'                    # prozatím prázdné
     # JSON_COLUMNS_ARRAY už máš
     $tokenCommon['FILTERABLE_COLUMNS_ARRAY']= (ConvertTo-PhpArray $colNames)
@@ -748,26 +1272,54 @@ foreach ($mp in $mapPaths) {
       "[ " + ($uupdQuoted -join ', ') + " ]"
     } else { '[]' }
 
-    # UNIQUE kombinace (pokud jsou v CREATE UNIQUE INDEX …)
-    $uniqueCombos = @()
+    # ---- UNIQUE kombinace: z indexů, z CREATE TABLE (UNIQUE) a ze VŠECH PK ----
+    $uniqueCombos = New-Object System.Collections.Generic.List[object]
+
+    # 1) CREATE UNIQUE INDEX ve $spec.indexes
     foreach ($ix in @($spec.indexes)) {
-      if ($ix -match '(?i)CREATE\s+UNIQUE\s+INDEX\s+[^\(]+\(\s*([a-z0-9_,\s"]+)\s*\)') {
-        $cols = ($matches[1] -replace '"','' -replace '\s','') -split ','
-        if ($cols) { $uniqueCombos += ,$cols }
+      if ($ix -match '(?i)CREATE\s+UNIQUE\s+INDEX\s+[^\(]+\(\s*([A-Za-z0-9_,"\s`]+)\s*\)') {
+        $cols = ($matches[1] -replace '[`"\s]','') -split ','
+        if ($cols -and $cols.Count -gt 0) { $uniqueCombos.Add(@($cols)) }
       }
     }
+
+    # 2) table-level UNIQUE v CREATE TABLE
+    foreach ($combo in (Get-UniqueCombosFromCreateSql -CreateSql $createSql)) {
+      $normalized = @($combo | ForEach-Object { ($_ -replace '[`"\s]','').ToLower() })
+      if ($normalized.Count -gt 0) { $uniqueCombos.Add($normalized) }
+    }
+
+    # 3) VŠECHNY PK kombinace jako UNIQUE
+    foreach ($pkCombo in (Get-PrimaryKeyCombosFromCreateSql -CreateSql $createSql)) {
+      $normalized = @($pkCombo | ForEach-Object { ($_ -replace '[`"\s]','').ToLower() })
+      if ($normalized.Count -gt 0) { $uniqueCombos.Add($normalized) }
+    }
+
+    # deduplikace kombinací
+    $seen = @{}
+    $uniqueCombos = @($uniqueCombos | Where-Object {
+      $k = ($_ -join '#')
+      if ($seen.ContainsKey($k)) { $false } else { $seen[$k] = $true; $true }
+    })
+
+    # Render pro token [[UNIQUE_KEYS_ARRAY]]
     if (@($uniqueCombos).Count -gt 0) {
       $render = @()
       foreach ($arr in $uniqueCombos) {
         $render += "[ " + (($arr | ForEach-Object { "'$_'" }) -join ', ') + " ]"
       }
       $tokenCommon['UNIQUE_KEYS_ARRAY'] = "[ " + ($render -join ', ') + " ]"
+    } else {
+      $tokenCommon['UNIQUE_KEYS_ARRAY'] = '[]'
     }
 
-    # JOIN metody (z foreign_keys; fallback použije i CREATE text)
-    $fkSqls = @()
-    $fkSqls += @($spec.foreign_keys)
-    $fkSqls += @($createSql) # fallback parsing inline
+    # Kontrola konzistence UPSERT proti unikátním kombinacím
+    Assert-UpsertConsistency `
+      -Table $table `
+      -UpsertKeys $ukeys `
+      -UpsertUpdateCols $uupd `
+      -UniqueCombos $uniqueCombos `
+      -UpdatedAtCol $tokenCommon['UPDATED_AT_COLUMN']
 
     # Urči JoinPolicy z přepínačů (explicítní -JoinPolicy má prioritu; pak legacy aliasy)
     if ($PSBoundParameters.ContainsKey('JoinPolicy') -and ($JoinAsInner -or $JoinAsInnerStrict)) {
@@ -788,7 +1340,30 @@ foreach ($mp in $mapPaths) {
         -ForeignKeySqls $fkSqls `
         -LocalNullabilityMap $nullMap `
         -JoinPolicy $joinPolicy
+    # --- augment deps by tables referenced in our view(s) ---
+    $depTablesView = @()
+    if ($views -and $views.Views -and $views.Views.ContainsKey($table)) {
+      $depTablesView = @( Resolve-ViewDependencies $table $views (@{}) )
+
+      # ber jen tabulky, které v tomhle schéma mapu opravdu existují
+      $knownTables = @($schema.Tables.Keys | ForEach-Object { $_.ToLower() })
+      $depTablesView = @(
+        $depTablesView |
+        Where-Object { $_ -and $_ -ne $table -and ($knownTables -contains $_) }
+      )
+    }
+
+    $depNames = @(
+      $depNames +
+      ($depTablesView | ForEach-Object { "table-$_" })
+    ) | Sort-Object -Unique
+    foreach ($t in $depTablesView) {
+      # pokud neexistuje cílový balíček pro tabulku $t, připomeň to vygenerátorovi
+      $p = Resolve-PackagePath -PackagesDir $ModulesRoot -Table $t -PackagePascal (ConvertTo-PascalCase $t) -Mode $NameResolution
+      if (-not $p) { Write-Warning "View for '$table' references '$t' but the package for '$t' was not found under '$ModulesRoot'." }
+    }
     $tokenCommon['DEPENDENCIES_ARRAY'] = (ConvertTo-PhpArray $depNames)
+
 
     # výstupní adresář EXISTUJÍCÍHO balíčku (submodulu) – hledej pascal/snake/kebab
     $moduleDir = Resolve-PackagePath -PackagesDir $ModulesRoot `
@@ -890,5 +1465,12 @@ foreach ($mp in $mapPaths) {
   }
   }
 }
-
-Write-Host "Done." -ForegroundColor Cyan
+try {
+  Stop-IfNeeded -RepoRoot $repoRoot
+  Write-Host "Done." -ForegroundColor Cyan
+  exit 0
+} catch {
+  Write-Error $_
+  if ($_.ScriptStackTrace) { Write-Error $_.ScriptStackTrace }
+  exit 1
+}

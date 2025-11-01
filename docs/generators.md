@@ -44,11 +44,9 @@ docker compose exec -T postgres psql -U postgres -d test -v ON_ERROR_STOP=1 -c "
 
 docker compose run --rm -e BC_DB=mysql -e MYSQL_DSN="mysql:host=mysql;port=3306;dbname=test;charset=utf8mb4" -e MYSQL_USER=root -e MYSQL_PASS=root app ./vendor/bin/phpunit -c tests/phpunit.xml.dist --testsuite "DB Integration"
 
-docker compose run --rm \
-  -e BC_DB=postgres \
-  -e PG_DSN="pgsql:host=postgres;port=5432;dbname=test" \
-  -e PG_USER=postgres -e PG_PASS=postgres \
-  app ./vendor/bin/phpunit -c tests/phpunit.xml.dist --testsuite "DB Integration"
+docker compose run --rm -e BC_DB=postgres -e PG_DSN="pgsql:host=postgres;port=5432;dbname=test" -e PG_USER=postgres -e PG_PASS=postgres app ./vendor/bin/phpunit -c tests/phpunit.xml.dist --testsuite "DB Integration"
+
+docker compose run --rm -e BC_DB=mysql -e MYSQL_DSN="mysql:host=mysql;port=3306;dbname=test;charset=utf8mb4" -e MYSQL_USER=root -e MYSQL_PASS=root -e BC_STRESS=1 app ./vendor/bin/phpunit -c tests/phpunit.xml.dist --testsuite "DB Integration"
 
 docker compose build --no-cache app
 docker compose run --rm app composer update

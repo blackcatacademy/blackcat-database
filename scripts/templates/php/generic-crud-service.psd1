@@ -45,10 +45,19 @@ final class GenericCrudService extends BaseCrud
         parent::__construct($db, $repo, $pk, $qcache, $cacheNs, $seqGuess, $version);
     }
 
-    /** Alias na globální paginate – ponechává stejné API jako dřív.
+    /**
+     * BC forwarding pro legacy volání „list(...)“ (název je v PHP rezervované slovo).
+     */
+    public function __call(string $name, array $args)
+    {
+        if ($name === 'list') { return $this->listPage(...$args); }
+        throw new \BadMethodCallException("Unknown method $name");
+    }
+
+    /** Alias na globální paginate.
      *  @return array{items:array<int,array>,total:int,page:int,perPage:int}
      */
-    public function list(Criteria $c): array
+    public function listPage(Criteria $c): array
     {
         return $this->paginate($c);
     }
@@ -69,14 +78,14 @@ final class GenericCrudService extends BaseCrud
             : OperationResult::fail('Vytvoření se nezdařilo nebo nebylo možné přečíst zpět.');
     }
 
-    public function update(int|string $id, array $row): OperationResult
+    public function update(int|string|array $id, array $row): OperationResult
     {
         $n = parent::updateById($id, $row);
         return $n > 0 ? OperationResult::ok(['affected' => $n]) : OperationResult::fail('Nenalezeno');
     }
 
     /** Optimistic locking – pokud Definitions nemá version column, provede běžný update. */
-    public function updateOptimistic(int|string $id, array $row, int $expectedVersion): OperationResult
+    public function updateOptimistic(int|string|array $id, array $row, int $expectedVersion): OperationResult
     {
         $n = Definitions::supportsOptimisticLocking()
             ? parent::updateByIdOptimistic($id, $row, $expectedVersion)
@@ -85,24 +94,24 @@ final class GenericCrudService extends BaseCrud
         return $n > 0 ? OperationResult::ok(['affected' => $n]) : OperationResult::fail('Nenalezeno nebo konflikt verze');
     }
 
-    public function delete(int|string $id): OperationResult
+    public function delete(int|string|array $id): OperationResult
     {
         $n = parent::deleteById($id);
         return $n > 0 ? OperationResult::ok(['affected' => $n]) : OperationResult::fail('Nenalezeno');
     }
 
-    public function restore(int|string $id): OperationResult
+    public function restore(int|string|array $id): OperationResult
     {
         $n = parent::restoreById($id);
         return $n > 0 ? OperationResult::ok(['affected' => $n]) : OperationResult::fail('Nenalezeno');
     }
 
-    public function get(int|string $id, int $ttl = 15): ?array
+    public function get(int|string|array $id, int $ttl = 15): ?array
     {
         return $this->getById($id, $ttl);
     }
 
-    public function existsById(int|string $id): bool
+    public function existsById(int|string|array $id): bool
     {
         return parent::existsById($id);
     }
@@ -111,7 +120,7 @@ final class GenericCrudService extends BaseCrud
      * Proveď práci v jedné transakci s řádkovým zámkem (SELECT … FOR UPDATE).
      * $fn = function(array $lockedRow, Database $db): mixed
      */
-    public function withRowLock(int|string $id, callable $fn): mixed
+    public function withRowLock(int|string|array $id, callable $fn): mixed
     {
         return parent::withRowLock($id, $fn);
     }

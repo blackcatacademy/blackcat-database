@@ -45,6 +45,41 @@ if ($driver === 'mysql') {
 }
 $runIdempotent = (getenv('BC_RUN_IDEMPOTENT') ?: '0') === '1';
 $runUninstall  = (getenv('BC_UNINSTALL') ?: '0') === '1';
+/* ---------- BC_REPAIR volitelnost (TTY=ON, CI=OFF, lze přepnout) ---------- */
+// PRIORITA: explicitní env > CLI přepínač > autodetekce TTY (mimo CI)
+$argvList      = $_SERVER['argv'] ?? [];
+$cliRepairOn   = in_array('--repair', $argvList, true) || in_array('-r', $argvList, true);
+$cliRepairOff  = in_array('--no-repair', $argvList, true);
+$envRepair     = getenv('BC_REPAIR'); // '1' | '0' | false (není nastaveno)
+$isCI          = (getenv('CI') === 'true') || (getenv('GITHUB_ACTIONS') === 'true');
+
+// detekce TTY bez závislosti na posix
+$isTty = false;
+if (function_exists('stream_isatty')) {
+    $isTty = @stream_isatty(STDOUT);
+} elseif (function_exists('posix_isatty')) {
+    $isTty = @posix_isatty(STDOUT);
+}
+
+// Rozhodnutí
+$effective = null; // '1' nebo '0'
+if ($envRepair !== false && $envRepair !== '') {
+    $effective = ((string)$envRepair === '1' || strtolower((string)$envRepair) === 'true') ? '1' : '0';
+} elseif ($cliRepairOn || $cliRepairOff) {
+    $effective = $cliRepairOn ? '1' : '0';
+} else {
+    // Autodetekce: pokud běžíme interaktivně (TTY) a nejsme v CI → zapni repair
+    $effective = ($isTty && !$isCI) ? '1' : '0';
+}
+
+// Propagace do prostředí
+putenv('BC_REPAIR=' . $effective);
+$_ENV['BC_REPAIR'] = $effective;
+
+// Volitelné „tiché“ info jen v interaktivním režimu
+if ($isTty) {
+    fwrite(STDERR, "[info] BC_REPAIR={$effective}" . PHP_EOL);
+}
 
 /* ---------- Najdi všechny module classes ---------- */
 $modules = []; // [FQN => ['pkg'=>string, 'deps'=>string[], 'obj'=>ModuleInterface]]

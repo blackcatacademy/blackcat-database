@@ -32,18 +32,18 @@ final class Repository
         else { $this->repo->insert($row); }
     }
 
-    public function updateById(int|string $id, array $row): int { return $this->repo->updateById($id, $row); }
-    public function deleteById(int|string $id): int { return $this->repo->deleteById($id); }
-    public function restoreById(int|string $id): int { return $this->repo->restoreById($id); }
+    public function updateById(int|string|array $id, array $row): int { return $this->repo->updateById($id, $row); }
+    public function deleteById(int|string|array $id): int { return $this->repo->deleteById($id); }
+    public function restoreById(int|string|array $id): int { return $this->repo->restoreById($id); }
 
-    public function findById(int|string $id): ?array { return $this->repo->findById($id); }
+    public function findById(int|string|array $id): ?array { return $this->repo->findById($id); }
     public function exists(string $whereSql = '1=1', array $params = []): bool { return $this->repo->exists($whereSql, $params); }
     public function count(string $whereSql = '1=1', array $params = []): int { return $this->repo->count($whereSql, $params); }
 
     /** @return array{items:array<int,array>,total:int,page:int,perPage:int} */
     public function paginate(Criteria $c): array { return $this->repo->paginate($c); }
 
-    public function lockById(int|string $id): ?array { return $this->repo->lockById($id); }
+    public function lockById(int|string|array $id): ?array { return $this->repo->lockById($id); }
 }
 '@
 }
