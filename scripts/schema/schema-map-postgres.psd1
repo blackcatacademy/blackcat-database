@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS users (
       )
       foreign_keys = @()
       Upsert = @{
-        Keys   = @('email_hash')  # UNIQUE
+        Keys   = @('email_hash')  
         Update = @('email_hash_key_version','password_hash','password_algo','password_key_version',
                    'is_active','is_locked','failed_logins','must_change_password',
                    'last_login_at','last_login_ip_hash','last_login_ip_key_version',
@@ -116,7 +116,7 @@ CREATE TABLE IF NOT EXISTS user_identities (
         'ALTER TABLE user_identities ADD CONSTRAINT fk_user_identities_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE'
       )
       Upsert = @{
-        Keys   = @('provider','provider_user_id') # UNIQUE
+        Keys   = @('provider','provider_user_id') 
         Update = @('user_id','updated_at')
       }
       UpdatedAt    = 'updated_at'
@@ -136,7 +136,7 @@ CREATE TABLE IF NOT EXISTS permissions (
       indexes = @()
       foreign_keys = @()
       Upsert = @{
-        Keys   = @('name')  # UNIQUE
+        Keys   = @('name')  
         Update = @('description','updated_at')
       }
       UpdatedAt    = 'updated_at'
@@ -244,7 +244,7 @@ CREATE TABLE IF NOT EXISTS sessions (
         'ALTER TABLE sessions ADD CONSTRAINT fk_sessions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL'
       )
       Upsert = @{
-        Keys   = @('token_hash')  # UNIQUE
+        Keys   = @('token_hash')  
         Update = @('token_hash_key_version','token_fingerprint','token_issued_at',
                    'user_id','last_seen_at','expires_at','failed_decrypt_count',
                    'last_failed_decrypt_at','revoked','ip_hash','ip_hash_key_version',
@@ -377,7 +377,7 @@ CREATE TABLE IF NOT EXISTS system_errors (
         'ALTER TABLE system_errors ADD CONSTRAINT fk_err_resolved_by FOREIGN KEY (resolved_by) REFERENCES users(id) ON DELETE SET NULL'
       )
       Upsert = @{
-        Keys   = @('fingerprint')  # UNIQUE
+        Keys   = @('fingerprint')  
         Update = @('level','message','exception_class','file','line','stack_trace','token',
                    'context','occurrences','user_id','ip_hash','ip_hash_key_version',
                    'ip_text','ip_bin','user_agent','url','method','http_status',
@@ -440,7 +440,7 @@ CREATE TABLE IF NOT EXISTS authors (
       )
       foreign_keys = @()
       Upsert = @{
-        Keys   = @('slug')  # UNIQUE
+        Keys   = @('slug')  
         Update = @('name','bio','photo_url','story','books_count','ratings_count',
                    'rating_sum','avg_rating','last_rating_at','updated_at','deleted_at')
       }
@@ -470,7 +470,7 @@ CREATE TABLE IF NOT EXISTS categories (
         'ALTER TABLE categories ADD CONSTRAINT fk_categories_parent FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE SET NULL'
       )
       Upsert = @{
-        Keys   = @('slug')  # UNIQUE
+        Keys   = @('slug')  
         Update = @('name','parent_id','updated_at','deleted_at')
       }
       UpdatedAt    = 'updated_at'
@@ -519,7 +519,7 @@ CREATE TABLE IF NOT EXISTS books (
         'ALTER TABLE books ADD CONSTRAINT fk_books_category FOREIGN KEY (main_category_id) REFERENCES categories(id) ON DELETE RESTRICT'
       )
       Upsert = @{
-        Keys   = @('slug')  # UNIQUE
+        Keys   = @('slug')  
         Update = @('title','short_description','full_description','price','currency',
                    'author_id','main_category_id','isbn','language','pages','publisher',
                    'published_at','sku','is_active','is_available','stock_quantity',
@@ -595,7 +595,7 @@ CREATE TABLE IF NOT EXISTS crypto_keys (
         'ALTER TABLE crypto_keys ADD CONSTRAINT fk_keys_replaced_by FOREIGN KEY (replaced_by) REFERENCES crypto_keys(id) ON DELETE SET NULL'
       )
       Upsert = @{
-        Keys   = @('basename','version')  # UNIQUE
+        Keys   = @('basename','version')  
         Update = @('filename','file_path','fingerprint','key_meta','key_type','algorithm',
                    'length_bits','origin','usage','scope','status','is_backup_encrypted',
                    'backup_blob','created_by','activated_at','retired_at','replaced_by','notes')
@@ -678,7 +678,7 @@ CREATE TABLE IF NOT EXISTS key_usage (
         'ALTER TABLE key_usage ADD CONSTRAINT fk_key_usage_key FOREIGN KEY (key_id) REFERENCES crypto_keys(id) ON DELETE CASCADE'
       )
       Upsert = @{
-        Keys   = @('key_id','usage_date') # UNIQUE
+        Keys   = @('key_id','usage_date') 
         Update = @('encrypt_count','decrypt_count','verify_count','last_used_at')
       }
       Aliases = @{
@@ -724,7 +724,7 @@ CREATE TABLE IF NOT EXISTS jwt_tokens (
         'ALTER TABLE jwt_tokens ADD CONSTRAINT fk_jwt_tokens_replaced_by FOREIGN KEY (replaced_by) REFERENCES jwt_tokens(id) ON DELETE SET NULL'
       )
       Upsert = @{
-        Keys   = @('token_hash')   # UNIQUE
+        Keys   = @('token_hash')   
         Update = @('jti','user_id','token_hash_algo','token_hash_key_version',
                    'type','scopes','expires_at','last_used_at','ip_hash',
                    'ip_hash_key_version','replaced_by','revoked','meta')
@@ -896,11 +896,11 @@ CREATE TABLE IF NOT EXISTS orders (
   version INTEGER NOT NULL DEFAULT 0,
   CONSTRAINT chk_orders_version CHECK (version >= 0),
   CONSTRAINT chk_orders_status CHECK (status IN ('pending','paid','failed','cancelled','refunded','completed')),
-  CONSTRAINT chk_orders_currency CHECK (currency ~ '^[A-Z]{3}$'),
-  CONSTRAINT ux_orders_uuid_bin UNIQUE (uuid_bin)
+  CONSTRAINT chk_orders_currency CHECK (currency ~ '^[A-Z]{3}$')
 );
 '@
       indexes = @(
+        'CREATE UNIQUE INDEX IF NOT EXISTS ux_orders_uuid_bin ON orders (uuid_bin) WHERE uuid_bin IS NOT NULL AND length(uuid_bin) = 16',
         'CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders (user_id)',
         'CREATE INDEX IF NOT EXISTS idx_orders_status ON orders (status)',
         'CREATE INDEX IF NOT EXISTS idx_orders_user_status ON orders (user_id, status)',
@@ -911,7 +911,7 @@ CREATE TABLE IF NOT EXISTS orders (
         'ALTER TABLE orders ADD CONSTRAINT fk_orders_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL'
       )
       Upsert = @{
-        Keys   = @('uuid')  # UNIQUE
+        Keys   = @('uuid')  
         Update = @('uuid_bin','public_order_no','user_id','status','encrypted_customer_blob',
                    'encrypted_customer_blob_key_version','encryption_meta','currency',
                    'metadata','subtotal','discount_total','tax_total','total',
@@ -1008,7 +1008,7 @@ CREATE TABLE IF NOT EXISTS invoices (
         'ALTER TABLE invoices ADD CONSTRAINT fk_invoices_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL'
       )
       Upsert = @{
-        Keys   = @('invoice_number')  # UNIQUE
+        Keys   = @('invoice_number')  
         Update = @('order_id','variable_symbol','issue_date','due_date','subtotal','discount_total','tax_total','total','currency','qr_data')
       }
       DefaultOrder = 'id DESC'
@@ -1038,7 +1038,7 @@ CREATE TABLE IF NOT EXISTS invoice_items (
         'ALTER TABLE invoice_items ADD CONSTRAINT chk_invoice_items_tax_rate CHECK (tax_rate BETWEEN 0 AND 100)'
       )
       Upsert = @{
-        Keys   = @('invoice_id','line_no')  # UNIQUE
+        Keys   = @('invoice_id','line_no')  
         Update = @('description','unit_price','quantity','tax_rate','tax_amount','line_total','currency')
       }
       DefaultOrder = 'invoice_id DESC, line_no DESC'
@@ -1075,7 +1075,7 @@ CREATE TABLE IF NOT EXISTS payments (
         'ALTER TABLE payments ADD CONSTRAINT chk_payments_amount CHECK (amount >= 0)'
       )
       Upsert = @{
-        Keys   = @('transaction_id')  # UNIQUE
+        Keys   = @('transaction_id')  
         Update = @('order_id','gateway','provider_event_id','status','amount','currency',
                    'details','updated_at')
       }
@@ -1198,7 +1198,7 @@ CREATE TABLE IF NOT EXISTS coupons (
       indexes = @()
       foreign_keys = @()
       Upsert = @{
-        Keys   = @('code')  # UNIQUE
+        Keys   = @('code')  
         Update = @('type','value','currency','starts_at','ends_at','max_redemptions','min_order_amount','applies_to','is_active','updated_at')
       }
       UpdatedAt    = 'updated_at'
@@ -1394,7 +1394,7 @@ CREATE TABLE IF NOT EXISTS payment_gateway_notifications (
         'ALTER TABLE payment_gateway_notifications ADD CONSTRAINT fk_pg_notify_payment FOREIGN KEY (transaction_id) REFERENCES payments(transaction_id) ON DELETE CASCADE'
       )
       Upsert = @{
-        Keys   = @('transaction_id')  # UNIQUE
+        Keys   = @('transaction_id')  
         Update = @('received_at','processing_by','processing_until','attempts','last_error','status')
       }
       DefaultOrder = 'received_at DESC'
@@ -1423,7 +1423,7 @@ CREATE TABLE IF NOT EXISTS email_verifications (
         'ALTER TABLE email_verifications ADD CONSTRAINT fk_ev_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE'
       )
       Upsert = @{
-        Keys   = @('selector')   # UNIQUE
+        Keys   = @('selector')   
         Update = @('user_id','token_hash','validator_hash','key_version',
                    'expires_at','created_at','used_at')
       }
@@ -1508,7 +1508,7 @@ CREATE TABLE IF NOT EXISTS newsletter_subscribers (
         'ALTER TABLE newsletter_subscribers ADD CONSTRAINT fk_ns_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL'
       )
       Upsert = @{
-        Keys   = @('email_hash')  # UNIQUE
+        Keys   = @('email_hash')  
         Update = @('user_id','email_hash_key_version','email_enc','email_key_version',
                    'confirm_selector','confirm_validator_hash','confirm_key_version',
                    'confirm_expires','confirmed_at','unsubscribe_token_hash',
@@ -1579,7 +1579,7 @@ CREATE TABLE IF NOT EXISTS encrypted_fields (
       )
       foreign_keys = @()
       Upsert = @{
-        Keys   = @('entity_table','entity_pk','field_name') # UNIQUE
+        Keys   = @('entity_table','entity_pk','field_name') 
         Update = @('ciphertext','meta','updated_at')
       }
       UpdatedAt    = 'updated_at'
@@ -1656,7 +1656,7 @@ CREATE TABLE IF NOT EXISTS encryption_policies (
       indexes = @()
       foreign_keys = @()
       Upsert = @{
-        Keys   = @('policy_name') # UNIQUE
+        Keys   = @('policy_name') 
         Update = @('mode','layer_selection','min_layers','max_layers','aad_template','notes')
       }
       DefaultOrder = 'id DESC'

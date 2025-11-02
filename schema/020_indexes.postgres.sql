@@ -108,6 +108,7 @@ CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items (order_id);
 CREATE INDEX IF NOT EXISTS idx_order_items_book_id ON order_items (book_id);
 
 -- === orders ===
+CREATE UNIQUE INDEX IF NOT EXISTS ux_orders_uuid_bin ON orders (uuid_bin) WHERE uuid_bin IS NOT NULL AND length(uuid_bin) = 16;
 CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders (user_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders (status);
 CREATE INDEX IF NOT EXISTS idx_orders_user_status ON orders (user_id, status);

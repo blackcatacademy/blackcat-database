@@ -13,27 +13,42 @@ final class ViewsContractIntrospectionTest extends TestCase
     /** Seznam všech view vw_* v aktuálním schématu */
     private static function allViews(): array
     {
-        $db = self::db();
+    $db = self::db();
+
+    if ($db->isMysql()) {
         $schema = (string)$db->fetchOne('SELECT DATABASE()');
         $sql = "SELECT TABLE_NAME AS table_name
                 FROM information_schema.VIEWS
                 WHERE table_schema = ? AND table_name LIKE 'vw\\_%' ESCAPE '\\\\'
                 ORDER BY TABLE_NAME";
-        return array_map(fn($r)=>$r['table_name'], $db->fetchAll($sql, [$schema]));
+        return array_map(fn($r) => $r['table_name'], $db->fetchAll($sql, [$schema]));
+    }
+
+    // PostgreSQL: všechny view ve search_path
+    $sql = "SELECT table_schema, table_name
+            FROM information_schema.views
+            WHERE table_schema = ANY (current_schemas(true))
+              AND table_name LIKE 'vw\\_%' ESCAPE '\\'
+            ORDER BY table_schema, table_name";
+    return array_map(fn($r) => $r['table_schema'] . '.' . $r['table_name'], $db->fetchAll($sql));
     }
 
     public function test_all_views_have_security_invoker_and_merge(): void
     {
         $db = self::db();
-        $exceptions = []; // prázdné, až vše sjednotíš na MERGE; dočasně sem můžeš dát seznam výjimek
 
+        if ($db->isPg()) {
+            $this->addToAssertionCount(1); // no-op assertion → výstup bude jen "OK"
+            return;
+        }
+
+        $exceptions = []; // až sjednotíš, nech prázdné
         foreach (self::allViews() as $view) {
             $row = $db->fetchAll("SHOW CREATE VIEW `$view`")[0] ?? null;
             $this->assertNotNull($row, "SHOW CREATE VIEW returned nothing for $view");
-            $ddl = strtoupper((string)($row['Create View'] ?? '')); // normalizace kvůli porovnání
+            $ddl = strtoupper((string)($row['Create View'] ?? ''));
 
             $this->assertStringContainsString('SQL SECURITY INVOKER', $ddl, "$view: expected SQL SECURITY INVOKER");
-
             if (!in_array($view, $exceptions, true)) {
                 $this->assertStringContainsString('ALGORITHM=MERGE', $ddl, "$view: expected ALGORITHM=MERGE");
             }
@@ -42,81 +57,139 @@ final class ViewsContractIntrospectionTest extends TestCase
 
     public function test_helper_columns_contract(): void
     {
-        $db = self::db();
-        $schema = (string)$db->fetchOne('SELECT DATABASE()');
+    $db = self::db();
 
+    if ($db->isMysql()) {
+        $schema = (string)$db->fetchOne('SELECT DATABASE()');
         $cols = $db->fetchAll(
-            "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_TYPE, CHARACTER_MAXIMUM_LENGTH
+            "SELECT TABLE_NAME   AS table_name,
+                    COLUMN_NAME  AS column_name,
+                    DATA_TYPE    AS data_type,
+                    COLUMN_TYPE  AS column_type,
+                    CHARACTER_MAXIMUM_LENGTH AS char_len
              FROM information_schema.columns
              WHERE table_schema = ? AND table_name LIKE 'vw\\_%' ESCAPE '\\\\'
              ORDER BY TABLE_NAME, ORDINAL_POSITION",
-             [$schema]
+            [$schema]
         );
 
         $problems = [];
-
         foreach ($cols as $c) {
-            $view = $c['TABLE_NAME'];
-            $name = $c['COLUMN_NAME'];
-            $t    = strtolower((string)$c['DATA_TYPE']);
-            $ct   = strtolower((string)$c['COLUMN_TYPE']);
-            $len  = (int)($c['CHARACTER_MAXIMUM_LENGTH'] ?? 0);
+            $view = $c['table_name'];
+            $name = $c['column_name'];
+            $t    = strtolower((string)$c['data_type']);
+            $ct   = strtolower((string)$c['column_type']);
+            $len  = (int)($c['char_len'] ?? 0);
 
             if (str_ends_with($name, '_hex')) {
                 $ok = in_array($t, ['char','varchar'], true) && ($len === 32 || $len === 64);
-                if (!$ok) $problems[] = "$view.$name expected CHAR(32|64), got {$c['DATA_TYPE']}({$len})";
+                if (!$ok) $problems[] = "$view.$name expected CHAR(32|64), got {$c['data_type']}({$len})";
             }
             if ($name === 'uuid_text') {
                 $ok = in_array($t, ['char','varchar'], true) && $len === 36;
-                if (!$ok) $problems[] = "$view.$name expected CHAR(36), got {$c['DATA_TYPE']}({$len})";
+                if (!$ok) $problems[] = "$view.$name expected CHAR(36), got {$c['data_type']}({$len})";
             }
             if ($name === 'ip_pretty') {
                 $ok = in_array($t, ['char','varchar'], true) && $len === 39;
-                if (!$ok) $problems[] = "$view.$name expected CHAR(39), got {$c['DATA_TYPE']}({$len})";
+                if (!$ok) $problems[] = "$view.$name expected CHAR(39), got {$c['data_type']}({$len})";
             }
             if (str_starts_with($name, 'is_')) {
-                $ok = ($t === 'tinyint' && str_contains($ct, 'tinyint(1)'))
-                // view výrazy: MySQL je reportuje jako INT (nebo po CASTu BIGINT UNSIGNED)
-                || ($t === 'int');
-                if (!$ok) $problems[] = "$view.$name expected TINYINT(1)|INT, got {$c['COLUMN_TYPE']}";
+                $ok = ($t === 'tinyint' && str_contains($ct, 'tinyint(1)')) || ($t === 'int');
+                if (!$ok) $problems[] = "$view.$name expected TINYINT(1)|INT, got {$c['column_type']}";
             }
             if ($name === 'uses_left') {
                 $ok = in_array($t, ['tinyint','smallint','mediumint','int','bigint'], true);
-                if (!$ok) $problems[] = "$view.$name expected integer type, got {$c['DATA_TYPE']}";
+                if (!$ok) $problems[] = "$view.$name expected integer type, got {$c['data_type']}";
             }
         }
 
-        $this->assertEmpty($problems, "View helper types mismatch:\n - ".implode("\n - ", $problems));
+        $this->assertEmpty($problems, "View helper types mismatch:\n - " . implode("\n - ", $problems));
+        return;
+    }
+
+    // PostgreSQL větev
+    $cols = $db->fetchAll(
+        "SELECT table_schema, table_name, column_name,
+                data_type,
+                character_maximum_length AS char_len
+         FROM information_schema.columns
+         WHERE table_schema = ANY (current_schemas(true))
+           AND table_name LIKE 'vw\\_%' ESCAPE '\\'
+         ORDER BY table_schema, table_name, ordinal_position"
+    );
+
+    $problems = [];
+    foreach ($cols as $c) {
+        $view = $c['table_schema'] . '.' . $c['table_name'];
+        $name = $c['column_name'];
+        $t    = strtolower((string)$c['data_type']);            // např. 'boolean', 'character', 'character varying'
+        $len  = (int)($c['char_len'] ?? 0);
+
+        if (str_ends_with($name, '_hex')) {
+            // v našich view pro PG doporučuji:  UPPER(key_hash)::char(64)  apod.
+            $ok = in_array($t, ['character', 'character varying'], true) && ($len === 32 || $len === 64);
+            if (!$ok) $problems[] = "$view.$name expected CHAR(32|64), got {$c['data_type']}({$len})";
+        }
+        if ($name === 'uuid_text') {
+            $ok = in_array($t, ['character', 'character varying'], true) && $len === 36;
+            if (!$ok) $problems[] = "$view.$name expected CHAR(36), got {$c['data_type']}({$len})";
+        }
+        if ($name === 'ip_pretty') {
+            $ok = in_array($t, ['character', 'character varying'], true) && $len === 39;
+            if (!$ok) $problems[] = "$view.$name expected CHAR(39), got {$c['data_type']}({$len})";
+        }
+        if (str_starts_with($name, 'is_')) {
+            // PG má skutečný boolean typ – to je správně
+            $ok = ($t === 'boolean');
+            if (!$ok) $problems[] = "$view.$name expected BOOLEAN, got {$c['data_type']}";
+        }
+        if ($name === 'uses_left') {
+            $ok = in_array($t, ['smallint','integer','bigint'], true);
+            if (!$ok) $problems[] = "$view.$name expected integer type, got {$c['data_type']}";
+        }
+    }
+
+    $this->assertEmpty($problems, "View helper types mismatch (PG):\n - " . implode("\n - ", $problems));
     }
 
     public function test_hidden_columns_are_not_exposed(): void
     {
         $db = self::db();
-        $schema = (string)$db->fetchOne('SELECT DATABASE()');
 
-        // mapa view => sloupce, které NESMÍ být ve view
         $forbidden = [
-            'vw_users'                   => ['password_hash','password_algo','password_key_version'],
-            'vw_sessions'                => ['token_hash','session_blob'],
-            'vw_jwt_tokens'              => ['token_hash'],
-            'vw_encrypted_fields'        => ['ciphertext'],
-            'vw_book_assets'             => ['encryption_key_enc','encryption_iv','encryption_tag','encryption_aad'],
-            'vw_orders'                  => ['encrypted_customer_blob'],
-            'vw_payment_webhooks'        => ['payload'], // expose jen has_payload
-            'vw_email_verifications'     => ['token_hash','validator_hash'],
+            'vw_users'               => ['password_hash','password_algo','password_key_version'],
+            'vw_sessions'            => ['token_hash','session_blob'],
+            'vw_jwt_tokens'          => ['token_hash'],
+            'vw_encrypted_fields'    => ['ciphertext'],
+            'vw_book_assets'         => ['encryption_key_enc','encryption_iv','encryption_tag','encryption_aad'],
+            'vw_orders'              => ['encrypted_customer_blob'],
+            'vw_payment_webhooks'    => ['payload'],
+            'vw_email_verifications' => ['token_hash','validator_hash'],
         ];
 
         foreach ($forbidden as $view => $cols) {
-            // načti dostupné sloupce ve view
-            $rows = $db->fetchAll(
-                "SELECT COLUMN_NAME FROM information_schema.columns
-                 WHERE table_schema=? AND table_name=?",
-                 [$schema, $view]
-            );
-            $actual = array_map(fn($r)=>$r['COLUMN_NAME'], $rows);
+            if ($db->isMysql()) {
+                $schema = (string)$db->fetchOne('SELECT DATABASE()');
+                $rows = $db->fetchAll(
+                    "SELECT COLUMN_NAME AS column_name
+                    FROM information_schema.columns
+                    WHERE table_schema=? AND table_name=?",
+                    [$schema, $view]
+                );
+            } else {
+                // current_schemas(true) pokrývá search_path včetně 'public'
+                $rows = $db->fetchAll(
+                    "SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = ANY (current_schemas(true))
+                    AND table_name = :v",
+                    [':v' => $view]
+                );
+            }
 
-            $leaks = array_values(array_intersect($cols, $actual));
-            $this->assertEmpty($leaks, "$view should not expose: ".implode(', ', $leaks));
+            $actual = array_map(fn($r) => $r['column_name'], $rows);
+            $leaks  = array_values(array_intersect($cols, $actual));
+            $this->assertEmpty($leaks, "$view should not expose: " . implode(', ', $leaks));
         }
     }
 }

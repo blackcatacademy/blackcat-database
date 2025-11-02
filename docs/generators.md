@@ -54,3 +54,7 @@ docker compose run --rm app composer dump-autoload -o
 
 docker compose run --rm -e BC_DB=mysql app php ./tests/ci/run.php
 docker compose run --rm -e BC_DB=postgres app php ./tests/ci/run.php
+
+docker compose run --rm -e BC_DB=mysql -e MYSQL_DSN="mysql:host=mysql;port=3306;dbname=test;charset=utf8mb4" -e MYSQL_USER=root -e MYSQL_PASS=root -e BC_INSTALLER_DEBUG=1 -e BC_DEBUG=1 -e BC_TRACE_VIEWS=1 -e BC_STRESS=1 -e BC_INSTALLER_TRACE_FILES=1 -e BC_NO_CACHE=1 -e BC_INSTALLER_TRACE_SQL=1 -e BC_HARNESS_STRICT_VIEWS=1 -e BC_ORDER_GUARD=1 app ./vendor/bin/phpunit -c tests/phpunit.xml.dist --testsuite "DB Integration" *> .\logs\db-integration.log
+
+docker compose run --rm -e BC_DB=postgres -e PG_DSN="pgsql:host=127.0.0.1;port=5432;dbname=test;options='-c client_encoding=UTF8'" -e PG_USER=postgres -e PG_PASS=postgres -e BC_INSTALLER_DEBUG=1 -e BC_DEBUG=1 -e BC_TRACE_VIEWS=1 -e BC_STRESS=1 -e BC_INSTALLER_TRACE_FILES=1 -e BC_NO_CACHE=1 -e BC_INSTALLER_TRACE_SQL=1 -e BC_HARNESS_STRICT_VIEWS=1 -e BC_ORDER_GUARD=1 app ./vendor/bin/phpunit -c tests/phpunit.xml.dist --testsuite "DB Integration" *> .\logs\db-integration.log

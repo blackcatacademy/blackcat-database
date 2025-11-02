@@ -5,7 +5,7 @@ CREATE OR REPLACE VIEW vw_app_settings AS
 SELECT
   setting_key,
   CASE WHEN "type" = 'secret' OR is_protected THEN NULL ELSE setting_value END AS setting_value,
-  CASE WHEN app_settings.setting_value IS NOT NULL THEN 1 ELSE 0 END AS has_value,
+  (app_settings.setting_value IS NOT NULL) AS has_value,
   "type",
   section,
   description,
@@ -27,7 +27,7 @@ SELECT
   change_type,
   changed_at,
   ip_bin,
-  encode(ip_bin, 'hex') AS ip_bin_hex,
+  UPPER(encode(ip_bin,'hex'))::char(32) AS ip_bin_hex,
   user_agent,
   request_id
 FROM audit_log;
@@ -40,7 +40,7 @@ SELECT
   user_id,
   type,
   ip_hash,
-  encode(ip_hash, 'hex') AS ip_hash_hex,
+  UPPER(encode(ip_hash,'hex'))::char(32) AS ip_hash_hex,
   ip_hash_key_version,
   user_agent,
   occurred_at,
@@ -89,10 +89,10 @@ SELECT
   key_version,
   key_id,
   created_at,
-  encode(encryption_key_enc, 'hex') AS encryption_key_enc_hex,
-  encode(encryption_iv,  'hex')     AS encryption_iv_hex,
-  encode(encryption_tag, 'hex')     AS encryption_tag_hex,
-  encode(encryption_aad, 'hex')     AS encryption_aad_hex
+  UPPER(encode(encryption_key_enc,'hex'))::char(64)   AS encryption_key_enc_hex,
+  UPPER(encode(encryption_iv,'hex'))::char(64)        AS encryption_iv_hex,
+  UPPER(encode(encryption_tag,'hex'))::char(64)       AS encryption_tag_hex,
+  UPPER(encode(encryption_aad,'hex'))::char(64)       AS encryption_aad_hex
 FROM book_assets;
 
 -- === book_categories ===
@@ -126,7 +126,7 @@ SELECT
   is_active,
   is_available,
   stock_quantity,
-  CASE WHEN (is_active AND is_available AND (stock_quantity IS NULL OR stock_quantity > 0)) THEN 1 ELSE 0 END AS is_saleable,
+  (is_active AND is_available AND (stock_quantity IS NULL OR stock_quantity > 0)) AS is_saleable,
   created_at,
   updated_at,
   version,
@@ -211,7 +211,7 @@ SELECT
   min_order_amount,
   applies_to,
   is_active,
-  CASE WHEN (is_active AND (starts_at IS NULL OR now() >= starts_at) AND (ends_at IS NULL OR now() <= ends_at)) THEN 1 ELSE 0 END AS is_current,
+  (is_active AND (starts_at IS NULL OR now() >= starts_at) AND (ends_at IS NULL OR now() <= ends_at)) AS is_current,
   created_at,
   updated_at
 FROM coupons;
@@ -242,7 +242,7 @@ SELECT
   retired_at,
   replaced_by,
   notes,
-  encode(backup_blob, 'hex') AS backup_blob_hex
+  UPPER(encode(backup_blob,'hex'))::char(64) AS backup_blob_hex
 FROM crypto_keys;
 
 -- === email_verifications ===
@@ -257,7 +257,7 @@ SELECT
   expires_at,
   created_at,
   used_at,
-  encode(validator_hash, 'hex') AS validator_hash_hex
+  UPPER(encode(validator_hash,'hex'))::char(64) AS validator_hash_hex
 FROM email_verifications;
 
 -- === encrypted_fields ===
@@ -272,7 +272,7 @@ SELECT
   meta,
   created_at,
   updated_at,
-  encode(ciphertext, 'hex') AS ciphertext_hex
+  UPPER(encode(ciphertext,'hex'))::char(64) AS ciphertext_hex
 FROM encrypted_fields;
 
 -- === encryption_events ===
@@ -313,14 +313,14 @@ FROM encryption_policies;
 CREATE OR REPLACE VIEW vw_idempotency_keys AS
 SELECT
   key_hash,
-  encode(key_hash, 'hex') AS key_hash_hex,
+  UPPER(key_hash)::char(64) AS key_hash_hex,
   payment_id,
   order_id,
   redirect_url,
   created_at,
   ttl_seconds,
   (created_at + make_interval(secs => ttl_seconds)) AS expires_at,
-  CASE WHEN (ttl_seconds IS NOT NULL AND created_at IS NOT NULL AND (created_at + make_interval(secs => ttl_seconds)) <= now()) THEN 1 ELSE 0 END AS is_expired
+  (ttl_seconds IS NOT NULL AND created_at IS NOT NULL AND (created_at + make_interval(secs => ttl_seconds)) <= now()) AS is_expired
 FROM idempotency_keys;
 
 -- === inventory_reservations ===
@@ -333,7 +333,7 @@ SELECT
   book_id,
   quantity,
   reserved_until,
-  CASE WHEN now() > reserved_until THEN 1 ELSE 0 END AS is_expired,
+  (now() > reserved_until) AS is_expired,
   status,
   created_at,
   version
@@ -392,12 +392,12 @@ SELECT
   expires_at,
   last_used_at,
   ip_hash,
-  encode(ip_hash, 'hex') AS ip_hash_hex,
+  UPPER(encode(ip_hash,'hex'))::char(32) AS ip_hash_hex,
   ip_hash_key_version,
   replaced_by,
   revoked,
   meta,
-  encode(token_hash, 'hex') AS token_hash_hex
+  UPPER(encode(token_hash,'hex'))::char(64) AS token_hash_hex
 FROM jwt_tokens;
 
 -- === key_events ===
@@ -479,12 +479,12 @@ CREATE OR REPLACE VIEW vw_login_attempts AS
 SELECT
   id,
   ip_hash,
-  encode(ip_hash, 'hex') AS ip_hash_hex,
+  UPPER(encode(ip_hash,'hex'))::char(32) AS ip_hash_hex,
   attempted_at,
   success,
   user_id,
   username_hash,
-  encode(username_hash, 'hex') AS username_hash_hex,
+  UPPER(encode(username_hash,'hex'))::char(64) AS username_hash_hex,
   auth_event_id
 FROM login_attempts;
 
@@ -496,27 +496,27 @@ SELECT
   id,
   user_id,
   email_hash,
-  encode(email_hash, 'hex') AS email_hash_hex,
+  UPPER(encode(email_hash,'hex'))::char(64) AS email_hash_hex,
   email_hash_key_version,
   confirm_selector,
   confirm_validator_hash,
-  encode(confirm_validator_hash, 'hex') AS confirm_validator_hash_hex,
+  UPPER(encode(confirm_validator_hash,'hex'))::char(64) AS confirm_validator_hash_hex,
   confirm_key_version,
   confirm_expires,
   confirmed_at,
   unsubscribe_token_hash,
-  encode(unsubscribe_token_hash, 'hex') AS unsubscribe_token_hash_hex,
+  UPPER(encode(unsubscribe_token_hash,'hex'))::char(64) AS unsubscribe_token_hash_hex,
   unsubscribe_token_key_version,
   unsubscribed_at,
   origin,
   ip_hash,
-  encode(ip_hash, 'hex') AS ip_hash_hex,
+  UPPER(encode(ip_hash,'hex'))::char(32) AS ip_hash_hex,
   ip_hash_key_version,
   meta,
   created_at,
   updated_at,
   version,
-  encode(email_enc, 'hex') AS email_enc_hex
+  UPPER(encode(email_enc,'hex'))::char(64) AS email_enc_hex
 FROM newsletter_subscribers;
 
 -- === notifications ===
@@ -538,7 +538,7 @@ SELECT
   error,
   last_attempt_at,
   locked_until,
-  CASE WHEN (locked_until IS NOT NULL AND locked_until > now()) THEN 1 ELSE 0 END AS is_locked,
+  (locked_until IS NOT NULL AND locked_until > now()) AS is_locked,
   locked_by,
   priority,
   created_at,
@@ -560,14 +560,13 @@ SELECT
   max_uses,
   used,
   GREATEST(0, COALESCE(max_uses,0) - COALESCE(used,0)) AS uses_left,
-  CASE WHEN (GREATEST(0, COALESCE(max_uses,0) - COALESCE(used,0)) > 0
-        AND (expires_at IS NULL OR expires_at > now())) THEN 1 ELSE 0 END AS is_valid,
+  (GREATEST(0, COALESCE(max_uses,0) - COALESCE(used,0)) > 0 AND (expires_at IS NULL OR expires_at > now())) AS is_valid,
   expires_at,
   last_used_at,
   ip_hash,
-  encode(ip_hash, 'hex') AS ip_hash_hex,
+  UPPER(encode(ip_hash,'hex'))::char(32) AS ip_hash_hex,
   ip_hash_key_version,
-  encode(download_token_hash, 'hex') AS download_token_hash_hex
+  UPPER(encode(download_token_hash,'hex'))::char(64) AS download_token_hash_hex
 FROM order_item_downloads;
 
 -- === order_items ===
@@ -594,14 +593,14 @@ CREATE OR REPLACE VIEW vw_orders AS
 SELECT
   id,
   uuid,
-  uuid::text AS uuid_text,
-  upper(replace(uuid::text, '-','')) AS uuid_hex,
-  encode(uuid_bin, 'hex') AS uuid_bin_hex,
+  uuid::text::char(36) AS uuid_text,
+  UPPER(translate(uuid::text,'-',''))::char(32) AS uuid_hex,
+  UPPER(encode(uuid_bin,'hex'))::char(32) AS uuid_bin_hex,
   public_order_no,
   user_id,
   status,
   encrypted_customer_blob_key_version,
-  encode(encrypted_customer_blob, 'hex') AS encrypted_customer_blob_hex,
+  UPPER(encode(encrypted_customer_blob,'hex'))::char(64) AS encrypted_customer_blob_hex,
   encryption_meta,
   currency,
   metadata,
@@ -649,7 +648,7 @@ SELECT
   payment_id,
   gateway_event_id,
   payload_hash,
-  CASE WHEN payload IS NOT NULL THEN 1 ELSE 0 END AS has_payload,
+  (payload IS NOT NULL) AS has_payload,
   from_cache,
   created_at
 FROM payment_webhooks;
@@ -716,7 +715,7 @@ SELECT
   user_id,
   type,
   ip_hash,
-  encode(ip_hash, 'hex') AS ip_hash_hex,
+  UPPER(encode(ip_hash,'hex'))::char(32) AS ip_hash_hex,
   ip_hash_key_version,
   user_agent,
   occurred_at,
@@ -735,7 +734,7 @@ SELECT
   review_text,
   created_at,
   updated_at,
-  CASE WHEN updated_at IS NOT NULL THEN 1 ELSE 0 END AS is_edited
+  (updated_at IS NOT NULL) AS is_edited
 FROM reviews;
 
 -- === session_audit ===
@@ -745,14 +744,14 @@ CREATE OR REPLACE VIEW vw_session_audit AS
 SELECT
   id,
   session_token,
-  encode(session_token, 'hex') AS session_token_hex,
+  UPPER(encode(session_token,'hex'))::char(64) AS session_token_hex,
   session_token_key_version,
   csrf_key_version,
   session_id,
   event,
   user_id,
   ip_hash,
-  encode(ip_hash, 'hex') AS ip_hash_hex,
+  UPPER(encode(ip_hash,'hex'))::char(32) AS ip_hash_hex,
   ip_hash_key_version,
   user_agent,
   meta_json AS meta,
@@ -768,23 +767,23 @@ SELECT
   id,
   token_hash_key_version,
   token_fingerprint,
-  encode(token_fingerprint, 'hex') AS token_fingerprint_hex,
+  UPPER(encode(token_fingerprint,'hex'))::char(64) AS token_fingerprint_hex,
   token_issued_at,
   user_id,
   created_at,
   version,
   last_seen_at,
   expires_at,
-  CASE WHEN (NOT revoked AND (expires_at IS NULL OR expires_at > now())) THEN 1 ELSE 0 END AS is_active,
+  (NOT revoked AND (expires_at IS NULL OR expires_at > now())) AS is_active,
   failed_decrypt_count,
   last_failed_decrypt_at,
   revoked,
   ip_hash,
-  encode(ip_hash, 'hex') AS ip_hash_hex,
+  UPPER(encode(ip_hash,'hex'))::char(32) AS ip_hash_hex,
   ip_hash_key_version,
   user_agent,
-  encode(token_hash,  'hex') AS token_hash_hex,
-  encode(session_blob,'hex') AS session_blob_hex
+  UPPER(encode(token_hash,'hex'))::char(64) AS token_hash_hex,
+  UPPER(encode(session_blob,'hex'))::char(64) AS session_blob_hex
 FROM sessions;
 
 -- === system_errors ===
@@ -803,12 +802,12 @@ SELECT
   occurrences,
   user_id,
   ip_hash,
-  encode(ip_hash, 'hex') AS ip_hash_hex,
+  UPPER(encode(ip_hash,'hex'))::char(32) AS ip_hash_hex,
   ip_hash_key_version,
   ip_text,
-  ip_text::text AS ip_pretty,
+  COALESCE(NULLIF(ip_text,''), bc_compat.inet6_ntoa(ip_bin))::varchar(39) AS ip_pretty,
   ip_bin,
-  encode(ip_bin, 'hex') AS ip_bin_hex,
+  UPPER(encode(ip_bin,'hex'))::char(32) AS ip_bin_hex,
   user_agent,
   url,
   method,
@@ -862,8 +861,8 @@ SELECT
   created_at,
   version,
   last_used_at,
-  encode(secret, 'hex')            AS secret_hex,
-  encode(recovery_codes_enc, 'hex') AS recovery_codes_enc_hex
+  UPPER(encode(secret,'hex'))::char(64)            AS secret_hex,
+  UPPER(encode(recovery_codes_enc,'hex'))::char(64) AS recovery_codes_enc_hex
 FROM two_factor;
 
 -- === user_consents ===
@@ -902,7 +901,7 @@ SELECT
   encryption_meta,
   updated_at,
   version,
-  encode(profile_enc, 'hex') AS profile_enc_hex
+  UPPER(encode(profile_enc,'hex'))::char(64) AS profile_enc_hex
 FROM user_profiles;
 
 -- === users ===
@@ -912,7 +911,7 @@ CREATE OR REPLACE VIEW vw_users AS
 SELECT
   id,
   email_hash,
-  encode(email_hash, 'hex') AS email_hash_hex,
+  UPPER(encode(email_hash,'hex'))::char(64) AS email_hash_hex,
   email_hash_key_version,
   is_active,
   is_locked,
@@ -920,7 +919,7 @@ SELECT
   must_change_password,
   last_login_at,
   last_login_ip_hash,
-  encode(last_login_ip_hash, 'hex') AS last_login_ip_hash_hex,
+  UPPER(encode(last_login_ip_hash,'hex'))::char(32) AS last_login_ip_hash_hex,
   last_login_ip_key_version,
   created_at,
   updated_at,
@@ -939,7 +938,7 @@ SELECT
   country_iso2,
   valid,
   checked_at,
-  CASE WHEN checked_at > now() - interval '30 days' THEN 1 ELSE 0 END AS is_fresh
+  (checked_at > now() - interval '30 days') AS is_fresh
 FROM vat_validations;
 
 -- === verify_events ===
@@ -950,7 +949,7 @@ SELECT
   user_id,
   type,
   ip_hash,
-  encode(ip_hash, 'hex') AS ip_hash_hex,
+  UPPER(encode(ip_hash,'hex'))::char(32) AS ip_hash_hex,
   ip_hash_key_version,
   user_agent,
   occurred_at,

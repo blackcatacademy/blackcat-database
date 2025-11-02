@@ -21,7 +21,11 @@ if (!\BlackCat\Core\Database::isInitialized()) {
     // příp. autoloader (většinou už je načtený, ale nevadí)
     @include_once __DIR__ . '/../../vendor/autoload.php';
 
-    $driver = getenv('BC_DB') ?: 'mysql';
+    $driver = getenv('BC_DB') ?: '';
+    if ($driver === '') {
+        fwrite(STDERR, "[lock_row_repo] BC_DB not set after bootstrap; refusing to guess.\n");
+        exit(8);
+    }
 
     if ($driver === 'mysql') {
         $dsn  = getenv('MYSQL_DSN')  ?: 'mysql:host=127.0.0.1;port=3306;dbname=test;charset=utf8mb4';
@@ -63,6 +67,38 @@ if (!\BlackCat\Core\Database::isInitialized()) {
     }
 }
 
+// --- Po bootstrapu: zkontroluj shodu ENV vs. skutečný driver + nastav PG timeouty ---
+$db  = Database::getInstance();
+$pdo = $db->getPdo();
+$driver = (string)$pdo->getAttribute(\PDO::ATTR_DRIVER_NAME); // 'mysql' | 'pgsql'
+$envRaw = strtolower((string)(getenv('BC_DB') ?: ''));
+
+// normalizace aliasů na kanonické hodnoty
+$envNorm = match ($envRaw) {
+    'mysql', 'mariadb'                      => 'mysql',
+    'pg', 'pgsql', 'postgres', 'postgresql' => 'pgsql',
+    default                                 => '',
+};
+
+if ($envNorm === '') {
+    fwrite(STDERR, "[lock_row_repo] BC_DB not recognized ('{$envRaw}'). Use one of: mysql|mariadb|pg|pgsql|postgres|postgresql.\n");
+    exit(7);
+}
+
+if ($driver !== $envNorm) {
+    fwrite(STDERR, "[lock_row_repo] ENV/driver mismatch: BC_DB(normalized)='{$envNorm}', PDO='{$driver}'. Aborting.\n");
+    exit(7);
+}
+if ($driver === 'pgsql') {
+    try {
+        $db->exec("SET lock_timeout TO '5s'");
+        $db->exec("SET statement_timeout TO '30s'");
+        $db->exec("SET idle_in_transaction_session_timeout TO '30s'");
+    } catch (\Throwable $e) {
+        // non-fatal
+    }
+}
+
 if ($argc < 4) {
     fwrite(STDERR, "Args: <RepoFqn> <id> <seconds>\n");
     exit(2);
@@ -101,8 +137,6 @@ if ($defsFqn && class_exists($defsFqn)) {
     }
 }
 
-$db = Database::getInstance();
-$pdo = $db->getPdo();
 if (!$pdo->inTransaction()) { $pdo->beginTransaction(); }
 $qi = fn($x) => $db->quoteIdent($x);
 // --- DEBUG: kde a jak běží locker ---

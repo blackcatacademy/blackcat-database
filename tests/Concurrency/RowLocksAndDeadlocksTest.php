@@ -87,6 +87,11 @@ final class RowLocksAndDeadlocksTest extends TestCase
             $thrown = $e;
         }
         $this->assertNotNull($thrown, 'Lock wait timeout did not happen');
+        // PG: chyba abortuje celou TX → resetni ji, jinak skončíš na 25P02
+        if ($pdo2->inTransaction()) {
+            try { $pdo2->rollBack(); } catch (\Throwable $ignore) {}
+        }
+        $pdo2->beginTransaction();
 
         // uvolni zámek a zkus znovu
         $pdo1->commit();
@@ -115,6 +120,12 @@ final class RowLocksAndDeadlocksTest extends TestCase
         } catch (\Throwable $e) { $err = $e; }
         $this->assertNotNull($err, 'NOWAIT did not raise');
 
+        // PG: NOWAIT chyba abortuje transakci → začni čistou TX pro SKIP LOCKED
+        if ($pdo2->inTransaction()) {
+            try { $pdo2->rollBack(); } catch (\Throwable $ignore) {}
+        }
+        $pdo2->beginTransaction();
+
         // SKIP LOCKED -> vrátí 0 řádků, neblokuje
         $stmt = $pdo2->prepare("SELECT id FROM ".self::$table." WHERE id=:id FOR UPDATE SKIP LOCKED");
         $stmt->execute([':id'=>$id]);
@@ -129,38 +140,65 @@ final class RowLocksAndDeadlocksTest extends TestCase
     public function test_deadlock_detection(): void
     {
         $this->assertNotNull(self::$table);
-        $pdo1 = ConnFactory::newPdo();
-        $pdo2 = ConnFactory::newPdo();
+        $pdo = ConnFactory::newPdo();
+        $idA = $this->insertRow($pdo);
+        $idB = $this->insertRow($pdo);
 
-        $idA = $this->insertRow($pdo1);
-        $idB = $this->insertRow($pdo1);
+        $php = PHP_BINARY;
+        $script = escapeshellarg(__DIR__ . '/../Support/deadlock_worker.php');
+        $table  = escapeshellarg(self::$table);
+        $col    = escapeshellarg(self::$updCol);
 
-        $pdo1->beginTransaction();
-        $pdo2->beginTransaction();
+        $cmdA = "$php $script $table $col $idA $idB A";
+        $cmdB = "$php $script $table $col $idA $idB B";
 
-        // TX1 zamkne A, TX2 zamkne B
-        $pdo1->prepare("SELECT id FROM ".self::$table." WHERE id=:id FOR UPDATE")->execute([':id'=>$idA]);
-        $pdo2->prepare("SELECT id FROM ".self::$table." WHERE id=:id FOR UPDATE")->execute([':id'=>$idB]);
+        $desc = [['pipe','r'],['pipe','w'],['pipe','w']];
+        $driver = strtolower((string)(getenv('BC_DB') ?: 'pg'));
 
-        // TX1 pokusí update B (blokuje se na TX2)
-        $stmt1 = $pdo1->prepare("UPDATE ".self::$table." SET ".self::$updCol." = ".self::$updCol." WHERE id=:id");
-        try { $stmt1->execute([':id'=>$idB]); } catch (\Throwable $ignore) {}
+        $env = [
+            'BC_DB' => $driver,
+            'PATH'  => getenv('PATH') ?: '',
+            'HOME'  => getenv('HOME') ?: '',
+        ];
 
-        // TX2 pokusí update A -> vznikne deadlock, jedna transakce padne
-        $stmt2 = $pdo2->prepare("UPDATE ".self::$table." SET ".self::$updCol." = ".self::$updCol." WHERE id=:id");
-
-        $deadlock = false;
-        try {
-            $stmt2->execute([':id'=>$idA]);
-        } catch (\Throwable $e) {
-            $deadlock = true;
+        if ($driver === 'mysql') {
+            $env += [
+                'MYSQL_DSN'  => getenv('MYSQL_DSN') ?: '',
+                'MYSQL_USER' => getenv('MYSQL_USER') ?: '',
+                'MYSQL_PASS' => getenv('MYSQL_PASS') ?: '',
+                // vynuluj PG proměnné
+                'PG_DSN' => '', 'PG_USER' => '', 'PG_PASS' => '', 'BC_PG_SCHEMA' => '',
+            ];
+        } else {
+            $env += [
+                'PG_DSN'       => getenv('PG_DSN') ?: '',
+                'PG_USER'      => getenv('PG_USER') ?: '',
+                'PG_PASS'      => getenv('PG_PASS') ?: '',
+                'BC_PG_SCHEMA' => getenv('BC_PG_SCHEMA') ?: 'public',
+                // vynuluj MySQL proměnné
+                'MYSQL_DSN' => '', 'MYSQL_USER' => '', 'MYSQL_PASS' => '',
+            ];
         }
 
-        $this->assertTrue($deadlock, 'Expected a deadlock to be detected by the DB');
+        $pA = proc_open($cmdA, $desc, $pa, __DIR__ . '/../../', $env);
+        $pB = proc_open($cmdB, $desc, $pb, __DIR__ . '/../../', $env);
+        $this->assertIsResource($pA);
+        $this->assertIsResource($pB);
 
-        // cleanup – jedna TX bude zrušená, druhou dočistíme
-        foreach ([$pdo1,$pdo2] as $pdo) {
-            try { $pdo->rollBack(); } catch (\Throwable $ignore) {}
+        // Počkej na oba, deadlock oznámí exit code 99
+        $stA = proc_get_status($pA);
+        $stB = proc_get_status($pB);
+        while (($stA && $stA['running']) || ($stB && $stB['running'])) {
+            usleep(100_000);
+            $stA = proc_get_status($pA);
+            $stB = proc_get_status($pB);
         }
+        $codeA = is_resource($pA) ? proc_close($pA) : -1;
+        $codeB = is_resource($pB) ? proc_close($pB) : -1;
+
+        $this->assertTrue(
+            ($codeA === 99) || ($codeB === 99),
+            "Expected one worker to exit with deadlock (99), got A={$codeA}, B={$codeB}"
+        );
     }
 }

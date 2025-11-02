@@ -738,6 +738,12 @@ final class DbHarness
             return ['pkCol'=>$pkCol, 'pk'=>$rowUsed[$pkCol]];
         }
 
+        if (self::isPg()) {
+            $rowUsed = self::coerceForPg($table, $rowUsed);
+        } else {
+            $rowUsed = self::coerceForMysql($table, $rowUsed);
+        }
+
         // 1) INSERT
         self::dbg('insertAndReturnId(%s): inserting payload keys=[%s]', $table, implode(',', array_keys($rowUsed)));
         $repo->insert($rowUsed);
@@ -898,9 +904,10 @@ final class DbHarness
             SQL, [':schema'=>self::pgSchema(), ':t'=>$table]) ?? [];
             foreach ($rows as $r) { $map[(string)$r['col']][] = (string)$r['val']; }
 
-            // b) CHECK constrainty
+            // b) CHECK constrainty – dvojí zdroj: (1) pg_get_constraintdef, (2) pg_get_expr(c.conbin, ...)
             $defs = $db->fetchAll(
-                "SELECT pg_get_constraintdef(c.oid) AS def
+                "SELECT pg_get_constraintdef(c.oid) AS def,
+                        pg_get_expr(c.conbin, c.conrelid) AS expr
                  FROM pg_constraint c
                  JOIN pg_class t ON t.oid = c.conrelid
                  JOIN pg_namespace n ON n.oid = t.relnamespace
@@ -909,36 +916,103 @@ final class DbHarness
             ) ?? [];
 
             foreach ($defs as $d) {
-                $def = (string)$d['def'];
+                $def  = (string)($d['def']  ?? '');
+                $expr = (string)($d['expr'] ?? '');
+                $cands = array_filter([$def, $expr], fn($s)=>$s !== '');
 
-                if (preg_match('/CHECK\s*\(\s*"?(?<col>[a-z0-9_]+)"?(?:::text)?\s+IN\s*\(\s*(?<vals>.+?)\s*\)\s*\)/i', $def, $m)) {
-                    $vals = array_map(fn($v)=>str_replace("''","'", trim($v, " '\"")), preg_split('/\s*,\s*/', $m['vals']));
-                    if ($vals) { $map[$m['col']] = $map[$m['col']] ?? $vals; }
-                }
-                if (preg_match('/CHECK.*"?(?<col>[a-z0-9_]+)"?(?:::text)?\s*=\s*ANY\s*\(\s*\(?(?:ARRAY)?\[(?<vals>.+?)\]\)?/i', $def, $m)) {
-                    $vals = array_map(fn($v)=>str_replace("''","'", trim(preg_replace('/::[a-z_]+$/i','', trim($v)), " '\"")), preg_split('/\s*,\s*/', $m['vals']));
-                    if ($vals) { $map[$m['col']] = $map[$m['col']] ?? $vals; }
-                }
-                if (preg_match('/CHECK.*"?(?<col>[a-z0-9_]+)"?(?:::text)?\s*~\*?\s*\'\^\((?<vals>[^)]+)\)\$\'/i', $def, $m)) {
-                    $vals = array_map('trim', explode('|', $m['vals']));
-                    if ($vals) { $map[$m['col']] = $map[$m['col']] ?? $vals; }
-                }
-                if (preg_match('/CHECK\s*\((?<expr>.+)\)\s*$/i', $def, $mm)) {
-                    $expr = $mm['expr'];
-                    if (preg_match_all('/"?(?<col>[a-z0-9_]+)"?(?:::text)?\s*=\s*\'(?<val>(?:\'\'|[^\'])+)\'/i', $expr, $pairs, PREG_SET_ORDER)) {
-                        $tmp = [];
-                        foreach ($pairs as $p) { $tmp[$p['col']][] = str_replace("''", "'", $p['val']); }
-                        foreach ($tmp as $c => $vals) {
-                            $vals = array_values(array_unique($vals));
-                            if (count($vals) >= 2) {
-                                $map[$c] = $map[$c] ?? $vals;
-                            }
+                foreach ($cands as $s) {
+                    // NEW: literal equality cases: col = 'val' nebo 'val' = col (vč. LOWER/UPPER a ::cast)
+                    if (preg_match_all(
+                            '/\b(?:LOWER|UPPER)\s*\(\s*"?(?<col>[a-z0-9_]+)"?(?:::?[a-z_]+\[]?)?\s*\)\s*=\s*\'((?:\'\'|[^\'])+)\'/i',
+                            $s, $mm1, PREG_SET_ORDER
+                        )) {
+                        foreach ($mm1 as $m1) {
+                            $col = (string)$m1['col'];
+                            $val = str_replace("''", "'", $m1[2]);
+                            $map[$col] = $map[$col] ?? [];
+                            $map[$col][] = $val;
                         }
                     }
+
+                    if (preg_match_all(
+                            '/\b"?(?<col>[a-z0-9_]+)"?(?:::?[a-z_]+\[]?)?\s*=\s*\'((?:\'\'|[^\'])+)\'/i',
+                            $s, $mm2, PREG_SET_ORDER
+                        )) {
+                        foreach ($mm2 as $m2) {
+                            $col = (string)$m2['col'];
+                            $val = str_replace("''", "'", $m2[2]);
+                            $map[$col] = $map[$col] ?? [];
+                            $map[$col][] = $val;
+                        }
+                    }
+
+                    if (preg_match_all(
+                            '/\'((?:\'\'|[^\'])+)\'\s*=\s*(?:LOWER|UPPER)\s*\(\s*"?(?<col>[a-z0-9_]+)"?(?:::?[a-z_]+\[]?)?\s*\)/i',
+                            $s, $mm3, PREG_SET_ORDER
+                        )) {
+                        foreach ($mm3 as $m3) {
+                            $col = (string)$m3['col'];
+                            $val = str_replace("''", "'", $m3[1]);
+                            $map[$col] = $map[$col] ?? [];
+                            $map[$col][] = $val;
+                        }
+                    }
+
+                    if (preg_match_all(
+                            '/\'((?:\'\'|[^\'])+)\'\s*=\s*(?!ANY\b|ALL\b|SOME\b)\s*"?(?<col>[a-z0-9_]+)"?(?:::?[a-z_]+\[]?)?/i',
+                            $s, $mm4, PREG_SET_ORDER
+                        )) {
+                        foreach ($mm4 as $m4) {
+                            $col = (string)$m4['col'];
+                            $val = str_replace("''", "'", $m4[1]);
+                            $map[$col] = $map[$col] ?? [];
+                            $map[$col][] = $val;
+                        }
+                    }
+                    // IN (...)
+                    if (preg_match('/\b(?:LOWER|UPPER)\s*\(\s*"?(?<col>[a-z0-9_]+)"?(?:::?[a-z_]+\[]?)?\s*\)\s+IN\s*\(\s*(?<vals>[^)]+)\)/i', $s, $m)
+                     || preg_match('/\b"?(?<col>[a-z0-9_]+)"?(?:::?[a-z_]+\[]?)?\s+IN\s*\(\s*(?<vals>[^)]+)\)/i', $s, $m)) {
+                        $vals = preg_split('/\s*,\s*/', (string)$m['vals']) ?: [];
+                        $vals = array_map(fn($v)=>self::pgNormalizeChoice((string)$v), $vals);
+                        $vals = array_values(array_filter($vals, fn($v)=>$v!==''));
+                        if ($vals) { $map[(string)$m['col']] = $map[(string)$m['col']] ?? $vals; continue; }
+                    }
+
+                    // = ANY (ARRAY['a', 'b']::text[])
+                    if (preg_match('/\b(?:LOWER|UPPER)\s*\(\s*"?(?<col>[a-z0-9_]+)"?(?:::?[a-z_]+\[]?)?\s*\)\s*=\s*ANY\s*\(\s*\(?(?:ARRAY)?\[(?<vals>[^\]]+)\]\)?/i', $s, $m)
+                     || preg_match('/\b"?(?<col>[a-z0-9_]+)"?(?:::?[a-z_]+\[]?)?\s*=\s*ANY\s*\(\s*\(?(?:ARRAY)?\[(?<vals>[^\]]+)\]\)?/i', $s, $m)) {
+                        $vals = preg_split('/\s*,\s*/', (string)$m['vals']) ?: [];
+                        $vals = array_map(fn($v)=>self::pgNormalizeChoice((string)$v), $vals);
+                        $vals = array_values(array_filter($vals, fn($v)=>$v!==''));
+                        if ($vals) { $map[(string)$m['col']] = $map[(string)$m['col']] ?? $vals; continue; }
+                    }
+
+                    // = ANY ('{A,B,C}'::text[])
+                    if (preg_match('/\b"?(?<col>[a-z0-9_]+)"?(?:::?[a-z_]+\[]?)?\s*=\s*ANY\s*\(\s*\'\{(?<vals_brace>[^}]*)\}\'::[a-z_]+\[\]\s*\)/i', $s, $m)) {
+                        $inside = (string)$m['vals_brace'];
+                        // Preferuj přesné matchnutí quoted položek: 'A','B'
+                        if (preg_match_all("/'((?:''|[^'])*)'/", $inside, $mm)) {
+                            $vals = array_map(fn($s)=>str_replace("''","'", $s), $mm[1]);
+                        } else {
+                            $vals = array_map('trim', explode(',', $inside));
+                            $vals = array_map(fn($v)=>self::pgNormalizeChoice((string)$v), $vals);
+                        }
+                        $vals = array_values(array_filter($vals, fn($v)=>$v!==''));
+                        if ($vals) { $map[(string)$m['col']] = $map[(string)$m['col']] ?? $vals; continue; }
+                    }
+
+                    // ~ '^(a|b|c)$' (regex)
+                    if (preg_match('/\b"?(?<col>[a-z0-9_]+)"?(?:::?[a-z_]+\[]?)?\s*~\*?\s*\'\^\((?<alts>[^)]+)\)\$\'/i', $s, $m)) {
+                        $vals = array_values(array_filter(array_map('trim', explode('|', (string)$m['alts'])), fn($v)=>$v!==''));
+                        if ($vals) { $map[(string)$m['col']] = $map[(string)$m['col']] ?? $vals; continue; }
+                    }
                 }
-                if (preg_match('/CHECK.*(?:LOWER|UPPER)\s*\(\s*"?(?<col>[a-z0-9_]+)"?(?:::text)?\s*\)\s+IN\s*\(\s*(?<vals>.+?)\s*\)\s*\)?/i', $def, $m)) {
-                    $vals = array_map(fn($v)=>str_replace("''","'", trim($v, " '\"")), preg_split('/\s*,\s*/', $m['vals']));
-                    if ($vals) { $map[$m['col']] = $map[$m['col']] ?? $vals; }
+            }
+
+            // (volitelný) debug: ukaž, co se skutečně detekovalo
+            if (self::isDebug()) {
+                foreach ($map as $col => $vals) {
+                    self::dbg('enumChoices[%s].%s = [%s]', $table, $col, implode(',', $vals));
                 }
             }
         } else {
@@ -1060,6 +1134,99 @@ final class DbHarness
     }
 
     // === PG coercions & FK smoke helper ==========================================================
+    private static function coerceForMysql(string $table, array $row): array
+    {
+        // 1) Introspect columns & enum-like choices (works on MySQL too)
+        $cols = self::columns($table);
+        if (!$cols) return $row;
+
+        $meta = [];
+        foreach ($cols as $c) {
+            $name = (string)$c['name'];
+            $meta[$name] = [
+                'type'      => strtolower((string)$c['type']),
+                'full_type' => strtolower((string)($c['full_type'] ?? (string)$c['type'])),
+            ];
+        }
+
+        $enumMap   = self::enumChoices($table);            // [col => ['a','b',...]]
+        $enumMapLc = array_change_key_case($enumMap, CASE_LOWER);
+
+        foreach ($row as $k => $v) {
+            if (!isset($meta[$k])) continue;
+            $type = $meta[$k]['type'];
+            $kLc  = strtolower($k);
+
+            // a) honor enum-like choices
+            if (($choices = ($enumMap[$k] ?? $enumMapLc[$kLc] ?? null))) {
+                $choicesStr = array_map('strval', $choices);
+                if (!in_array((string)$v, $choicesStr, true)) {
+                    $row[$k] = (string)$choicesStr[0];
+                }
+                continue;
+            }
+
+            // b) booleans -> 0/1 (MySQL TINYINT(1))
+            if (preg_match('/tinyint|bool/i', $type)) {
+                if (is_bool($v)) {
+                    $row[$k] = $v ? 1 : 0;
+                } else {
+                    $s = strtolower((string)$v);
+                    $row[$k] = in_array($s, ['t','true','yes','y','1'], true) ? 1 : 0;
+                }
+                continue;
+            }
+
+            // c) JSON -> valid JSON string
+            if (str_contains($type, 'json')) {
+                if (is_array($v) || is_object($v)) {
+                    $row[$k] = json_encode($v, JSON_UNESCAPED_UNICODE);
+                } elseif (!is_string($v) || $v === '' || json_decode((string)$v, true) === null) {
+                    $row[$k] = '{}';
+                }
+                continue;
+            }
+
+            // d) numbers -> numbers
+            if (preg_match('/int|decimal|numeric|double|real|float/i', $type)) {
+                if (!is_int($v) && !is_float($v)) {
+                    $row[$k] = is_numeric($v) ? 0 + $v : 0;
+                }
+                continue;
+            }
+
+            // e) datetime-ish -> 'Y-m-d H:i:s' (keep it simple/valid)
+            if (preg_match('/date|time|timestamp/i', $type) && !is_string($v)) {
+                $row[$k] = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s');
+            }
+        }
+
+        // f) cross-column heuristics for coupons (mirror PG)
+        $typeChoices = array_map('strtolower', $enumMapLc['type'] ?? ($enumMap['type'] ?? []));
+        if (in_array('percent', $typeChoices, true) && in_array('fixed', $typeChoices, true)
+            && isset($meta['type']) && isset($meta['currency'])) {
+
+            $t = strtolower((string)($row['type'] ?? ''));
+
+            if ($t === 'percent') {
+                if (array_key_exists('currency', $row)) $row['currency'] = null;        // must be NULL
+                if (isset($row['value'])) {
+                    $v = is_numeric($row['value']) ? 0 + $row['value'] : 0;
+                    $row['value'] = max(0, min(100, $v));
+                }
+            } elseif ($t === 'fixed') {
+                $cur = (string)($row['currency'] ?? '');
+                $cur = strtoupper($cur);
+                $row['currency'] = preg_match('/^[A-Z]{3}$/', $cur) ? $cur : 'USD';     // sane default
+                if (isset($row['value'])) {
+                    $v = is_numeric($row['value']) ? 0 + $row['value'] : 0;
+                    $row['value'] = max(0, $v);
+                }
+            }
+        }
+
+        return $row;
+    }
 
     /**
      * Upraví sample řádek tak, aby PG nepadal na type/check/identity.
@@ -1105,19 +1272,15 @@ final class DbHarness
             $type = $meta[$k]['type'];
             $kLc  = strtolower($k);
 
-            // boolean → true/false
+            // boolean → 'true' / 'false' (STRING!)
             if (preg_match('/\bbool/i', $type)) {
                 if (!is_bool($v)) {
                     $s = strtolower((string)$v);
-                    if (in_array($s, ['t','true','yes','y','1'], true)) {
-                        $row[$k] = true;
-                    } elseif (in_array($s, ['f','false','no','n','0'], true)) {
-                        $row[$k] = false;
-                    } else {
-                        $row[$k] = false;
-                    }
+                    $row[$k] = in_array($s, ['t','true','yes','y','1'], true) ? 'true' : 'false';
+                } else {
+                    $row[$k] = $v ? 'true' : 'false';
                 }
-                self::dbg('coerceForPg(%s): %s -> boolean %s', $table, $k, $row[$k] ? 'true' : 'false');
+                self::dbg("coerceForPg(%s): %s -> boolean '%s'", $table, $k, (string)$row[$k]);
                 continue;
             }
 
@@ -1137,14 +1300,15 @@ final class DbHarness
                 continue;
             }
 
-            // enumy / „typové“ sloupce → doplň první povolenou hodnotu, pokud hodnota není mezi povolenými
-            if (preg_match('/(^|_)(type|status|channel|mode|event|level)$/i', $k)) {
-                $choices = $enumMap[$k] ?? $enumMapLc[$kLc] ?? null;
-                if ($choices && !in_array((string)$v, array_map('strval', $choices), true)) {
-                    self::dbg("coerceForPg(%s): %s coerced to '%s' from enum-like", $table, $k, (string)$choices[0]);
-                    $row[$k] = (string)$choices[0];
-                    continue;
+            // Máme-li enum-like volby pro daný sloupec, vždy je respektuj (bez ohledu na název)
+            $choices = $enumMap[$k] ?? $enumMapLc[$kLc] ?? null;
+            if ($choices) {
+                $choicesStr = array_map('strval', $choices);
+                if (!in_array((string)$v, $choicesStr, true)) {
+                    $row[$k] = (string)$choicesStr[0];
+                    self::dbg("coerceForPg(%s): %s := '%s' (enum-like)", $table, $k, $row[$k]);
                 }
+                continue;
             }
 
             // čísla → čísla (PG kontroluje typy přísněji)
@@ -1167,7 +1331,43 @@ final class DbHarness
                 continue;
             }
         }
-
+        
+        // --- Cross-column heuristics (percent/fixed + currency) -----------------------------
+        // Pokud máme enum-like 'type' s hodnotami ['percent','fixed'] a existuje sloupec 'currency',
+        // srovnejme row tak, aby vyhověl typickému CHECKu (viz coupons).
+        $typeChoices = array_map('strtolower', $enumMapLc['type'] ?? ($enumMap['type'] ?? []));
+        if (in_array('percent', $typeChoices, true) && in_array('fixed', $typeChoices, true)
+            && isset($meta['type']) && isset($meta['currency'])) {
+            $t = strtolower((string)($row['type'] ?? ''));
+            if ($t === 'percent') {
+                if (array_key_exists('currency', $row) && $row['currency'] !== null) {
+                    $row['currency'] = null;
+                    self::dbg("coerceForPg(%s): forced currency=NULL for type=percent", $table);
+                }
+                if (isset($row['value'])) {
+                    $v = $row['value'];
+                    if (!is_int($v) && !is_float($v)) { $v = is_numeric($v) ? 0 + $v : 0; }
+                    if ($v < 0)   $v = 0;
+                    if ($v > 100) $v = 100;
+                    $row['value'] = $v;
+                }
+            } elseif ($t === 'fixed') {
+                $cur = $row['currency'] ?? null;
+                $curS = is_string($cur) ? strtoupper($cur) : '';
+                if ($curS === '' || preg_match('/^[A-Z]{3}$/', $curS) !== 1) {
+                    $row['currency'] = 'USD';
+                    self::dbg("coerceForPg(%s): currency -> 'USD' for type=fixed", $table);
+                } else {
+                    $row['currency'] = $curS;
+                }
+                if (isset($row['value'])) {
+                    $v = $row['value'];
+                    if (!is_int($v) && !is_float($v)) { $v = is_numeric($v) ? 0 + $v : 0; }
+                    if ($v < 0) $v = 0;
+                    $row['value'] = $v;
+                }
+            }
+        }
         return $row;
     }
 
@@ -1393,6 +1593,20 @@ final class DbHarness
     }
 
     // -------------------- INTERNALS / HELPERS --------------------
+
+    private static function pgNormalizeChoice(string $v): string
+    {
+        $v = trim($v);
+        // odstraň trailing cast: ::text, ::varchar, ::text[], …
+        $v = (string)preg_replace('/::[a-z_]+(\[\])?$/i', '', $v);
+        // 'foo' -> foo ; "foo" -> "foo" (typicky ne, ale nevadí)
+        if ($v !== '' && $v[0] === "'" && substr($v, -1) === "'") {
+            $v = substr($v, 1, -1);
+        }
+        // PG escape '' -> '
+        $v = str_replace("''", "'", $v);
+        return $v;
+    }
 
     private static function envTrue(string $name): bool {
         $v = $_ENV[$name] ?? getenv($name) ?? '';

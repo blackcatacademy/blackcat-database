@@ -568,8 +568,7 @@ CREATE TABLE IF NOT EXISTS orders (
   version INTEGER NOT NULL DEFAULT 0,
   CONSTRAINT chk_orders_version CHECK (version >= 0),
   CONSTRAINT chk_orders_status CHECK (status IN ('pending','paid','failed','cancelled','refunded','completed')),
-  CONSTRAINT chk_orders_currency CHECK (currency ~ '^[A-Z]{3}$'),
-  CONSTRAINT ux_orders_uuid_bin UNIQUE (uuid_bin)
+  CONSTRAINT chk_orders_currency CHECK (currency ~ '^[A-Z]{3}$')
 );
 
 -- === payment_gateway_notifications ===
