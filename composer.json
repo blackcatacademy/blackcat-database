@@ -18,7 +18,7 @@
     "source": "https://github.com/blackcatacademy/blackcat-database"
   },
   "require": {
-    "php": "^8.1",
+    "php": "^8.3",
     "ext-json": "*",
     "ext-pdo": "*",
     "ext-sodium": "*",

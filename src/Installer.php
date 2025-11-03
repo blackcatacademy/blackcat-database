@@ -290,6 +290,8 @@ final class Installer
         $this->dbg('ensureRegistry DDL: ' . $this->head($ddl));
     }
         $this->qexec($ddl);                   // <— Core má nově exec()
+        // jednorázově po založení registry zajisti MariaDB UUID funkce
+        $this->ensureMariaUuidCompat();
         $this->registryEnsured = true;            // ← zapamatuj
     }
 
@@ -315,6 +317,69 @@ final class Installer
         } catch (\Throwable) {
             return false;
         }
+    }
+
+    private function ensureMariaUuidCompat(): void
+    {
+        // jen pro MariaDB (MySQL to má nativně)
+        if (!$this->dialect->isMysql() || !$this->isMariaDb()) return;
+
+        $ok = false;
+        try {
+            // obě existují a mají 2 parametry?
+            $rows = $this->db->fetchAll("
+                SELECT SPECIFIC_NAME AS name, COUNT(*) AS argc
+                FROM information_schema.PARAMETERS
+                WHERE SPECIFIC_SCHEMA = DATABASE()
+                AND SPECIFIC_NAME IN ('BIN_TO_UUID','UUID_TO_BIN')
+                GROUP BY SPECIFIC_NAME
+            ") ?? [];
+            $argc = [];
+            foreach ($rows as $r) { $argc[strtoupper((string)$r['name'])] = (int)$r['argc']; }
+            $ok = (isset($argc['BIN_TO_UUID']) && $argc['BIN_TO_UUID'] === 2)
+            && (isset($argc['UUID_TO_BIN']) && $argc['UUID_TO_BIN'] === 2);
+        } catch (\Throwable) {
+            // když I_S.PARAMETERS není k dispozici → raději přegeneruj
+            $ok = false;
+        }
+
+        if ($ok) {
+            if ($this->diagEnabled()) { $this->dbg('maria-compat: UUID funcs present (2-arg)'); }
+            return;
+        }
+
+        $this->dbg('maria-compat: installing BIN_TO_UUID/UUID_TO_BIN (2-arg)');
+
+        $this->qexec("DROP FUNCTION IF EXISTS BIN_TO_UUID");
+        $this->qexec("
+            CREATE FUNCTION BIN_TO_UUID(b BINARY(16), swap TINYINT(1))
+            RETURNS CHAR(36) DETERMINISTIC SQL SECURITY INVOKER
+            RETURN LOWER(CONCAT_WS('-',
+                IF(swap=1, SUBSTR(HEX(b),  9, 8), SUBSTR(HEX(b),  1, 8)),  -- time_low
+                IF(swap=1, SUBSTR(HEX(b),  5, 4), SUBSTR(HEX(b),  9, 4)),  -- time_mid
+                IF(swap=1, SUBSTR(HEX(b),  1, 4), SUBSTR(HEX(b), 13, 4)),  -- time_hi_and_version
+                                    SUBSTR(HEX(b), 17, 4),                -- clock_seq
+                                    SUBSTR(HEX(b), 21)                    -- node
+            ));
+        ");
+
+        $this->qexec("DROP FUNCTION IF EXISTS UUID_TO_BIN");
+        $this->qexec("
+            CREATE FUNCTION UUID_TO_BIN(u CHAR(36), swap TINYINT(1))
+            RETURNS BINARY(16) DETERMINISTIC SQL SECURITY INVOKER
+            RETURN UNHEX(
+                IF(swap=1,
+                    CONCAT(
+                        SUBSTR(REPLACE(LOWER(u),'-',''), 13, 4),  -- time_hi_and_version
+                        SUBSTR(REPLACE(LOWER(u),'-',''),  9, 4),  -- time_mid
+                        SUBSTR(REPLACE(LOWER(u),'-',''),  1, 8),  -- time_low
+                        SUBSTR(REPLACE(LOWER(u),'-',''), 17, 4),  -- clock_seq
+                        SUBSTR(REPLACE(LOWER(u),'-',''), 21)      -- node
+                    ),
+                    REPLACE(LOWER(u),'-','')
+                )
+            );
+        ");
     }
 
     private function traceViewAlgorithms(): void
@@ -1009,19 +1074,22 @@ final class Installer
     private function traceViewAlgorithmsFiltered(array $onlyThese): void
     {
         if (getenv('BC_TRACE_VIEWS') !== '1') return;
-        if (!$onlyThese) { $this->traceViewAlgorithms(); return; } // fallback na původní
+        if (!$onlyThese) { $this->traceViewAlgorithms(); return; }
+
         try {
             $qi = function(string $fqn): string {
                 $parts = explode('.', $fqn);
                 return implode('.', array_map(fn($p) => $this->db->quoteIdent($p), $parts));
             };
+
+            // --- MySQL (ne-MariaDB): už funguje, ponechte ---
             if ($this->dialect->isMysql() && !$this->isMariaDb()) {
                 foreach ($onlyThese as $name) {
                     try {
                         $row = $this->db->fetch('SHOW CREATE VIEW ' . $qi($name)) ?? [];
                         $ddl = (string)($row['Create View'] ?? (array_values($row)[1] ?? ''));
                         $alg = 'UNKNOWN';
-                        if (preg_match('~\\bALGORITHM\\s*=\\s*(UNDEFINED|MERGE|TEMPTABLE)\\b~i', $ddl, $m)) {
+                        if (preg_match('~\bALGORITHM\s*=\s*(UNDEFINED|MERGE|TEMPTABLE)\b~i', $ddl, $m)) {
                             $alg = strtoupper($m[1]);
                         }
                         error_log('[Installer][TRACE_VIEWS_ALG] ' . $name . ' -> ' . $alg);
@@ -1031,10 +1099,39 @@ final class Installer
                 }
                 return;
             }
+
+            // --- MariaDB: NOVĚ přidejte filtrovanou větev ---
+            if ($this->isMariaDb()) {
+                $names = array_values(array_unique(array_map('strtolower', $onlyThese)));
+                if (!$names) return;
+
+                $placeholders = [];
+                $params = [];
+                foreach ($names as $i => $n) {
+                    $ph = ":v{$i}";
+                    $placeholders[] = $ph;
+                    $params[$ph] = $n;
+                }
+
+                $sql = "
+                    SELECT TABLE_NAME, ALGORITHM
+                    FROM information_schema.VIEWS
+                    WHERE TABLE_SCHEMA = DATABASE()
+                    AND LOWER(TABLE_NAME) IN (".implode(',', $placeholders).")
+                    ORDER BY TABLE_NAME
+                ";
+                $rows = $this->db->fetchAll($sql, $params) ?? [];
+                foreach ($rows as $r) {
+                    error_log('[Installer][TRACE_VIEWS_ALG] ' . $r['TABLE_NAME'] . ' -> ' . strtoupper((string)$r['ALGORITHM']));
+                }
+                return;
+            }
+
         } catch (\Throwable $e) {
             error_log('[Installer][TRACE_VIEWS_ALG][WARN] filtered failed: ' . $e->getMessage());
         }
-        // na ostatní případy nech původní chování
+
+        // fallback pro ostatní (PG) – staré chování
         $this->traceViewAlgorithms();
     }
 

@@ -3,7 +3,8 @@ declare(strict_types=1);
 
 use BlackCat\Core\Database;
 
-require __DIR__ . '/../ci/bootstrap.php';
+require __DIR__ . '/../phpunit.bootstrap.php';
+require __DIR__ . '/../ci/db_guard.php';
 
 /**
  * Args: <table> <updCol> <idA> <idB> <role:A|B>
@@ -17,63 +18,15 @@ $idB = (int)$argv[4];
 $role = (string)$argv[5];
 
 /* -----------------------------------------------------------
- * 1) Fallback init – když bootstrap DB neotevřel, otevři ji stejně jako v lock_row_repo.php
- * --------------------------------------------------------- */
-if (!Database::isInitialized()) {
-    @include_once __DIR__ . '/../../vendor/autoload.php';
-
-    $driverRaw = strtolower((string)(getenv('BC_DB') ?: ''));
-    if ($driverRaw === '') {
-        fwrite(STDERR, "[deadlock_worker] BC_DB not set after bootstrap; refusing to guess.\n");
-        exit(8);
-    }
-
-    $driver = match ($driverRaw) {
-        'mysql','mariadb'                       => 'mysql',
-        'pg','pgsql','postgres','postgresql'   => 'pgsql',
-        default                                 => '',
-    };
-    if ($driver === '') {
-        fwrite(STDERR, "[deadlock_worker] Unknown BC_DB='{$driverRaw}'. Use mysql|mariadb|pg|pgsql|postgres|postgresql.\n");
-        exit(7);
-    }
-
-    if ($driver === 'mysql') {
-        $dsn  = getenv('MYSQL_DSN')  ?: 'mysql:host=127.0.0.1;port=3306;dbname=test;charset=utf8mb4';
-        $user = getenv('MYSQL_USER') ?: 'root';
-        $pass = getenv('MYSQL_PASS') ?: '';
-
-        Database::init([
-            'dsn'    => $dsn,
-            'user'   => $user,
-            'pass'   => $pass,
-            'init_commands' => [
-                "SET time_zone = '+00:00'",
-            ],
-        ]);
-    } else { // pgsql
-        $dsn  = getenv('PG_DSN')  ?: 'pgsql:host=127.0.0.1;port=5432;dbname=test';
-        $user = getenv('PG_USER') ?: 'postgres';
-        $pass = getenv('PG_PASS') ?: '';
-
-        Database::init([
-            'dsn'    => $dsn,
-            'user'   => $user,
-            'pass'   => $pass,
-            'init_commands' => [
-                "SET TIME ZONE 'UTC'",
-            ],
-        ]);
-    }
-}
-
-/* -----------------------------------------------------------
- * 2) Validace shody BC_DB ↔ PDO driver + PG session timeouty
+ * 1) Validace shody BC_DB ↔ PDO driver + PG session timeouty
  * --------------------------------------------------------- */
 $db  = Database::getInstance();
 $pdo = $db->getPdo();
 
 $pdoDriver = (string)$pdo->getAttribute(PDO::ATTR_DRIVER_NAME);  // 'mysql' | 'pgsql'
+fwrite(STDERR, "[deadlock_worker] BC_DB=".(getenv('BC_DB') ?: '')." PDO={$pdoDriver}\n");
+fwrite(STDERR, "[deadlock_worker] PG_DSN=".(getenv('PG_DSN') ?: '(none)')."\n");
+fwrite(STDERR, "[deadlock_worker] MYSQL_DSN=".(getenv('MYSQL_DSN') ?: '(none)')."\n");
 $envRaw    = strtolower((string)(getenv('BC_DB') ?: ''));
 $envNorm   = match ($envRaw) {
     'mysql','mariadb'                       => 'mysql',
@@ -94,7 +47,7 @@ if ($pdoDriver === 'pgsql') {
 }
 
 /* -----------------------------------------------------------
- * 3) Deadlock scénář – MUSÍME jet v jedné transakci!
+ * 2) Deadlock scénář – MUSÍME jet v jedné transakci!
  *    A: lockne A, pak se pokusí locknout B
  *    B: lockne B, pak se pokusí locknout A
  * --------------------------------------------------------- */

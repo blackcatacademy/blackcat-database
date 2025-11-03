@@ -27,8 +27,7 @@ CREATE TABLE IF NOT EXISTS users (
   INDEX idx_users_last_login_at (last_login_at),
   INDEX idx_users_is_active (is_active),
   INDEX idx_users_actor_role (actor_role),
-  INDEX idx_users_last_login_ip_hash (last_login_ip_hash),
-  INDEX idx_users_email_hash (email_hash)
+  INDEX idx_users_last_login_ip_hash (last_login_ip_hash)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
 '@
       indexes = @(
@@ -848,7 +847,6 @@ CREATE TABLE IF NOT EXISTS orders (
   INDEX idx_orders_user_id (user_id),
   INDEX idx_orders_status (status),
   INDEX idx_orders_user_status (user_id, status),
-  INDEX idx_orders_uuid (uuid),
   UNIQUE KEY ux_orders_uuid_bin (uuid_bin),
   CONSTRAINT chk_orders_currency CHECK (currency REGEXP '^[A-Z]{3}$')
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -1055,8 +1053,7 @@ CREATE TABLE IF NOT EXISTS payment_webhooks (
   from_cache BOOLEAN NOT NULL DEFAULT 0,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   INDEX idx_payment_webhooks_payment (payment_id),
-  INDEX idx_payment_webhooks_gw_id (gateway_event_id),
-  INDEX idx_payment_webhooks_hash (payload_hash)
+  INDEX idx_payment_webhooks_gw_id (gateway_event_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 '@
       indexes = @('CREATE UNIQUE INDEX ux_payment_webhooks_payload ON payment_webhooks (payload_hash)')

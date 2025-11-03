@@ -25,7 +25,7 @@ $resolveBackend = static function (): string {
     })(getenv('BC_DB') ?: '');
 
     $hasPg = (string)(getenv('PG_DSN') ?: '') !== '';
-    $hasMy = (string)(getenv('MYSQL_DSN') ?: '') !== '';
+    $hasMy = (string)((getenv('MYSQL_DSN') ?: getenv('MARIADB_DSN') ?: '')) !== '';
 
     if ($norm === null) {
         if ($hasPg && !$hasMy) {
@@ -79,9 +79,17 @@ if (Database::isInitialized()) {
      * 3) První init podle rozhodnutého backendu
      */
     if ($which === 'mysql') {
-        $dsn  = getenv('MYSQL_DSN')  ?: 'mysql:host=127.0.0.1;port=3306;dbname=test;charset=utf8mb4';
-        $user = getenv('MYSQL_USER') ?: 'root';
-        $pass = getenv('MYSQL_PASS') ?: 'root';
+        $dsn  = getenv('MYSQL_DSN')
+            ?: getenv('MARIADB_DSN')
+            ?: 'mysql:host=127.0.0.1;port=3306;dbname=test;charset=utf8mb4';
+
+        $user = getenv('MYSQL_USER')
+            ?: getenv('MARIADB_USER')
+            ?: 'root';
+
+        $pass = getenv('MYSQL_PASS')
+            ?: getenv('MARIADB_PASS')
+            ?: 'root';
 
         Database::init([
             'dsn'    => $dsn,
@@ -98,7 +106,9 @@ if (Database::isInitialized()) {
         if (defined('PDO::MYSQL_ATTR_USE_BUFFERED_QUERY')) {
             $pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false);
         }
-
+        if (defined('PDO::MYSQL_ATTR_FOUND_ROWS')) {
+            $pdo->setAttribute(PDO::MYSQL_ATTR_FOUND_ROWS, true);
+        }
     } else { // 'pg'
         $dsn  = getenv('PG_DSN')  ?: 'pgsql:host=127.0.0.1;port=5432;dbname=test';
         $user = getenv('PG_USER') ?: 'postgres';
@@ -121,10 +131,27 @@ if (Database::isInitialized()) {
         $db->exec("SET statement_timeout TO '30s'");
         $db->exec("SET idle_in_transaction_session_timeout TO '30s'");
 
-        // Nainstaluj bc_compat (idempotentní), *pak* nastav finální search_path
-        (new PgCompat($db))->install();
+        // Jednorázově respektuj BC_SKIP_COMPAT, pak ji z procesu vyčisti.
+        $skipCompat = (getenv('BC_SKIP_COMPAT') === '1');
+
+        if (!$skipCompat) {
+            // Bezpečně serializuj instalaci bc_compat (pokud API je k dispozici)
+            if (method_exists($db, 'withAdvisoryLock')) {
+                $db->withAdvisoryLock('bc:compat:install', 10, function() use ($db) {
+                    (new PgCompat($db))->install();
+                });
+            } else {
+                (new PgCompat($db))->install();
+            }
+        }
+
+        // Ať se flag dál nedědí do child procesů spouštěných tímto procesem:
+        putenv('BC_SKIP_COMPAT'); // unset v prostředí procesu
+        unset($_ENV['BC_SKIP_COMPAT'], $_SERVER['BC_SKIP_COMPAT']); // pro jistotu i z PHP superglobalů
+
         $schema = getenv('BC_PG_SCHEMA') ?: 'public';
         $db->exec("SET search_path TO " . preg_replace('/[^a-z0-9_]/i','', $schema) . ", bc_compat, public");
+
     }
 }
 

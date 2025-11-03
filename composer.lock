@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "1668d3ab6086dae9044292e76cfc6679",
+    "content-hash": "6fdfe2ac833f7364ed8edc837bb88b9c",
     "packages": [
         {
             "name": "blackcatacademy/blackcat-core",
@@ -12,12 +12,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/blackcatacademy/blackcat-core.git",
-                "reference": "9c326320f4eb9b1e785d3a66daa41f434794c809"
+                "reference": "1f98a97a75c29903a99dc6ea609ad85a52956de4"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/blackcatacademy/blackcat-core/zipball/9c326320f4eb9b1e785d3a66daa41f434794c809",
-                "reference": "9c326320f4eb9b1e785d3a66daa41f434794c809",
+                "url": "https://api.github.com/repos/blackcatacademy/blackcat-core/zipball/1f98a97a75c29903a99dc6ea609ad85a52956de4",
+                "reference": "1f98a97a75c29903a99dc6ea609ad85a52956de4",
                 "shasum": ""
             },
             "require": {
@@ -89,7 +89,7 @@
                 "issues": "https://github.com/blackcatacademy/blackcat-core/issues",
                 "source": "https://github.com/blackcatacademy/blackcat-core"
             },
-            "time": "2025-10-28T15:14:42+00:00"
+            "time": "2025-11-02T12:42:31+00:00"
         },
         {
             "name": "psr/log",
@@ -767,16 +767,16 @@
         },
         {
             "name": "phpunit/phpunit",
-            "version": "11.5.42",
+            "version": "11.5.43",
             "source": {
                 "type": "git",
                 "url": "https://github.com/sebastianbergmann/phpunit.git",
-                "reference": "1c6cb5dfe412af3d0dfd414cfd110e3b9cfdbc3c"
+                "reference": "c6b89b6cf4324a8b4cb86e1f5dfdd6c9e0371924"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/sebastianbergmann/phpunit/zipball/1c6cb5dfe412af3d0dfd414cfd110e3b9cfdbc3c",
-                "reference": "1c6cb5dfe412af3d0dfd414cfd110e3b9cfdbc3c",
+                "url": "https://api.github.com/repos/sebastianbergmann/phpunit/zipball/c6b89b6cf4324a8b4cb86e1f5dfdd6c9e0371924",
+                "reference": "c6b89b6cf4324a8b4cb86e1f5dfdd6c9e0371924",
                 "shasum": ""
             },
             "require": {
@@ -848,7 +848,7 @@
             "support": {
                 "issues": "https://github.com/sebastianbergmann/phpunit/issues",
                 "security": "https://github.com/sebastianbergmann/phpunit/security/policy",
-                "source": "https://github.com/sebastianbergmann/phpunit/tree/11.5.42"
+                "source": "https://github.com/sebastianbergmann/phpunit/tree/11.5.43"
             },
             "funding": [
                 {
@@ -872,7 +872,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2025-09-28T12:09:13+00:00"
+            "time": "2025-10-30T08:39:39+00:00"
         },
         {
             "name": "sebastian/cli-parser",
@@ -1971,7 +1971,7 @@
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
-        "php": "^8.1",
+        "php": "^8.3",
         "ext-json": "*",
         "ext-pdo": "*",
         "ext-sodium": "*"

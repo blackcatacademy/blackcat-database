@@ -65,13 +65,12 @@ foreach($d in $dirs){
 
   if (Test-GitDirty -Path $path) {
     git -C $path add -A
-    git -C $path commit -m "fix(repo): align repositories with concurrency tests & optimistic locking
+    git -C $path commit -m "fix(repo): align optimistic locking & quoting across backends
 
-    - implement optimistic locking: UPDATE ... SET version = version + 1 WHERE pk=:id AND version=:expected
-    - consistent identifier quoting for MySQL/Postgres
-    - set updated_at safely when not provided
-    - minor cleanups discovered by tests"
-
+    - implement optimistic locking: SET version = version + 1 WHERE id=:id AND version=:expected
+    - consistent identifier quoting for MySQL/MariaDB/Postgres
+    - do not touch timestamps unless provided
+    - small cleanups discovered by the concurrency tests"
     git -C $path push -u origin $branch
     Write-Host "PUSHED [$($d.Name)]"
   } else {
@@ -87,13 +86,13 @@ if (-not $SkipUmbrella) {
   git submodule status
   git add -A
   if (Test-GitDirty -Path $root) {
-    git commit -m "test(concurrency): stabilize repo-vs-repo locks; add BC_DEBUG; locker fallback DB init
+    git commit -m "test(concurrency): stabilize suite on MariaDB/MySQL/Postgres
 
-    - DoubleWriterRepositoryTest: stricter repo selection (identity PK, row-lock-safe, has version); pass DB env to child; stream locker stdout/stderr; helpful debug logs
-    - tests/support/lock_row_repo.php: fallback Database::init() from ENV + diagnostics
-    - BulkInsertTest: generate unique rows via RowFactory (respect unique keys; avoid duplicate PKs)
-    - Debug: BC_DEBUG toggles DB query logging and 0 ms slow-query threshold in tests"
-
+    - RowLocksAndDeadlocksTest: emulate SKIP LOCKED on MariaDB via NOWAIT (non-blocking, returns 0 rows)
+    - DoubleWriterRepositoryTest: forward MARIADB_* env; stream worker I/O; stricter repo selection; richer debug
+    - tests/support/lock_row_repo.php: never crash diagnostics; fallback @@transaction_isolation -> @@tx_isolation; best-effort env info
+    - tests/support/deadlock_worker.php: normalize BC_DB vs PDO driver; session timeouts; avoid bc_compat reinstall in children
+    - phpunit.bootstrap: set PDO::MYSQL_ATTR_FOUND_ROWS; disable buffered queries; robust backend resolution"
     git push
     Write-Host "PUSHED umbrella"
   } else {

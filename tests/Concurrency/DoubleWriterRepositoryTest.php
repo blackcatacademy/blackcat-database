@@ -154,7 +154,7 @@ final class DoubleWriterRepositoryTest extends TestCase
         $desc = [['pipe','r'],['pipe','w'],['pipe','w']];
 
         // Předej do child procesu DB env proměnné (a pár základních)
-        $forward = ['BC_DB','MYSQL_DSN','MYSQL_USER','MYSQL_PASS','PG_DSN','PG_USER','PG_PASS','BC_PG_SCHEMA','BC_DEBUG','PATH','HOME'];
+        $forward = ['BC_DB','MYSQL_DSN','MYSQL_USER','MYSQL_PASS','MARIADB_DSN','MARIADB_USER','MARIADB_PASS','PG_DSN','PG_USER','PG_PASS','BC_PG_SCHEMA','BC_DEBUG','PATH','HOME'];
         $env = [];
         foreach ($forward as $k) {
             $v = getenv($k);
@@ -232,7 +232,7 @@ final class DoubleWriterRepositoryTest extends TestCase
             $id,
             3
         );
-        $forward = ['BC_DB','MYSQL_DSN','MYSQL_USER','MYSQL_PASS','PG_DSN','PG_USER','PG_PASS','BC_PG_SCHEMA','BC_DEBUG','PATH','HOME'];
+        $forward = ['BC_DB','MYSQL_DSN','MYSQL_USER','MYSQL_PASS','MARIADB_DSN','MARIADB_USER','MARIADB_PASS','PG_DSN','PG_USER','PG_PASS','BC_PG_SCHEMA','BC_DEBUG','PATH','HOME'];
         $env = [];
         foreach ($forward as $k) {
             $v = getenv($k);

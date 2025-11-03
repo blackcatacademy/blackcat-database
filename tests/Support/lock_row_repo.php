@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace BlackCat\Database\Tests\Support;
 
+use BlackCat\Core\Database;
+
 /**
  * Usage:
  *   php tests/support/lock_row_repo.php "<RepoFqn>" <id> <seconds>
@@ -13,59 +15,8 @@ namespace BlackCat\Database\Tests\Support;
  *  - transakci pak ROLLBACK (nechceme měnit data)
  */
 
-require __DIR__ . '/../ci/bootstrap.php';
-
-use BlackCat\Core\Database;
-// --- Fallback: když bootstrap DB neinicializoval, udělej to z ENV ---
-if (!\BlackCat\Core\Database::isInitialized()) {
-    // příp. autoloader (většinou už je načtený, ale nevadí)
-    @include_once __DIR__ . '/../../vendor/autoload.php';
-
-    $driver = getenv('BC_DB') ?: '';
-    if ($driver === '') {
-        fwrite(STDERR, "[lock_row_repo] BC_DB not set after bootstrap; refusing to guess.\n");
-        exit(8);
-    }
-
-    if ($driver === 'mysql') {
-        $dsn  = getenv('MYSQL_DSN')  ?: 'mysql:host=127.0.0.1;port=3306;dbname=test;charset=utf8mb4';
-        $user = getenv('MYSQL_USER') ?: 'root';
-        $pass = getenv('MYSQL_PASS') ?: '';
-
-        \BlackCat\Core\Database::init([
-            'dsn'    => $dsn,
-            'user'   => $user,
-            'pass'   => $pass,
-            'options' => [
-                \PDO::ATTR_TIMEOUT => 5,
-            ],
-            'init_commands' => [
-                "SET time_zone = '+00:00'",
-            ],
-        ]);
-
-    } elseif ($driver === 'pgsql' || $driver === 'postgres') {
-        $dsn  = getenv('PG_DSN')  ?: 'pgsql:host=127.0.0.1;port=5432;dbname=test';
-        $user = getenv('PG_USER') ?: 'postgres';
-        $pass = getenv('PG_PASS') ?: '';
-
-        \BlackCat\Core\Database::init([
-            'dsn'    => $dsn,
-            'user'   => $user,
-            'pass'   => $pass,
-            'options' => [
-                \PDO::ATTR_TIMEOUT => 5,
-            ],
-            'init_commands' => [
-                "SET TIME ZONE 'UTC'",
-            ],
-        ]);
-        fwrite(STDERR, "[locker] init driver=".($driver)." dsn=".($dsn)."\n");
-    } else {
-        fwrite(STDERR, "Unsupported BC_DB driver: {$driver}\n");
-        exit(5);
-    }
-}
+require __DIR__ . '/../phpunit.bootstrap.php';
+require __DIR__ . '/../ci/db_guard.php';
 
 // --- Po bootstrapu: zkontroluj shodu ENV vs. skutečný driver + nastav PG timeouty ---
 $db  = Database::getInstance();
@@ -143,21 +94,41 @@ $qi = fn($x) => $db->quoteIdent($x);
 $driver = $db->driver();
 $server = $db->serverVersion() ?? '?';
 $idfp   = $db->id();
-$dbName = $driver === 'mysql'
-    ? (string)$db->fetchOne('SELECT DATABASE()')
-    : (string)$db->fetchOne('SELECT current_database()');
 
-$iso = $driver === 'mysql'
-    ? (string)$db->fetchOne('SELECT @@transaction_isolation')
-    : (string)$db->fetchOne('SHOW transaction_isolation');
+// Best-effort diagnostika, nikdy nesmí shodit worker (MariaDB starší verze nemají některé proměnné)
+$dbName = 'n/a';
+try {
+    $dbName = $driver === 'mysql'
+        ? (string)$db->fetchOne('SELECT DATABASE()')
+        : (string)$db->fetchOne('SELECT current_database()');
+} catch (\Throwable $__) {}
 
-$autocommit = $driver === 'mysql'
-    ? (string)$db->fetchOne('SELECT @@autocommit')
-    : 'n/a';
+$iso = 'n/a';
+if ($driver === 'mysql') {
+    try {
+        // MySQL 8+
+        $iso = (string)$db->fetchOne('SELECT @@transaction_isolation');
+    } catch (\Throwable $__) {
+        try {
+            // MariaDB / starší MySQL
+            $iso = (string)$db->fetchOne('SELECT @@tx_isolation');
+        } catch (\Throwable $___) {}
+    }
+} else {
+    try {
+        $iso = (string)$db->fetchOne('SHOW transaction_isolation');
+    } catch (\Throwable $__) {}
+}
 
-$lockWait = $driver === 'mysql'
-    ? (string)$db->fetchOne('SELECT @@innodb_lock_wait_timeout')
-    : 'n/a';
+$autocommit = 'n/a';
+if ($driver === 'mysql') {
+    try { $autocommit = (string)$db->fetchOne('SELECT @@autocommit'); } catch (\Throwable $__) {}
+}
+
+$lockWait = 'n/a';
+if ($driver === 'mysql') {
+    try { $lockWait = (string)$db->fetchOne('SELECT @@innodb_lock_wait_timeout'); } catch (\Throwable $__) {}
+}
 
 fwrite(STDERR, "[lock_row_repo] driver={$driver} server={$server} db={$dbName} idfp={$idfp} iso={$iso} autocommit={$autocommit} lock_wait={$lockWait}\n");
 

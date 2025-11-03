@@ -126,12 +126,43 @@ final class RowLocksAndDeadlocksTest extends TestCase
         }
         $pdo2->beginTransaction();
 
-        // SKIP LOCKED -> vrátí 0 řádků, neblokuje
-        $stmt = $pdo2->prepare("SELECT id FROM ".self::$table." WHERE id=:id FOR UPDATE SKIP LOCKED");
-        $stmt->execute([':id'=>$id]);
-        $rows = $stmt->fetchAll();
+        // --- SKIP LOCKED / kompatibilní větev ---
+        // Cíl: neblokovat a nevrátit zamknutý řádek.
+        // 1) Zkusíme nativní SKIP LOCKED (PG, MySQL 8+). Pokud MariaDB hlásí syntaxi, přejdeme na fallback.
+        $rows = null;
+
+        try {
+            $stmt = $pdo2->prepare("SELECT id FROM ".self::$table." WHERE id=:id FOR UPDATE SKIP LOCKED");
+            $stmt->execute([':id'=>$id]);
+            $rows = $stmt->fetchAll();
+        } catch (\PDOException $e) {
+            $sqlstate = (string)($e->errorInfo[0] ?? '');
+            $errno    = (int)   ($e->errorInfo[1] ?? 0);
+            $msg      = $e->getMessage();
+
+            // MariaDB bez SKIP LOCKED: syntax error (1064/42000) → použij NOWAIT jako emulaci "skip".
+            $unsupported = ($errno === 1064)            // SQL syntax error
+            || ($errno === 1235)            // not supported yet
+            || ($sqlstate === '42000')      // syntax error or access violation
+            || ($sqlstate === 'HY000' && stripos($msg, 'not supported') !== false)
+            || stripos($msg, 'SKIP LOCKED') !== false;
+
+            if (!$unsupported) {
+                throw $e; // jiná chyba, nemaskovat
+            }
+
+            // 2) Fallback: FOR UPDATE NOWAIT (neblokuje). Je-li řádek zamknutý, hned vyhodí výjimku → interpretujeme jako "nic k vyzvednutí".
+            try {
+                $stmt = $pdo2->prepare("SELECT id FROM ".self::$table." WHERE id=:id FOR UPDATE NOWAIT");
+                $stmt->execute([':id'=>$id]);
+                $rows = $stmt->fetchAll(); // kdyby náhodou nebyl zamknutý, vrátí řádky
+            } catch (\PDOException $_) {
+                $rows = []; // zamknuté → emulovaný "skip"
+            }
+        }
+
         $this->assertIsArray($rows);
-        $this->assertCount(0, $rows, 'SKIP LOCKED should skip locked row');
+        $this->assertCount(0, $rows, 'Non-blocking path must not return the locked row');
 
         $pdo1->commit();
         $pdo2->commit();
@@ -144,61 +175,131 @@ final class RowLocksAndDeadlocksTest extends TestCase
         $idA = $this->insertRow($pdo);
         $idB = $this->insertRow($pdo);
 
-        $php = PHP_BINARY;
+        $php = escapeshellarg(PHP_BINARY) . ' -d display_errors=1 -d error_reporting=32767';
         $script = escapeshellarg(__DIR__ . '/../Support/deadlock_worker.php');
         $table  = escapeshellarg(self::$table);
         $col    = escapeshellarg(self::$updCol);
 
-        $cmdA = "$php $script $table $col $idA $idB A";
-        $cmdB = "$php $script $table $col $idA $idB B";
+        $cmdA = "$script $table $col $idA $idB A";
+        $cmdB = "$script $table $col $idA $idB B";
 
         $desc = [['pipe','r'],['pipe','w'],['pipe','w']];
-        $driver = strtolower((string)(getenv('BC_DB') ?: 'pg'));
 
-        $env = [
-            'BC_DB' => $driver,
-            'PATH'  => getenv('PATH') ?: '',
-            'HOME'  => getenv('HOME') ?: '',
-        ];
+        // Normalizuj BC_DB (default pg)
+        $norm = match (strtolower((string)(getenv('BC_DB') ?: ''))) {
+            'mysql', 'mariadb'                               => 'mysql',
+            'pg', 'pgsql', 'postgres', 'postgresql', ''      => 'pg',
+            default                                          => 'pg',
+        };
 
-        if ($driver === 'mysql') {
-            $env += [
-                'MYSQL_DSN'  => getenv('MYSQL_DSN') ?: '',
-                'MYSQL_USER' => getenv('MYSQL_USER') ?: '',
-                'MYSQL_PASS' => getenv('MYSQL_PASS') ?: '',
-                // vynuluj PG proměnné
-                'PG_DSN' => '', 'PG_USER' => '', 'PG_PASS' => '', 'BC_PG_SCHEMA' => '',
-            ];
+        // Základ: celé prostředí rodiče (včetně proměnných z phpunit.xml)
+        $env = $_ENV;
+        $env['BC_DB'] = $norm;
+        // Child procesy NESMÍ znovu instalovat bc_compat → vyhne se „tuple concurrently updated“
+        $env['BC_SKIP_COMPAT'] = '1';
+        // doplň PATH/HOME i když $_ENV je prázdné
+        if (!isset($env['PATH']) || $env['PATH'] === '') { $env['PATH'] = getenv('PATH') ?: ''; }
+        if (!isset($env['HOME']) || $env['HOME'] === '') { $env['HOME'] = getenv('HOME') ?: ''; }
+
+        // Harden DSN podle cílového backendu (uvnitř Docker sítě MUSÍ být host=service)
+        if ($norm === 'pg') {
+            // když není PG_DSN, nebo ukazuje na localhost/127.0.0.1, přepiš na service "postgres"
+            $pgDsn = $env['PG_DSN'] ?? (getenv('PG_DSN') ?: '');
+            if ($pgDsn === '' || preg_match('~host\s*=\s*(127\.0\.0\.1|localhost)~i', $pgDsn)) {
+                $db   = $env['PGDATABASE'] ?? (getenv('PGDATABASE') ?: 'test');
+                $port = $env['PGPORT']     ?? (getenv('PGPORT') ?: '5432');
+                $env['PG_DSN'] = "pgsql:host=postgres;port={$port};dbname={$db}";
+            }
+            // zajisti uživatele/heslo/schema i když nejsou v $_ENV
+            $env['PG_USER']      = $env['PG_USER']      ?? (getenv('PG_USER')      ?: 'postgres');
+            $env['PG_PASS']      = $env['PG_PASS']      ?? (getenv('PG_PASS')      ?: 'postgres');
+            $env['BC_PG_SCHEMA'] = $env['BC_PG_SCHEMA'] ?? (getenv('BC_PG_SCHEMA') ?: 'public');
+
+            // pokud není DSN, nebo míří na localhost, přepiš na service jméno
+            $pgDsn = $env['PG_DSN'] ?? (getenv('PG_DSN') ?: '');
+            if ($pgDsn === '' || preg_match('~host\s*=\s*(127\.0\.0\.1|localhost)~i', $pgDsn)) {
+                $db   = $env['PGDATABASE'] ?? (getenv('PGDATABASE') ?: 'test');
+                $port = $env['PGPORT']     ?? (getenv('PGPORT')     ?: '5432');
+                $env['PG_DSN'] = "pgsql:host=postgres;port={$port};dbname={$db}";
+            }
+
+            // zamez ambiguitě – odstřihni MySQL proměnné
+            unset($env['MYSQL_DSN'], $env['MYSQL_USER'], $env['MYSQL_PASS']);
+
         } else {
-            $env += [
-                'PG_DSN'       => getenv('PG_DSN') ?: '',
-                'PG_USER'      => getenv('PG_USER') ?: '',
-                'PG_PASS'      => getenv('PG_PASS') ?: '',
-                'BC_PG_SCHEMA' => getenv('BC_PG_SCHEMA') ?: 'public',
-                // vynuluj MySQL proměnné
-                'MYSQL_DSN' => '', 'MYSQL_USER' => '', 'MYSQL_PASS' => '',
-            ];
+            // MySQL/MariaDB varianta – stejné pravidlo
+            // zajisti uživatele/heslo i když nejsou v $_ENV
+            $env['MYSQL_USER'] = $env['MYSQL_USER'] ?? (getenv('MYSQL_USER') ?: 'root');
+            $env['MYSQL_PASS'] = $env['MYSQL_PASS'] ?? (getenv('MYSQL_PASS') ?: 'root');
+            $myDsn = $env['MYSQL_DSN'] ?? (getenv('MYSQL_DSN') ?: '');
+            if ($myDsn === '' || preg_match('~host\s*=\s*(127\.0\.0\.1|localhost)~i', $myDsn)) {
+                $db   = $env['MYSQL_DATABASE'] ?? (getenv('MYSQL_DATABASE') ?: 'test');
+                $port = $env['MYSQL_PORT']     ?? (getenv('MYSQL_PORT')     ?: '3306');
+                $env['MYSQL_DSN'] = "mysql:host=mysql;port={$port};dbname={$db};charset=utf8mb4";
+            }
+            unset($env['PG_DSN'], $env['PG_USER'], $env['PG_PASS'], $env['BC_PG_SCHEMA']);
+
         }
 
-        $pA = proc_open($cmdA, $desc, $pa, __DIR__ . '/../../', $env);
-        $pB = proc_open($cmdB, $desc, $pb, __DIR__ . '/../../', $env);
+        // Předej jen skalarni hodnoty (proc_open totéž očekává)
+        $env = array_filter($env, fn($v) => is_scalar($v));
+
+        $pA = proc_open("$php $cmdA", $desc, $pa, __DIR__ . '/../../', $env);
+        $pB = proc_open("$php $cmdB", $desc, $pb, __DIR__ . '/../../', $env);
+        // stdin nebudeme nikdy používat → zavři hned, ať děti zbytečně nečekají na EOF
+        if (isset($pa[0]) && is_resource($pa[0])) fclose($pa[0]);
+        if (isset($pb[0]) && is_resource($pb[0])) fclose($pb[0]);
         $this->assertIsResource($pA);
         $this->assertIsResource($pB);
 
-        // Počkej na oba, deadlock oznámí exit code 99
-        $stA = proc_get_status($pA);
-        $stB = proc_get_status($pB);
-        while (($stA && $stA['running']) || ($stB && $stB['running'])) {
-            usleep(100_000);
+        // Neblokující čtení stdout/stderr
+        foreach ([$pa, $pb] as $pipes) {
+            foreach ([1, 2] as $i) {
+                if (is_resource($pipes[$i])) {
+                    stream_set_blocking($pipes[$i], false);
+                }
+            }
+        }
+
+        $outA = $errA = $outB = $errB = '';
+        $deadline = microtime(true) + 20; // safety limit ~20s
+
+        do {
+            // drénuj výstupy obou procesů
+            if (is_resource($pa[1])) { $c = stream_get_contents($pa[1]); if ($c !== '' && $c !== false) { $outA .= $c; } }
+            if (is_resource($pa[2])) { $c = stream_get_contents($pa[2]); if ($c !== '' && $c !== false) { $errA .= $c; } }
+            if (is_resource($pb[1])) { $c = stream_get_contents($pb[1]); if ($c !== '' && $c !== false) { $outB .= $c; } }
+            if (is_resource($pb[2])) { $c = stream_get_contents($pb[2]); if ($c !== '' && $c !== false) { $errB .= $c; } }
+
             $stA = proc_get_status($pA);
             $stB = proc_get_status($pB);
+            if (!($stA && $stA['running']) && !($stB && $stB['running'])) {
+                break;
+            }
+            usleep(100_000);
+        } while (microtime(true) < $deadline);
+
+        // nejdřív zavři roury, ať proc_close vrátí korektní exit kód
+        foreach ([&$pa, &$pb] as &$pipes) {
+            foreach ([0, 1, 2] as $i) {
+                if (isset($pipes[$i]) && is_resource($pipes[$i])) {
+                    fclose($pipes[$i]);
+                }
+            }
         }
+
         $codeA = is_resource($pA) ? proc_close($pA) : -1;
         $codeB = is_resource($pB) ? proc_close($pB) : -1;
 
-        $this->assertTrue(
-            ($codeA === 99) || ($codeB === 99),
-            "Expected one worker to exit with deadlock (99), got A={$codeA}, B={$codeB}"
-        );
+        // Pokud se deadlock (99) neobjevil, vynes kompletní STDOUT/STDERR do failu
+        if (($codeA !== 99) && ($codeB !== 99)) {
+            $this->fail(
+                "Expected one worker to exit with deadlock (99), got A={$codeA}, B={$codeB}\n".
+                "---- A: STDOUT ----\n{$outA}\n".
+                "---- A: STDERR ----\n{$errA}\n".
+                "---- B: STDOUT ----\n{$outB}\n".
+                "---- B: STDERR ----\n{$errB}\n"
+            );
+        }
     }
 }

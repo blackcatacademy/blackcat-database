@@ -7,7 +7,6 @@ services:
     volumes:
       - ./:/work
     environment:
-      # DSN pro test runner uvnitř kontejneru (hostname = služba v Compose)
       MYSQL_DSN: "mysql:host=mysql;port=3306;dbname=test;charset=utf8mb4"
       MYSQL_USER: "root"
       MYSQL_PASS: "root"
@@ -19,13 +18,42 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      mariadb:
+        condition: service_healthy
+
+  # ---- Varianty s pevným backendem ----
+  app-mysql:
+    extends: app
+    environment:
+      BC_DB: "mysql"   # jednoznačně řekni bootstraperu
+      MYSQL_DSN: "mysql:host=mysql;port=3306;dbname=test;charset=utf8mb4"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  app-postgres:
+    extends: app
+    environment:
+      BC_DB: "pg"
+      # PG_* už jsou v base, stačí BC_DB=pg
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app-mariadb:
+    extends: app
+    environment:
+      BC_DB: "mariadb"  # ve tvém bootstrapu se normalizuje na 'mysql'
+      MYSQL_DSN: "mysql:host=mariadb;port=3306;dbname=test;charset=utf8mb4"
+    depends_on:
+      mariadb:
+        condition: service_healthy
 
   pwsh:
     image: mcr.microsoft.com/powershell:7.4-debian
     working_dir: /work
     volumes:
       - ./:/work
-    # žádné závislosti, jen generování souborů na sdíleném volume
 
   mysql:
     image: mysql:8.0
@@ -49,6 +77,23 @@ services:
       - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  mariadb:
+    image: mariadb:10.4.34
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: test
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-name-resolve
+    ports:
+      - "3307:3306"   # externě 3307, uvnitř sítě 3306
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -proot || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 20

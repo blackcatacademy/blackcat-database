@@ -26,6 +26,38 @@ final class RowFactory
     }
 
     /**
+     * Pokud má tabulka v MySQL/MariaDB CHECK(json_valid(col)),
+     * zajisti, že vygenerovaný sample má v těchto sloupcích validní JSON string.
+     */
+    private static function coerceJsonForMysql(string $table, array &$row): void
+    {
+        if (DbHarness::isPg()) return; // PG to nepotřebuje
+
+        $must = DbHarness::jsonValidatedColumns($table);
+        if (!$must) return;
+        $mustJson = array_fill_keys($must, true);
+
+        // Mapování klíčů v payloadu (case-insensitive)
+        $mapRow = [];
+        foreach (array_keys($row) as $k) $mapRow[strtolower($k)] = $k;
+
+        foreach (array_keys($mustJson) as $lc) {
+            $k = $mapRow[$lc] ?? $lc;            // zachovej původní casing, nebo použij lc jako klíč
+            $v = $row[$k] ?? null;
+
+            if (is_array($v) || is_object($v)) {
+                $row[$k] = json_encode($v, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+                continue;
+            }
+            $s  = is_string($v) ? $v : '';
+            $ok = ($s !== '' && json_decode($s, true) !== null);
+            if (!$ok) {
+                $row[$k] = '{}';                  // jednoduchý validní JSON
+            }
+        }
+    }
+
+    /**
      * @param array $overrides možnost předepsat hodnoty (např. ['user_id'=>123])
      * @return array{0:?array,1:array<int,string>,2:array<int,string>}
      */
@@ -77,6 +109,7 @@ final class RowFactory
                     $uk = self::ensureFirstResolvedUniqueFilled($table, $colsByName, $row) ?: $uk;
                 }
                 self::dbg('makeSample(%s): SAFE mode success (keys=[%s])', $table, implode(',', array_keys($row)));
+                self::coerceJsonForMysql($table, $row);
                 return [$row, $upd, $uk];
             }
             else {
@@ -201,6 +234,7 @@ final class RowFactory
             }
         }
         self::dbg('makeSample(%s): FALLBACK success (keys=[%s])', $table, implode(',', array_keys($row)));
+        self::coerceJsonForMysql($table, $row);
         return [$row, array_values(array_unique($updatable)), $uk ?? []];
     }
 

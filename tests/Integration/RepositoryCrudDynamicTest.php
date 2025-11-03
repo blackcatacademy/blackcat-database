@@ -18,6 +18,119 @@ final class RepositoryCrudDynamicTest extends TestCase
         if (getenv('BC_DEBUG')) { fwrite(STDERR, "[repos] $msg\n"); }
     }
 
+    private function logUkCollision(
+        Database $db,
+        string $table,
+        array $row,
+        mixed $uk,
+        string $phase,
+        ?\Throwable $ex = null
+    ): void {
+        // --- 0) Error info (SQLSTATE, vendor, message, key name, duplicate value) ---
+        $err = ['sqlstate'=>null,'vendor'=>null,'message'=>null,'key'=>null,'dup'=>null];
+        if ($ex instanceof \BlackCat\Core\DatabaseException) {
+            $prev = $ex->getPrevious();
+            if ($prev instanceof \PDOException) {
+                $err['sqlstate'] = (string)($prev->errorInfo[0] ?? '');
+                $err['vendor']   = (int)   ($prev->errorInfo[1] ?? 0);
+                $err['message']  = (string)($prev->errorInfo[2] ?? $prev->getMessage());
+            } else {
+                $err['message']  = $ex->getMessage();
+            }
+        } elseif ($ex instanceof \PDOException) {
+            $err['sqlstate'] = (string)($ex->errorInfo[0] ?? '');
+            $err['vendor']   = (int)   ($ex->errorInfo[1] ?? 0);
+            $err['message']  = (string)($ex->errorInfo[2] ?? $ex->getMessage());
+        }
+        if ($err['message']) {
+            if (preg_match("~for key '([^']+)'~i", $err['message'], $m)) { $err['key'] = $m[1]; }
+            if (preg_match("~Duplicate entry '([^']+)'~i", $err['message'], $m)) { $err['dup'] = $m[1]; }
+        }
+
+        // --- 1) Rozbal UK sloupce ---
+        $ukCols = [];
+        if (is_array($uk)) {
+            $first = (isset($uk[0]) && is_array($uk[0])) ? $uk[0] : $uk;
+            $ukCols = array_values(array_map('strval', array_filter($first, fn($c) => is_string($c) && $c !== '')));
+        }
+        if (!$ukCols && $table === 'encrypted_fields') {
+            $ukCols = ['entity_table','entity_pk','field_name'];
+        }
+
+        // --- 2) Payload + WHERE pro UK ---
+        $payload = [];
+        $conds   = [];
+        $params  = [];
+        foreach ($ukCols as $c) {
+            $v = $row[$c] ?? null;
+            if (is_bool($v)) { $v = $v ? '1' : '0'; }
+            elseif (!is_scalar($v) && $v !== null) { $v = json_encode($v, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES); }
+            $payload[$c] = $v;
+            $conds[] = $db->quoteIdent($c) . ' = :' . $c;
+            $params[':' . $c] = $row[$c] ?? null;
+        }
+
+        // --- 3) SELECT potenciálních konfliktů dle UK ---
+        $conflicts = [];
+        if ($conds) {
+            $selCols = $ukCols;
+            // přidej případný PK sloupec, ať víme i id
+            try {
+                $defsClass = self::$repos[$table] ?? null;
+                if (is_string($defsClass)) {
+                    $defsClass = preg_replace('~\\\\Repository$~', '\\\\Definitions', $defsClass);
+                }
+                if (is_string($defsClass) && class_exists($defsClass) && method_exists($defsClass,'pk')) {
+                    $pk = (string)$defsClass::pk();
+                    if ($pk !== '' && !in_array($pk, $selCols, true)) { $selCols[] = $pk; }
+                }
+            } catch (\Throwable $_) {}
+            if (!$selCols) { $selCols = $ukCols; }
+
+            $sql = 'SELECT ' . implode(', ', array_map([$db,'quoteIdent'], $selCols))
+                . ' FROM ' . $db->quoteIdent($table)
+                . ' WHERE ' . implode(' AND ', $conds)
+                . ' LIMIT 5';
+            try { $conflicts = $db->fetchAll($sql, $params) ?? []; } catch (\Throwable $_) { $conflicts = []; }
+        }
+
+        // --- 4) Pokud klíč vypadá na PRIMARY, zkus explicitně PK konflikt ---
+        $pkConflict = null;
+        $keyIsPrimary = $err['key'] && stripos((string)$err['key'], 'PRIMARY') !== false;
+        if ($keyIsPrimary || !$ukCols) {
+            if (array_key_exists('id', $row) && $row['id'] !== null) {
+                try {
+                    $pkConflict = $db->fetch(
+                        'SELECT id FROM ' . $db->quoteIdent($table) . ' WHERE id = ? LIMIT 1', 
+                        [ is_numeric($row['id']) ? 0 + $row['id'] : $row['id'] ]
+                    ) ?: null;
+                } catch (\Throwable $_) { $pkConflict = null; }
+            }
+        }
+
+        // --- 5) SHOW CREATE TABLE pro MySQL/MariaDB (kvůli kolacím/indexům) ---
+        $dial = (method_exists(DbHarness::class, 'isPg') && DbHarness::isPg()) ? 'pg' : 'mysql/mariadb';
+        $ddl = null;
+        if ($dial !== 'pg') {
+            try { $ddl = $db->fetch('SHOW CREATE TABLE ' . $db->quoteIdent($table)); } catch (\Throwable $_) {}
+        }
+
+        // --- 6) Jediný jednoznačný log ---
+        $log = [
+            'phase'       => $phase,
+            'table'       => $table,
+            'dialect'     => $dial,
+            'uk_cols'     => $ukCols,
+            'payload'     => $payload,
+            'error'       => $err,           // <- obsahuje key/sqlstate/vendor/message/dup
+            'conflicts'   => $conflicts,
+            'pk_conflict' => $pkConflict,
+        ];
+        if ($ddl !== null) { $log['show_create_table'] = $ddl; }
+
+        fwrite(STDERR, "[repos][UK-COLLISION] " . json_encode($log, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) . "\n");
+    }
+
     private static function normalizePkValue(string $table, string $pk, mixed $val): int|string
     {
         if (is_int($val)) return $val;
@@ -134,6 +247,7 @@ final class RepositoryCrudDynamicTest extends TestCase
                 if ($prev instanceof \PDOException) { $code = (string)($prev->errorInfo[0] ?? ''); }
 
                 if ($code === '23505' || str_contains($msg, 'duplicate') || str_contains($msg, 'unique constraint')) {
+                    $this->logUkCollision($db, $table, $row, $uk, 'insert', $e);
                     $this->markTestSkipped("unique collision for $table (seed/sample clash)");
                 }
                 if ($code === '23514' || str_contains($msg, 'check constraint')) {
@@ -149,6 +263,7 @@ final class RepositoryCrudDynamicTest extends TestCase
 
                     // duplicitní klíč
                     if ($vendor === 1062 || $sqlstate === '23000') {
+                        $this->logUkCollision($db, $table, $row, $uk, 'insert', $e);
                         $this->markTestSkipped("unique collision for $table (seed/sample clash)");
                     }
                     // FK violation
@@ -347,12 +462,17 @@ final class RepositoryCrudDynamicTest extends TestCase
                     if ($code === '23503' || str_contains($msg, 'foreign key')) {
                         $this->markTestSkipped("upsert FK violation for $table");
                     }
+                    if ($code === '23505' || str_contains($msg, 'duplicate') || str_contains($msg, 'unique constraint')) {
+                        $this->logUkCollision($db, $table, $row, $uk, 'upsert', $e);
+                        $this->markTestSkipped("unique collision for $table (seed/sample clash)");
+                    }
                     if ($prev instanceof \PDOException) {
                         $sqlstate = (string)($prev->errorInfo[0] ?? '');
                         $vendor   = (int)($prev->errorInfo[1] ?? 0);
 
                         // duplicitní klíč
                         if ($vendor === 1062 || $sqlstate === '23000') {
+                            $this->logUkCollision($db, $table, $row, $uk, 'upsert', $e);
                             $this->markTestSkipped("unique collision for $table (seed/sample clash)");
                         }
                         // FK violation

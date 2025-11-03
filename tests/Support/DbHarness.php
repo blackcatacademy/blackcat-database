@@ -1225,6 +1225,33 @@ final class DbHarness
             }
         }
 
+        // --- PASS 2: MariaDB CHECK(json_valid(col)) -> zajisti validní JSON ---
+        $mustJson = [];
+        foreach (self::mysqlCheckClausesForTable($table) as $exprRaw) {
+            if (preg_match_all('/json_valid\s*\(\s*`?([A-Za-z0-9_]+)`?\s*\)/i', (string)$exprRaw, $mm)) {
+                foreach ($mm[1] as $c) $mustJson[strtolower($c)] = true;
+            }
+        }
+        if ($mustJson) {
+            $mapRowKeys = [];
+            foreach (array_keys($row) as $k) { $mapRowKeys[strtolower($k)] = $k; }
+
+            foreach (array_keys($mustJson) as $colLc) {
+                $k = $mapRowKeys[$colLc] ?? $colLc;
+                $v = $row[$k] ?? null;
+
+                if (is_array($v) || is_object($v)) {
+                    $row[$k] = json_encode($v, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+                    continue;
+                }
+                $s  = is_string($v) ? $v : '';
+                $ok = ($s !== '' && json_decode($s, true) !== null);
+                if (!$ok) {
+                    $row[$k] = '{}';
+                }
+            }
+        }
+
         return $row;
     }
 
@@ -1782,6 +1809,18 @@ final class DbHarness
         self::dbg('mysqlCheckClausesForTable(%s): %d checks', $table, count($out));
         if ($useCache) { $cache[$keyPhys] = $out; }
         return $out;
+    }
+    
+    public static function jsonValidatedColumns(string $table): array
+    {
+        if (self::isPg()) return [];
+        $cols = [];
+        foreach (self::mysqlCheckClausesForTable($table) as $exprRaw) {
+            if (preg_match_all('/json_valid\s*\(\s*`?([A-Za-z0-9_]+)`?\s*\)/i', (string)$exprRaw, $m)) {
+                foreach ($m[1] as $c) { $cols[strtolower($c)] = true; }
+            }
+        }
+        return array_keys($cols);
     }
 
     private static function resolvePhysicalName(string $logical): string
