@@ -11,7 +11,7 @@ final class DatabaseHelpersTest extends TestCase
 {
     public static function setUpBeforeClass(): void
     {
-        // čistý start
+        // clean start
         DbUtil::wipeDatabase();
     }
 
@@ -23,7 +23,7 @@ final class DatabaseHelpersTest extends TestCase
         $db->transaction(function(Database $db) {
             $db->execute("INSERT INTO t1 (id,val) VALUES (:i,:v)", [':i'=>1,':v'=>10]);
 
-            // nested → rollback vnitřku, vnější commit
+            // nested transaction -> rollback inner, commit outer
             try {
                 $db->transaction(function(Database $db) {
                     $db->execute("INSERT INTO t1 (id,val) VALUES (:i,:v)", [':i'=>2,':v'=>20]);
@@ -32,7 +32,7 @@ final class DatabaseHelpersTest extends TestCase
                 $this->fail('inner must throw');
             } catch (\RuntimeException $e) {}
 
-            // t1(id=2) by neměl existovat
+            // t1(id=2) should not exist
             $this->assertFalse($db->exists("SELECT 1 FROM t1 WHERE id=2"));
         });
 
@@ -43,7 +43,7 @@ final class DatabaseHelpersTest extends TestCase
     public function test_with_statement_timeout(): void
     {
         $db = DbUtil::db();
-        $this->expectNotToPerformAssertions(); // pouze že to vyhodí/nevhodí výjimku dle dialektu
+        $this->expectNotToPerformAssertions(); // only asserts that dialect throws or not accordingly
 
         if ($db->isPg()) {
             try {
@@ -59,7 +59,7 @@ final class DatabaseHelpersTest extends TestCase
                 $db->withStatementTimeout(50, function(Database $db) {
                     $db->query("SELECT SLEEP(0.2)");
                 });
-            } catch (\Throwable $e) { /* některé verze nemusí vynutit */ }
+            } catch (\Throwable $e) { /* some versions might not enforce it */ }
         }
     }
 

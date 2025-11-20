@@ -1,0 +1,228 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+/**
+ * BlackCat Outbox Worker
+ *
+ * Usage:
+ *   php bin/outbox-worker.php --batch=200 --sleep-ms=500 --max-runtime=300
+ *
+ * DB configuration via env (unless you have your own bootstrap):
+ *   DB_DSN="mysql:host=127.0.0.1;dbname=app;charset=utf8mb4"
+ *   DB_USER="user"
+ *   DB_PASS="secret"
+ *   APP_NAME="blackcat-outbox"
+ *
+ * Outbox configuration:
+ *   OUTBOX_TABLE=outbox
+ *   OUTBOX_SENDER=stdout|webhook
+ *   OUTBOX_WEBHOOK_URL="https://example.test/hook"
+ *   OUTBOX_WEBHOOK_AUTH="token"           # sends Authorization: Bearer token
+ *   OUTBOX_WEBHOOK_TIMEOUT=5
+ *
+ * Signals: SIGTERM/SIGINT → graceful shutdown after current iteration.
+ */
+
+use BlackCat\Core\Database;
+use BlackCat\Core\Messaging\Outbox;
+use BlackCat\Core\Messaging\Sender\OutboxSender;
+use BlackCat\Core\Messaging\Sender\StdoutSender;
+use BlackCat\Core\Messaging\Sender\WebhookSender;
+use Psr\Log\LoggerInterface;
+use Psr\Log\LogLevel;
+
+$root = dirname(__DIR__);
+if (file_exists($root . '/vendor/autoload.php')) {
+    require $root . '/vendor/autoload.php';
+}
+
+if (!interface_exists(LoggerInterface::class)) {
+    interface LoggerInterface
+    {
+        public function log($level, $message, array $context = []);
+    }
+}
+
+class CliLogger implements LoggerInterface
+{
+    public function __construct(private bool $verbose = false) {}
+
+    public function log($level, $message, array $context = []): void
+    {
+        if (
+            !$this->verbose
+            && in_array($level, [LogLevel::DEBUG ?? 'debug', 'debug'], true)
+        ) {
+            return;
+        }
+        $row = [
+            'ts'  => date('c'),
+            'lvl' => strtoupper((string)$level),
+            'msg' => $message,
+            'ctx' => $context,
+        ];
+        fwrite(STDERR, json_encode($row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL);
+    }
+
+    public function __call($name, $args)
+    {
+        $this->log($name, $args[0] ?? '', $args[1] ?? []);
+    }
+}
+
+$opts = getopt('', [
+    'batch::', 'sleep-ms::', 'max-runtime::', 'idle-exit::', 'max-errors::',
+    'health-file::', 'pid-file::', 'once', 'verbose', 'table::',
+]);
+
+$batch      = max(1, (int)($opts['batch'] ?? 100));
+$sleepMs    = max(0, (int)($opts['sleep-ms'] ?? 500));
+$maxRuntime = max(0, (int)($opts['max-runtime'] ?? 0));   // 0 = unlimited
+$idleExit   = max(0, (int)($opts['idle-exit'] ?? 0));     // 0 = unlimited
+$maxErrors  = max(0, (int)($opts['max-errors'] ?? 50));
+$healthFile = $opts['health-file'] ?? null;
+$pidFile    = $opts['pid-file'] ?? null;
+$once       = array_key_exists('once', $opts);
+$verbose    = array_key_exists('verbose', $opts);
+$table      = (string)($opts['table'] ?? (getenv('OUTBOX_TABLE') ?: 'outbox'));
+
+$logger = new CliLogger($verbose);
+
+if ($pidFile) {
+    file_put_contents($pidFile, (string)getmypid());
+}
+
+$running = true;
+if (function_exists('pcntl_signal')) {
+    pcntl_async_signals(true);
+    $handler = function (int $sig) use (&$running, $logger) {
+        $logger->log('info', 'signal', ['sig' => $sig, 'action' => 'graceful-stop']);
+        $running = false;
+    };
+    pcntl_signal(SIGTERM, $handler);
+    pcntl_signal(SIGINT, $handler);
+    if (defined('SIGQUIT')) {
+        pcntl_signal(SIGQUIT, $handler);
+    }
+}
+
+$dbCfg = [
+    'dsn'                 => getenv('DB_DSN') ?: '',
+    'user'                => getenv('DB_USER') ?: null,
+    'pass'                => getenv('DB_PASS') ?: null,
+    'appName'             => getenv('APP_NAME') ?: 'blackcat-outbox',
+    'statementTimeoutMs'  => (int)(getenv('DB_STATEMENT_TIMEOUT_MS') ?: 5000),
+];
+
+if ($dbCfg['dsn'] === '') {
+    fwrite(STDERR, "Missing DB_DSN env; example: mysql:host=127.0.0.1;dbname=app;charset=utf8mb4\n");
+    exit(2);
+}
+
+Database::init($dbCfg, $logger);
+$db = Database::getInstance();
+
+$senderType = strtolower((string)(getenv('OUTBOX_SENDER') ?: 'stdout'));
+
+/** @var OutboxSender $sender */
+switch ($senderType) {
+    case 'webhook':
+        $url = (string)(getenv('OUTBOX_WEBHOOK_URL') ?: '');
+        if ($url === '') {
+            $logger->log('error', 'OUTBOX_WEBHOOK_URL not set');
+            exit(2);
+        }
+        $sender = new WebhookSender(
+            url: $url,
+            authBearer: getenv('OUTBOX_WEBHOOK_AUTH') ?: null,
+            timeoutSec: (int)(getenv('OUTBOX_WEBHOOK_TIMEOUT') ?: 5),
+            decodePayload: true
+        );
+        break;
+
+    case 'stdout':
+    default:
+        $sender = new StdoutSender(decodePayload: true);
+        break;
+}
+
+$outbox = new Outbox($db, $logger, $table);
+
+$startedAt   = time();
+$lastWork    = time();
+$emptyStreak = 0;
+$errorStreak = 0;
+
+$touch = function () use ($healthFile) {
+    if ($healthFile) {
+        @touch($healthFile);
+    }
+};
+
+$cleanup = function () use ($pidFile) {
+    if ($pidFile && file_exists($pidFile)) {
+        @unlink($pidFile);
+    }
+};
+
+$logger->log('info', 'outbox-worker-start', [
+    'table'      => $table,
+    'sender'     => $senderType,
+    'batch'      => $batch,
+    'sleepMs'    => $sleepMs,
+    'maxRuntime' => $maxRuntime,
+    'idleExit'   => $idleExit,
+]);
+
+try {
+    do {
+        $touch();
+
+        if ($maxRuntime > 0 && (time() - $startedAt) >= $maxRuntime) {
+            $logger->log('info', 'max-runtime-reached');
+            break;
+        }
+
+        if ($idleExit > 0 && (time() - $lastWork) >= $idleExit) {
+            $logger->log('info', 'idle-exit', ['idleSec' => time() - $lastWork]);
+            break;
+        }
+
+        try {
+            // TODO(crypto-integrations): enrich $row with manifest context hashes emitted by
+            // DatabaseIngressAdapter so CLI senders attest to encrypted payload provenance.
+            $sent = $outbox->flush(fn (array $row) => $sender->send($row), $batch);
+
+            if ($sent > 0) {
+                $logger->log('info', 'flush-ok', ['sent' => $sent]);
+                $lastWork    = time();
+                $emptyStreak = 0;
+                $errorStreak = 0;
+                usleep(20_000);
+            } else {
+                $emptyStreak++;
+                if ($once) {
+                    break;
+                }
+                $delay = min(5000, max($sleepMs, (int)floor(pow(2, min($emptyStreak, 8)))));
+                $delay += random_int(0, (int)floor($delay * 0.25));
+                usleep($delay * 1000);
+            }
+        } catch (\Throwable $e) {
+            $errorStreak++;
+            $logger->log('error', 'flush-error', [
+                'e'     => $e->getMessage(),
+                'trace' => substr($e->getTraceAsString(), 0, 2000),
+            ]);
+            if ($errorStreak >= $maxErrors) {
+                $logger->log('error', 'too-many-errors', ['count' => $errorStreak]);
+                break;
+            }
+            usleep(250_000);
+        }
+    } while ($running);
+} finally {
+    $cleanup();
+    $logger->log('info', 'outbox-worker-stop');
+}

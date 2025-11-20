@@ -24,7 +24,7 @@
     </testsuite>
   </testsuites>
   <php>
-    <!-- defaulty lze přepsat env proměnnami v CI / lokálně -->
+    <!-- defaults can be overridden via env vars in CI / locally -->
     <env name="MYSQL_DSN"  value="mysql:host=127.0.0.1;port=3306;dbname=test;charset=utf8mb4"/>
     <env name="MYSQL_USER" value="root"/>
     <env name="MYSQL_PASS" value="root"/>
@@ -33,7 +33,10 @@
     <env name="PG_USER" value="postgres"/>
     <env name="PG_PASS" value="postgres"/>
 
-    <!-- zapni pro těžší testy (bulk 10k apod.) -->
+    <!-- install feature views during tests -->
+    <env name="BC_INCLUDE_FEATURE_VIEWS" value="1"/>
+
+    <!-- enable for heavier tests (bulk 10k, etc.) -->
     <env name="BC_STRESS" value="0"/>
   </php>
 </phpunit>

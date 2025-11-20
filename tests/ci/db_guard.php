@@ -23,7 +23,7 @@ if ($norm !== '' && $norm !== $drv) {
     exit(91);
 }
 
-// Pro PG nastav krátké session timeouty (bezpečné v paralelách)
+// For PG configure short session timeouts (safe for parallel runs)
 if ($drv === 'pgsql') {
     try {
         $pdo->exec("SET lock_timeout TO '5s'");

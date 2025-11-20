@@ -19,7 +19,7 @@ final class BulkInsertTest extends TestCase
         DbHarness::ensureInstalled();
         $db = Database::getInstance();
 
-        // vyber bezpečnou tabulku – preferuj takovou s auto id a bez FK povinností
+        // pick a safe table - prefer auto IDs and no FK requirements
         $table = null;
         foreach (scandir(__DIR__ . '/../../packages') as $pkg) {
             if ($pkg === '.' || $pkg === '..') continue;
@@ -33,7 +33,7 @@ final class BulkInsertTest extends TestCase
 
         // repo FQN
         $pascal = implode('', array_map('ucfirst', preg_split('/[_-]/',$table)));
-        // fallback: pokus o nalezení Repository přes filesystem
+        // fallback: try to locate the Repository via the filesystem
         $repo = null;
         foreach (glob(__DIR__."/../../packages/*/src/Repository.php") as $rf) {
             $code = file_get_contents($rf);
@@ -47,14 +47,14 @@ final class BulkInsertTest extends TestCase
                     $uniqueKeys = $defs::uniqueKeys();
                     $isIdentity = $defs::isIdentityPk();
 
-                    // zplošti seznam unikátních sloupců (i pro composite unikáty)
+                    // flatten the list of unique columns (including composite unique keys)
                     $uniqueCols = [];
                     foreach ($uniqueKeys as $uk) {
                         foreach ($uk as $col) {
                             $uniqueCols[$col] = true;
                         }
                     }
-                    // Přidej i primární klíč, pokud NENÍ identity (natural PK je taky unikát)
+                    // also include the primary key when it is NOT identity (natural PK is unique too)
                     $pkCol = $defs::pk();
                     if (!$isIdentity && $pkCol) { $uniqueCols[$pkCol] = true; }
                     break;
@@ -65,17 +65,17 @@ final class BulkInsertTest extends TestCase
 
         [$sample] = RowFactory::makeSample($table);
         $rows = [];
-        $N = 10000; // BC_STRESS=1 => schválně velké
+        $N = 10000; // BC_STRESS=1 => intentionally large
 
         for ($i = 0; $i < $N; $i++) {
             $row = $sample;
 
-            // Pokud je identity PK, nenech posílat "id" – přenech to DB
+            // if the PK is identity, avoid sending \"id\" - let the DB assign it
             if ($isIdentity) {
                 unset($row['id']);
             }
 
-            // Z unikátních sloupců vynecháme ty „enum-like“, které by porušily CHECK (typicky 'type', případně 'status' apod.)
+            // skip \"enum-like\" unique columns that would break CHECK constraints (e.g., 'type' or 'status')
             $skipForEnumLike = ['type','status','state','level'];
 
             $toVary = [];
@@ -83,7 +83,7 @@ final class BulkInsertTest extends TestCase
                 if (in_array($col, $skipForEnumLike, true)) continue;
                 $toVary[] = $col;
             }
-            // Kdyby náhodou všechny byly enum-like (velmi nepravděpodobné), spadneme na původní chování:
+            // if somehow all of them are enum-like (very unlikely), fall back to the original behaviour:
             if (!$toVary) { $toVary = array_keys($uniqueCols); }
 
             foreach ($toVary as $col) {

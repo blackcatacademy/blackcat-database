@@ -157,7 +157,7 @@ final class ViewsComputedColumnsBehaviorTest extends TestCase
     {
         $db = self::db();
         if ($db->isPg()) {
-            // IPv4-mapped v 16 bytech → hex délka 32, pretty = 127.0.0.1
+            // IPv4-mapped value stored in 16 bytes -> hex length 32, pretty prints as 127.0.0.1
             $db->exec("INSERT INTO system_errors (level,message,ip_bin)
                     VALUES ('notice','x', decode('00000000000000000000ffff7f000001','hex'))");
         } else {

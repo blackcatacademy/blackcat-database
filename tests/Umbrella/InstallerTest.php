@@ -17,7 +17,7 @@ final class InstallerTest extends TestCase
         $ins = new Installer(DbUtil::db(), DbUtil::dialect());
         $ins->ensureRegistry();
 
-        // fiktivní modul (no-op)
+        // fake module (no-op)
         $m = new class implements ModuleInterface {
             public function name(): string { return 'table-__fake'; }
             public function table(): string { return '__fake'; }

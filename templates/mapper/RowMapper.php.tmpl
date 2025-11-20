@@ -1,0 +1,25 @@
+\
+    <?php
+    declare(strict_types=1);
+
+    namespace {{Namespace}};
+
+    final class {{Name}}RowMapper
+    {
+        private function toUtc(?string $raw): ?\DateTimeImmutable {
+            if ($raw===null||$raw==='') return null;
+            $dt = new \DateTimeImmutable($raw);
+            return $dt->setTimezone(new \DateTimeZone('UTC'));
+        }
+        private function toBool($v): bool {
+            if (is_bool($v)) return $v;
+            if (is_int($v)) return $v !== 0;
+            if (is_string($v)) return in_array($v, ['1','t','true','y','yes'], true);
+            return (bool)$v;
+        }
+        private function decodeJson(?string $raw) {
+            if ($raw===null||$raw==='') return null;
+            try { return json_decode($raw, true, 512, JSON_THROW_ON_ERROR); }
+            catch (\JsonException $e) { return null; }
+        }
+    }

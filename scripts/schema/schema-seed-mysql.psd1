@@ -17,7 +17,7 @@ ON DUPLICATE KEY UPDATE
 
     permissions = @{
       seed = @'
--- Baseline RBAC (+ rozšíření pro nové entity)
+-- Baseline RBAC (+ extensions for new entities)
 INSERT INTO permissions (name, description) VALUES
   (''admin:full_access'',          ''Grants all administration privileges''),
   (''users:read'',                 ''View users''),
@@ -73,7 +73,7 @@ ON DUPLICATE KEY UPDATE
 
     app_settings = @{
       seed = @'
--- Operational defaults (neukládej reálná tajemství)
+-- Operational defaults (do not store real secrets)
 INSERT INTO app_settings (setting_key, setting_value, type, section, description, is_protected, updated_at) VALUES
   (''site.name'',                          ''BlackCat Bookstore'', ''string'', ''site'',     ''Public site name'',                          0, CURRENT_TIMESTAMP(6)),
   (''site.currency_default'',              ''EUR'',                ''string'', ''site'',     ''Default currency code (ISO 4217)'',          0, CURRENT_TIMESTAMP(6)),

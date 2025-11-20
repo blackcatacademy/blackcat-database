@@ -21,7 +21,7 @@ final class ContractViewSmokeTest extends TestCase
         $views = [];
         foreach ($it as $f) {
             if ($f->isFile() && preg_match('~/packages/([^/]+)/schema/040_(?:views|view_contract)\.(mysql|postgres)\.sql$~', $f->getPathname())) {
-                // view name určíme přes Definitions::contractView()
+                // determine view name via Definitions::contractView()
                 $pkg = basename(dirname(dirname($f->getPathname()))); // packages/<pkg>/schema/...
                 $pascal = implode('', array_map('ucfirst', preg_split('/[_-]/',$pkg)));
                 $defs = "BlackCat\\Database\\Packages\\{$pascal}\\Definitions";

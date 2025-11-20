@@ -9,8 +9,8 @@ use BlackCat\Database\Tests\Support\DbHarness;
 use BlackCat\Database\Tests\Support\RowFactory;
 
 /**
- * Testuje optimistic locking přes Repository::updateById()
- * pro první tabulku, která má versionColumn().
+ * Tests optimistic locking via Repository::updateById()
+ * for the first table that exposes versionColumn().
  */
 final class OptimisticLockingRepositoryTest extends TestCase
 {
@@ -23,7 +23,7 @@ final class OptimisticLockingRepositoryTest extends TestCase
     {
         DbHarness::ensureInstalled();
 
-        // najdi první balíček s versionColumn() a odvoď repo přes DbHarness
+        // find the first package with versionColumn() and derive the repo via DbHarness
         foreach (glob(__DIR__ . '/../../packages/*/src/Definitions.php') as $df) {
             require_once $df;
             if (!preg_match('~[\\\\/]packages[\\\\/]([A-Za-z0-9_]+)[\\\\/]src[\\\\/]Definitions\.php$~i', $df, $m)) continue;
@@ -41,7 +41,7 @@ final class OptimisticLockingRepositoryTest extends TestCase
             [$row] = RowFactory::makeSample($table);
             if ($row === null) continue;
 
-            // najdi updatovatelný sloupec z Definitions::columns() (≠ PK, ≠ version, ≠ audit)
+            // choose an updatable column from Definitions::columns() (!= PK, != version, != audit)
             $bad    = [$defs::pk(), (string)$ver, 'created_at', 'updated_at', 'deleted_at'];
             $updCol = null;
             foreach ((array)$defs::columns() as $name) {
@@ -104,7 +104,7 @@ final class OptimisticLockingRepositoryTest extends TestCase
 
         DbHarness::begin();
         try {
-            // vlož řádek (přes čisté SQL – Repository insert by taky šel)
+            // insert a row (raw SQL; Repository insert would work too)
             $ins   = RowFactory::insertSample(self::$table);
             $pkCol = DbHarness::primaryKey(self::$table);
             $id    = $ins['pk'];
@@ -112,11 +112,11 @@ final class OptimisticLockingRepositoryTest extends TestCase
 
             $ver = (int)($db->fetchOne("SELECT ".self::$verCol." FROM ".self::$table." WHERE {$pkCol} = :id", [':id'=>$id]) ?? 0);
 
-            // 1) korektní update s očekávanou verzí
+            // 1) proper update with expected version
             $aff = $repo->updateById($id, [ self::$verCol => $ver, self::$updCol => 'x1' ]);
             $this->assertSame(1, $aff, 'First update (expected version) should succeed');
 
-            // 2) pokus se starou verzí (stejná hodnota) => 0 řádků
+            // 2) retry with the old version (same value) => 0 rows
             $aff2 = $repo->updateById($id, [ self::$verCol => $ver, self::$updCol => 'x2' ]);
             $this->assertSame(0, $aff2, 'Second update with stale version should affect 0 rows');
 

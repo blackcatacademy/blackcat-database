@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=../schemas/prometheusrule.schema.json
+# PrometheusRule for kube-prometheus-stack (CRD required)
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bench-rules
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+  - name: bench-slo
+    rules:
+    - alert: BenchHighErrorRate
+      expr: (sum(rate(bench_errors_total{app="blackcat-bench"}[5m])) / clamp_min(sum(rate(bench_ops_total{app="blackcat-bench"}[5m])),1)) > 0.02
+      for: 10m
+      labels: { severity: warning, team: data }
+      annotations:
+        summary: "Bench high error rate (>2% for 10m)"
+        description: "Error rate is high for app=blackcat-bench"
+    - alert: BenchHighP95Latency
+      expr: histogram_quantile(0.95, sum by (le) (rate(bench_latency_ms_bucket{app="blackcat-bench"}[5m]))) > 200
+      for: 10m
+      labels: { severity: warning, team: data }
+      annotations:
+        summary: "Bench p95 latency > 200ms (10m)"
+        description: "p95 latency above SLO"
+    - alert: BenchNoTraffic
+      expr: sum(rate(bench_ops_total{app="blackcat-bench"}[10m])) == 0
+      for: 15m
+      labels: { severity: info, team: data }
+      annotations:
+        summary: "Bench no traffic (15m)"
+        description: "No operations observed"

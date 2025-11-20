@@ -1,0 +1,36 @@
+name: Lint (SQL)
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Use PowerShell 7
+        shell: bash
+        run: pwsh -v
+
+      - name: Lint SQL (PK/FK indexes/views directives)
+        shell: pwsh
+        run: |
+          $candidates = @(
+            'scripts/schema-map.psd1',
+            'scripts/schema/schema-map-postgres.psd1',
+            'scripts/schema/schema-map-mysql.psd1'
+          )
+          $mapPath = $null
+          foreach ($cand in $candidates) {
+            $full = Join-Path (Get-Location).Path $cand
+            if (Test-Path -LiteralPath $full) { $mapPath = (Resolve-Path -LiteralPath $full).Path; break }
+          }
+          if (-not $mapPath) { throw "schema map file not found (looked in $candidates)" }
+
+          pwsh ./scripts/schema-tools/Lint-Sql.ps1 `
+            -PackagesDir ./packages `
+            -MapPath $mapPath

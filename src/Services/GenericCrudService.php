@@ -1,148 +1,330 @@
 <?php
+/*
+ *       ####                                
+ *      ######                              ██╗    ██╗███████╗██╗      ██████╗ ██████╗ ███╗   ███╗███████╗     
+ *     #########                            ██║    ██║██╔════╝██║     ██╔════╝██╔═══██╗████╗ ████║██╔════╝ 
+ *    ##########         ##                 ██║ █╗ ██║█████╗  ██║     ██║     ██║   ██║██╔████╔██║█████╗   
+ *    ###########      ####                 ██║███╗██║██╔══╝  ██║     ██║     ██║   ██║██║╚██╔╝██║██╔══╝   
+ * ###############   ######                 ╚███╔███╔╝███████╗███████╗╚██████╗╚██████╔╝██║ ╚═╝ ██║███████╗
+ * ###########  ##  #######                  ╚══╝╚══╝ ╚══════╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝     ╚═╝╚══════╝ 
+ * #########    ### #######                  
+ * #########     ###  ####                   ██╗  ██╗███████╗██████╗  ██████╗ ██╗ ██████╗███████╗ 
+ * ###########    ##    ##                   ██║  ██║██╔════╝██╔══██╗██╔═══██╗██║██╔════╝██╔════╝ 
+ * ##########                #               ███████║█████╗  ██████╔╝██║   ██║██║██║     ███████╗ 
+ * #######                     ##            ██╔══██║██╔══╝  ██╔══██╗██║   ██║██║██║     ╚════██║ 
+ * ##                            ##          ██║  ██║███████╗██║  ██║╚██████╔╝██║╚██████╗███████║ 
+ * ######              #######    ##         ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝ ╚═════╝╚══════╝ 
+ * #####            #######  ##   ##       ┌────────────────────────────────────────────────────────────────────────────┐  
+ * #####               ####  ##    #         BLACK CAT DATABASE • Arcane Custody Notice                                 │
+ * ########             #######    ##        © 2025 Black Cat Academy s. r. o. • All paws reserved.                     │
+ * ####                        #     ##      Licensed strictly under the BlackCat Database Proprietary License v1.0.    │
+ * ##########                          ##    Evaluation only; commercial rites demand written consent.                  │
+ * ####           ######  #        ######    Unauthorized forks or tampering awaken enforcement claws.                  │
+ * #####               ##  ##          ##    Reverse engineering, sublicensing, or origin stripping is forbidden.       │
+ * ##########   ###  #### ####        #      Liability for lost data, profits, or familiars remains with the summoner.  │
+ * ##                 ##  ##       ####      Infringements trigger termination; contact blackcatacademy@protonmail.com. │
+ * ###########      ##   # #   ######        Leave this sigil intact—smudging whiskers invites spectral audits.         │
+ * #########       #   ##          ##        Governed under the laws of the Slovak Republic.                            │
+ * ##############                ###         Motto: “Purr, Persist, Prevail.”                                           │
+ * #############    ###############       └─────────────────────────────────────────────────────────────────────────────┘
+ */
+
 declare(strict_types=1);
 
 namespace BlackCat\Database\Services;
 
 use BlackCat\Core\Database;
 use BlackCat\Core\Database\QueryCache;
+use BlackCat\Database\Contracts\ContractRepository as RepoContract;
+use BlackCat\Database\Contracts\DatabaseIngressAdapterInterface;
+use BlackCat\Database\Crypto\IngressLocator;
+use BlackCat\Database\Telemetry\CoverageTelemetryReporter;
+use Closure;
+use BlackCat\Database\Exceptions\OptimisticLockException;
 use BlackCat\Database\Support\ServiceHelpers;
+use BlackCat\Database\Support\SqlExpr;
+use BlackCat\Database\Support\SqlIdentifier as Ident;
 
 /**
- * Lehká univerzální CRUD služba nad jedním repozitářem.
- * - transakce/RO transakce přes ServiceHelpers
- * - volitelný QueryCache (per-ID)
- * - bezpečné typy (repo = ContractRepository)
+ * GenericCrudService
+ *
+ * Lightweight, safe, developer-friendly CRUD service on top of a "duck-typed" repository.
+ * - Strictly parameterized with an optional per-ID cache layer.
+ * - Supports optimistic locking (natively from the repo or via row-lock fallback).
+ * - Idempotent "first-write-wins" section with an advisory lock.
+ * - Optional whitelist restricting which columns may be updated.
+ *
+ * Repository must implement at least: insert, updateById, deleteById, findById.
+ * Recommended (used when present): exists, upsert, upsertByKeys,
+ * updateByKeys, insertMany, findByIds, lockById, updateByIdOptimistic, updateByIdExpr.
  */
 class GenericCrudService
 {
     use ServiceHelpers;
 
-    /**
-     * @param Database        $db
-     * @param object          $repository  Duck-typed ContractRepository (musí mít insert/updateById/… viz assertRepositoryShape()).
-     * @param string          $pkCol       Název PK sloupce (např. 'id').
-     * @param QueryCache|null $qcache      Volitelný cache wrapper.
-     * @param string|null     $cacheNs     Namespace pro cache klíče (např. 'table-users').
-     * @param string|null     $pgSequence  Volitelně název PG sekvence pro lastInsertId().
-     * @param string|null     $versionCol  Volitelně název verze pro optimistic locking.
-     */
+    /** @var array<string,bool>|null map of whitelisted columns for update/upsert */
+    private ?array $updatableColsWhitelist = null;
+    protected ?DatabaseIngressAdapterInterface $ingressAdapter = null;
+    protected ?string $ingressTable = null;
+
     public function __construct(
         protected Database $db,
-        private object $repository,
-        private string $pkCol,
-        private ?QueryCache $qcache = null,
-        private ?string $cacheNs = null,
-        private ?string $pgSequence = null,
-        private ?string $versionCol = null
+        private object $repository,          // Duck-typed ContractRepository
+        private string $pkCol,               // e.g. 'id'
+        private ?QueryCache $qcache = null,  // per-ID cache
+        private ?string $cacheNs = null,     // e.g. 'table-users'
+        private ?string $pgSequence = null,  // PG sequence for lastInsertId()
+        private ?string $versionCol = null,  // optimistic locking column (e.g. 'version')
+        private int $retryAttempts = 3       // default retry budget for withRowLock()
     ) {
         $this->assertRepositoryShape($this->repository);
+        $this->retryAttempts = \max(1, $this->retryAttempts);
+        if ($this->pkCol === '') {
+            throw new \InvalidArgumentException('Primary key column name must not be empty.');
+        }
+
+        CoverageTelemetryReporter::register();
+        $autoIngress = IngressLocator::adapter();
+        if ($autoIngress !== null) {
+            $this->ingressAdapter = $autoIngress;
+            $this->ingressTable = $this->detectRepositoryTable();
+            $this->propagateIngressAdapter();
+        }
+    }
+
+    // ----------------------- Public API -----------------------
+
+    public function withIngressAdapter(?DatabaseIngressAdapterInterface $adapter, ?string $table = null): self
+    {
+        $this->ingressAdapter = $adapter;
+        if (\is_string($table) && $table !== '') {
+            $this->ingressTable = $table;
+        } elseif ($this->ingressTable === null) {
+            $this->ingressTable = $this->detectRepositoryTable();
+        }
+
+        $this->propagateIngressAdapter();
+        return $this;
     }
 
     /**
-     * Umožní testům předat anonymní (duck-typed) repozitář,
-     * ale v runtime zkontroluje, že má požadované metody.
+     * Allowed columns for update/upsert (all other keys will be rejected).
+     * @param list<string> $cols
      */
-    private function assertRepositoryShape(object $r): void
+    public function withUpdatableColumns(array $cols): self
     {
-        // Vyžaduj jen metody, které používáme vždy.
-        foreach (['insert','updateById','deleteById','restoreById','findById'] as $m) {
-            if (!method_exists($r, $m)) {
-                throw new \InvalidArgumentException("Repository missing required method: {$m}()");
-            }
+        $map = [];
+        foreach ($cols as $c) {
+            $c = (string)$c;
+            if ($c !== '') { $map[$c] = true; }
         }
-        // Ostatní (upsert/exists/insertMany/paginate/lockById) kontrolujeme až při volání,
-        // nebo máme fallback (viz upsert()).
+        $this->updatableColsWhitelist = $map ?: null;
+        return $this;
+    }
+
+    public function getIngressAdapter(): ?DatabaseIngressAdapterInterface
+    {
+        return $this->ingressAdapter;
     }
 
     /** @return array{id:int|string|array|null} */
-    public function create(array $row): array
+    public function create(#[\SensitiveParameter] array $row): array
     {
         return $this->txn(function () use ($row) {
             $this->repository->insert($row);
 
-            // 1) PK dodané v $row (např. UUID) má přednost
             $id = $row[$this->pkCol] ?? null;
-
-            // 2) Pokus o získání ID z driveru (MySQL/PG)
             if ($id === null) {
                 try {
-                    // pro PG lze volitelně dodat název sekvence
-                    $raw = $this->db()->lastInsertId($this->pgSequence ?? '');
+                    $seq = $this->pgSequence ?: null;
+                    $raw = $this->db()->lastInsertId($seq);
                     $id  = ($raw === '' ? null : $raw);
-                } catch (\Throwable) {
-                    // některé drivy lastInsertId nepodporují – toleruj
-                }
+                } catch (\Throwable) { /* ignore */ }
             }
-
-            if ($id !== null) {
-                // nově vytvořený řádek – případný stale cache pro jistotu pryč
-                $this->invalidatePk($id);
-            }
+            if ($id !== null) { $this->invalidatePk($id); }
+            $this->invalidateNamespace();
             return ['id' => $id];
         });
     }
 
-    /** Vloží a hned načte z DB (pokud známe ID). */
-    public function createAndFetch(array $row, int $ttl = 0): ?array
+    public function createAndFetch(#[\SensitiveParameter] array $row, int|\DateInterval|null $ttl = null): ?array
     {
         $res = $this->create($row);
         $id  = $res['id'] ?? null;
-        return $id !== null ? $this->getById($id, $ttl) : null;
+        if ($id === null) { return null; }
+
+        // After create always fetch fresh data without cache (defaults/triggers may populate values)
+        $fresh = $this->repository->findById($id);
+
+        // If the caller explicitly supplied TTL, warm it into cache
+        if ($fresh !== null && $ttl !== null && $this->qcache && $this->cacheNs) {
+            $key = $this->idKey($this->cacheNs, $this->idKeyFor($id));
+            $this->qcache->remember($key, $ttl, static fn() => $fresh);
+        }
+        return $fresh;
     }
 
-    public function upsert(array $row): void
+    public function upsert(#[\SensitiveParameter] array $row): void
     {
+        // TODO(crypto-integrations): Delegate inserts/updates to the DatabaseIngressAdapter
+        // so rows hit manifest-defined encryption before repository->insert/update is called.
         $this->txn(function () use ($row) {
-            if (method_exists($this->repository, 'upsert')) {
+            if (\method_exists($this->repository, 'upsert')) {
                 $this->repository->upsert($row);
                 return;
             }
 
-            // Fallback bez exists(): když máme PK v $row, rozhodneme podle findById()
             $pk = $this->pkCol;
-            if (array_key_exists($pk, $row) && $row[$pk] !== null) {
+            if (\array_key_exists($pk, $row) && $row[$pk] !== null) {
                 $id = $row[$pk];
 
-                $exists = method_exists($this->repository, 'exists')
-                    ? (bool)$this->repository->exists($pk . ' = :id', [':id' => $id])
+                $exists = \method_exists($this->repository, 'exists')
+                    ? (bool)$this->repository->exists(\BlackCat\Database\Support\SqlIdentifier::q($this->db(), $pk) . ' = :id', [':id' => $id])
                     : ($this->repository->findById($id) !== null);
 
                 if ($exists) {
-                    $update = $row;
-                    unset($update[$pk]);
-                    if ($update) {
-                        $this->repository->updateById($id, $update);
-                    }
+                    $update = $row; unset($update[$pk]);
+                    $this->assertKnownKeys($update);
+                    if ($update) { $this->repository->updateById($id, $update); }
                 } else {
                     $this->repository->insert($row);
                 }
             } else {
-                // Bez PK prostě vlož
                 $this->repository->insert($row);
             }
         });
 
         $this->invalidateByPkIfPresent($row);
+        $this->invalidateNamespace();
     }
 
-    public function updateById(int|string|array $id, array $row): int
+    /**
+     * Upsert based on business keys (no duplicate inserts).
+     * @param array<string,mixed> $row
+     * @param array<string,mixed> $keys
+     * @param list<string>        $updateCols
+     */
+    public function upsertByKeys(#[\SensitiveParameter] array $row, array $keys, array $updateCols = []): void
     {
+        // TODO(crypto-integrations): When manifest-driven adapters exist, call them here so
+        // deterministic encryption/HMAC for $keys happens automatically before queries.
+        $this->txn(function () use ($row, $keys, $updateCols) {
+            if (\method_exists($this->repository, 'upsertByKeys')) {
+                $this->assertKnownKeys($row);
+                $this->repository->upsertByKeys($row, $keys, $updateCols);
+                return;
+            }
+
+            $where = []; $params = [];
+            foreach ($keys as $k => $v) {
+                $qi = Ident::qi($this->db(), (string)$k);
+                $p  = ':k_' . \preg_replace('~\W~', '_', (string)$k);
+                $where[] = "{$qi} = {$p}";
+                $params[$p] = $v;
+            }
+            $cond = \implode(' AND ', $where);
+
+            $exists = \method_exists($this->repository, 'exists')
+                ? (bool)$this->repository->exists($cond, $params)
+                : false;
+
+            if ($exists) {
+                $update = $row;
+                foreach (\array_keys($keys) as $k) { unset($update[$k]); }
+                $this->assertKnownKeys($update);
+
+                if (!$updateCols && $update) {
+                    if (\method_exists($this->repository, 'updateByKeys')) {
+                        $this->repository->updateByKeys($keys, $update);
+                        return;
+                    }
+                    $pk = $this->pkCol;
+                    if (\array_key_exists($pk, $keys)) {
+                        $this->repository->updateById($keys[$pk], $update);
+                    } else {
+                        throw new \RuntimeException('upsertByKeys fallback requires updateByKeys() or PK present in keys');
+                    }
+                } else {
+                    $subset = \array_intersect_key($row, \array_flip($updateCols));
+                    $this->assertKnownKeys($subset);
+                    if (\method_exists($this->repository, 'updateByKeys')) {
+                        $this->repository->updateByKeys($keys, $subset);
+                    } else {
+                        $pk = $this->pkCol;
+                        if (\array_key_exists($pk, $keys)) {
+                            $this->repository->updateById($keys[$pk], $subset);
+                        } else {
+                            throw new \RuntimeException('upsertByKeys fallback requires updateByKeys() or PK present in keys');
+                        }
+                    }
+                }
+            } else {
+                $this->repository->insert($row);
+            }
+        });
+
+        $this->invalidateByPkIfPresent($row);
+        $this->invalidateNamespace();
+    }
+
+    /**
+     * @param int|string|array $id
+     * @param array<string,mixed> $row
+     */
+    public function updateById(int|string|array $id, #[\SensitiveParameter] array $row): int
+    {
+        $this->assertKnownKeys($row);
         $n = $this->txn(fn() => $this->repository->updateById($id, $row));
         $this->invalidatePk($id);
+        $this->invalidateNamespace();
         return $n;
     }
 
-    /** Update s optimistic locking – očekává název verze v konstruktoru. */
-    public function updateByIdOptimistic(int|string|array $id, array $row, int $expectedVersion): int
+    /**
+     * Optimistic locking variant – prefers native repo support, otherwise falls back.
+     * @param int|string|array $id
+     * @param array<string,mixed> $row
+     */
+    public function updateByIdOptimistic(int|string|array $id, #[\SensitiveParameter] array $row, int $expectedVersion): int
     {
-        if ($this->versionCol) {
-            $row[$this->versionCol] = $expectedVersion;
+        if ($this->versionCol === null) {
+            return $this->updateById($id, $row);
         }
-        return $this->updateById($id, $row);
+
+        // Prefer repository-native optimistic update if available
+        if (\method_exists($this->repository, 'updateByIdOptimistic')) {
+            $this->assertKnownKeys($row);
+            $n = $this->txn(fn() => $this->repository->updateByIdOptimistic($id, $row, $expectedVersion));
+            if ($n !== 1) {
+                throw new OptimisticLockException('Optimistic lock failed (stale version).');
+            }
+            $this->invalidatePk($id);
+            return $n;
+        }
+
+        // Fallback: lock row, compare version, then update with increment
+        return (int)$this->withRowLock($id, function (?array $locked) use ($row, $expectedVersion, $id) {
+            if ($locked === null || !\array_key_exists($this->versionCol, $locked)) {
+                throw new OptimisticLockException('Optimistic lock failed (row not found).');
+            }
+            $current = (int)$locked[$this->versionCol];
+            if ($current !== $expectedVersion) {
+                throw new OptimisticLockException('Optimistic lock failed (stale version).');
+            }
+            $payload = $row;
+            $payload[$this->versionCol] = $expectedVersion + 1;
+            $this->assertKnownKeys($payload);
+
+            $n = $this->repository->updateById($id, $payload);
+            if ($n !== 1) {
+                throw new OptimisticLockException('Optimistic lock update affected unexpected row count.');
+            }
+            $this->invalidatePk($id);
+            return $n;
+        }, 'wait');
     }
 
-    /** Update s automatickým retry (deadlock/serialization). */
-    public function updateByIdWithRetry(int|string|array $id, array $row, int $attempts = 3): int
+    public function updateByIdWithRetry(int|string|array $id, #[\SensitiveParameter] array $row, int $attempts = 3): int
     {
         return $this->retry($attempts, fn() => $this->updateById($id, $row));
     }
@@ -151,17 +333,22 @@ class GenericCrudService
     {
         $n = $this->txn(fn() => $this->repository->deleteById($id));
         $this->invalidatePk($id);
+        $this->invalidateNamespace();
         return $n;
     }
 
     public function restoreById(int|string|array $id): int
     {
+        if (!\method_exists($this->repository, 'restoreById')) {
+            return 0;
+        }
         $n = $this->txn(fn() => $this->repository->restoreById($id));
         $this->invalidatePk($id);
+        $this->invalidateNamespace();
         return $n;
     }
 
-    public function getById(int|string|array $id, int $ttl = 15): ?array
+    public function getById(int|string|array $id, int|\DateInterval $ttl = 15): ?array
     {
         if (!$this->qcache || !$this->cacheNs) {
             return $this->repository->findById($id);
@@ -172,80 +359,334 @@ class GenericCrudService
 
     public function existsById(int|string|array $id): bool
     {
-        if (is_array($id)) {
-            // neutrální cesta pro composite PK, necháme na repo
+        if (\is_array($id)) {
             return $this->repository->findById($id) !== null;
         }
-        return $this->repository->exists($this->pkCol . ' = :id', [':id' => $id]);
+        if (\method_exists($this->repository, 'exists')) {
+            $col = Ident::qi($this->db(), $this->pkCol);
+            return (bool)$this->repository->exists("{$col} = :id", [':id' => $id]);
+        }
+        return $this->repository->findById($id) !== null;
     }
 
-    /** @return array{items:array<int,array>,total:int,page:int,perPage:int} */
+    /**
+     * @return array{items:list<array<string,mixed>>,total:int,page:int,perPage:int}
+     */
     public function paginate(object $criteria): array
     {
         return $this->txnRO(fn() => $this->repository->paginate($criteria));
     }
 
     /**
-     * Spusť práci v jedné transakci s řádkovým zámkem (SELECT … FOR UPDATE).
-     * $fn = function(array $lockedRow, Database $db): mixed
+     * Run the work inside a single transaction with a row lock.
+     * $fn = function(?array $lockedRow, Database $db): mixed
+     *
+     * @param int|string|array $id
      */
-    public function withRowLock(int|string|array $id, callable $fn): mixed
+    public function withRowLock(int|string|array $id, callable $fn, string $mode = 'wait'): mixed
     {
-        return $this->txn(function () use ($id, $fn) {
-            $row = $this->repository->lockById($id);
-            if (!$row) {
-                throw new \RuntimeException("Row {$id} not found for lock.");
-            }
-            return $fn($row, $this->db());
+        $mode = \strtolower($mode);
+        if (!\in_array($mode, ['wait','skip_locked','nowait'], true)) {
+            $mode = 'wait';
+        }
+        return $this->retry($this->retryAttempts, function () use ($id, $fn, $mode) {
+            return $this->txn(function () use ($id, $fn, $mode) {
+                if (!\method_exists($this->repository, 'lockById')) {
+                    $row = $this->repository->findById($id);
+                    return $fn($row, $this->db());
+                }
+
+                try {
+                    $rm = new \ReflectionMethod($this->repository, 'lockById');
+                    $row = ($rm->getNumberOfParameters() >= 2)
+                        ? $this->repository->lockById($id, $mode)
+                        : $this->repository->lockById($id);
+                } catch (\Throwable) {
+                    $row = $this->repository->lockById($id);
+                }
+
+                if ($mode === 'skip_locked' && $row === null) {
+                    return null;
+                }
+                return $fn($row, $this->db());
+            });
         });
     }
 
-    /** ------ interní/rozšiřitelné pomocníky ------ */
+    public function setRetryAttempts(int $n): void
+    {
+        $this->retryAttempts = \max(1, $n);
+    }
 
-    /** Umožni potomkům čistit cache ručně. */
+    private function detectRepositoryTable(): ?string
+    {
+        if (\is_string($this->ingressTable) && $this->ingressTable !== '') {
+            return $this->ingressTable;
+        }
+
+        $repo = $this->repository;
+        if (!\is_object($repo)) {
+            return null;
+        }
+
+        if (\method_exists($repo, 'table')) {
+            try {
+                /** @var mixed $table */
+                $table = $repo->table();
+                if (\is_string($table) && $table !== '') {
+                    return $table;
+                }
+            } catch (\Throwable) {
+                // ignore
+            }
+        }
+
+        if (\method_exists($repo, 'def')) {
+            try {
+                $resolver = Closure::bind(
+                    static function ($instance) {
+                        return \method_exists($instance, 'def') ? $instance->def() : null;
+                    },
+                    $repo,
+                    $repo
+                );
+            } catch (\Throwable) {
+                $resolver = null;
+            }
+
+            if ($resolver instanceof Closure) {
+                try {
+                    $fqn = $resolver($repo);
+                    if (\is_string($fqn) && $fqn !== '' && \class_exists($fqn) && \method_exists($fqn, 'table')) {
+                        /** @var mixed $table */
+                        $table = $fqn::table();
+                        if (\is_string($table) && $table !== '') {
+                            return $table;
+                        }
+                    }
+                } catch (\Throwable) {
+                    // ignore
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function propagateIngressAdapter(): void
+    {
+        $repo = $this->repository;
+        if (!\is_object($repo) || !\method_exists($repo, 'setIngressAdapter')) {
+            return;
+        }
+
+        $table = $this->ingressTable ?? $this->detectRepositoryTable();
+        try {
+            /** @phpstan-ignore-next-line */
+            $repo->setIngressAdapter($this->ingressAdapter, $table);
+        } catch (\Throwable) {
+            // best-effort
+        }
+    }
+
+    /** @param list<array<string,mixed>> $rows */
+    public function insertMany(#[\SensitiveParameter] array $rows): void
+    {
+        $this->txn(function () use ($rows) {
+            if (\method_exists($this->repository, 'insertMany')) {
+                $this->repository->insertMany($rows);
+            } else {
+                foreach ($rows as $r) { $this->repository->insert($r); }
+            }
+        });
+        $this->invalidateNamespace();
+    }
+
+    /**
+     * Batch fetch by IDs (uses per-ID cache when enabled).
+     * @param list<int|string|array> $ids
+     * @return list<array<string,mixed>>
+     */
+    public function getByIds(array $ids, int|\DateInterval $ttl = 15): array
+    {
+        if (!$ids) return [];
+
+        // If there is no cache and the repo supports findByIds, call it once.
+        if ((!$this->qcache || !$this->cacheNs) && \method_exists($this->repository, 'findByIds')) {
+            /** @var list<array<string,mixed>> $rows */
+            $rows = (array)$this->repository->findByIds($ids);
+            return $rows;
+        }
+
+        $rows = [];
+        foreach ($ids as $id) {
+            if ($this->qcache && $this->cacheNs) {
+                $key = $this->idKey($this->cacheNs, $this->idKeyFor($id));
+                $val = $this->qcache->remember($key, $ttl, fn() => $this->repository->findById($id));
+                if ($val !== null) { $rows[] = $val; }
+            } else {
+                $val = $this->repository->findById($id);
+                if ($val !== null) { $rows[] = $val; }
+            }
+        }
+        return $rows;
+    }
+
+    /**
+     * Variant that returns a map [id] => row.
+     * @param list<int|string|array> $ids
+     * @return array<int|string,array<string,mixed>>
+     */
+    public function getByIdsMap(array $ids, int|\DateInterval $ttl = 15): array
+    {
+        $list = $this->getByIds($ids, $ttl);
+        $out  = [];
+        foreach ($list as $r) {
+            if (isset($r[$this->pkCol])) {
+                /** @var int|string $k */
+                $k = $r[$this->pkCol];
+                $out[$k] = $r;
+            }
+        }
+        return $out;
+    }
+
+    /** Fast bump of updated_at (prefer DB-side expression). */
+    public function touchById(int|string|array $id, string $column = 'updated_at'): int
+    {
+        if (\method_exists($this->repository, 'updateByIdExpr')) {
+            $expr = 'CURRENT_TIMESTAMP(6)';
+            $n = $this->txn(fn() => $this->repository->updateByIdExpr($id, [$column => new SqlExpr($expr)]));
+        } else {
+            // Fallback – let the application supply the timestamp (UTC)
+            $n = $this->txn(fn() => $this->repository->updateById(
+                $id,
+                [$column => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s.u')]
+            ));
+        }
+        if ($n) { $this->invalidatePk($id); }
+        return $n;
+    }
+
+    /**
+     * Idempotent section: "first write wins" (advisory lock + atomic INSERT, no races).
+     * Tabulka: idempotency_keys(k PRIMARY KEY, expires_at timestamptz/datetime, payload json/jsonb/text)
+     */
+    public function idempotent(string $key, callable $fn, int $ttlSec = 3600): mixed
+    {
+        $ttlSec = \max(1, $ttlSec);
+        return $this->withLock('idem:' . $key, 5, function () use ($key, $fn, $ttlSec) {
+            return $this->txn(function () use ($key, $fn, $ttlSec) {
+                $tbl = Ident::q($this->db(), 'idempotency_keys');
+
+                // 1) quick hit
+                $existing = $this->db()->fetchValue(
+                    "SELECT payload FROM {$tbl} WHERE k = :k AND expires_at > CURRENT_TIMESTAMP",
+                    [':k' => $key],
+                    null
+                );
+                if ($existing !== null) {
+                    return \json_decode((string)$existing, true);
+                }
+
+                // 2) produce and store (first write wins – we are under the lock)
+                $res = $fn($this);
+                $payload = \json_encode($res, \JSON_UNESCAPED_UNICODE|\JSON_UNESCAPED_SLASHES);
+
+                if ($this->db()->isPg()) {
+                    $sql = "INSERT INTO {$tbl}(k, expires_at, payload)
+                            VALUES (:k, CURRENT_TIMESTAMP(6) + make_interval(secs => :ttl), :p)
+                            ON CONFLICT (k) DO UPDATE
+                               SET expires_at = EXCLUDED.expires_at
+                               ,   payload    = {$tbl}.payload"; // keep the original payload (first write wins)
+                } else {
+                    // MySQL/MariaDB – alias variant (MySQL ≥ 8.0.20) + fallback to VALUES() (MariaDB, older MySQL)
+                    $params = [':k' => $key, ':ttl' => $ttlSec, ':p' => $payload];
+
+                    $sqlAlias = "INSERT INTO {$tbl}(k, expires_at, payload)
+                                VALUES (:k, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL :ttl SECOND), :p)
+                                ON DUPLICATE KEY UPDATE
+                                    expires_at = VALUES(expires_at),  -- placeholder; overwritten below if the alias path works
+                                    payload    = payload";
+
+                    $sqlNewAlias = "INSERT INTO {$tbl} AS new (k, expires_at, payload)
+                                    VALUES (:k, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL :ttl SECOND), :p)
+                                    ON DUPLICATE KEY UPDATE
+                                    expires_at = new.expires_at,
+                                    payload    = payload";
+
+                    try {
+                        // Prefer the alias syntax when possible (works on MySQL ≥ 8.0.20).
+                        $this->db()->execute($sqlNewAlias, $params);
+                    } catch (\Throwable $e) {
+                        // Fallback for MariaDB / older MySQL – VALUES() is supported there.
+                        $this->db()->execute($sqlAlias, $params);
+                    }
+                }
+                $this->db()->execute($sql, [':k'=>$key, ':ttl'=>$ttlSec, ':p'=>$payload]);
+
+                return $res;
+            });
+        });
+    }
+
+    // ----------------------- Cache helpers -----------------------
+
     protected function invalidatePk(int|string|array $id): void
     {
         if (!$this->qcache || !$this->cacheNs) return;
         $key = $this->idKey($this->cacheNs, $this->idKeyFor($id));
-
-        // best-effort invalidace (QueryCache + PSR-16, pokud je k dispozici)
-        try { $this->qcache->remember($key, -1, fn() => null); } catch (\Throwable) {
-            try { $this->qcache->remember($key, 0, fn() => null); } catch (\Throwable) {}
-        }
+        try { $this->qcache->delete($key); } catch (\Throwable) { /* best-effort */ }
         try {
-            if (method_exists($this->qcache, 'cache') && $this->qcache->cache()) {
+            if (\method_exists($this->qcache, 'cache') && $this->qcache->cache()) {
                 $this->qcache->cache()->delete($key);
             }
         } catch (\Throwable) {}
     }
 
+    protected function invalidateNamespace(): void
+    {
+        if ($this->qcache && $this->cacheNs) {
+            $this->qcache->invalidatePrefix($this->cacheNs);
+        }
+    }
+
     protected function invalidateByPkIfPresent(array $row): void
     {
-        if (array_key_exists($this->pkCol, $row)) {
+        if (\array_key_exists($this->pkCol, $row)) {
             $this->invalidatePk($row[$this->pkCol]);
         }
     }
-    public function insertMany(array $rows): void
+
+    // ----------------------- Internals -----------------------
+
+    private function assertRepositoryShape(object $r): void
     {
-        $this->txn(function () use ($rows) {
-            if (method_exists($this->repository, 'insertMany')) {
-                $this->repository->insertMany($rows);
-            } else {
-                foreach ($rows as $r) {
-                    $this->repository->insert($r);
-                }
+        foreach (['insert', 'updateById', 'deleteById', 'findById'] as $m) {
+            if (!\method_exists($r, $m)) {
+                throw new \InvalidArgumentException("Repository missing required method: {$m}()");
             }
-        });
+        }
     }
 
-    /** Deterministický klíč pro cache i pro složené PK. */
+    /** @param array<string,mixed> $row */
+    private function assertKnownKeys(array $row): void
+    {
+        if ($this->updatableColsWhitelist === null) { return; }
+        foreach ($row as $k => $_) {
+            if (!isset($this->updatableColsWhitelist[$k])) {
+                throw new \InvalidArgumentException("Unknown or disallowed column '{$k}' in update payload");
+            }
+        }
+    }
+
     private function idKeyFor(mixed $id): string
     {
-        if (is_array($id)) {
+        if (\is_array($id)) {
             $norm = $id;
-            // asociativní pole → seřaď klíče, poziční nech v pořadí
-            if (array_keys($norm) !== range(0, count($norm) - 1)) { ksort($norm); }
-            return 'ck:' . hash('sha256', json_encode($norm, JSON_UNESCAPED_UNICODE));
+            // If associative, stabilize key order
+            if (\array_keys($norm) !== \range(0, \count($norm) - 1)) { \ksort($norm); }
+            return 'ck:' . \hash('sha256', \json_encode($norm, \JSON_UNESCAPED_UNICODE|\JSON_UNESCAPED_SLASHES));
         }
         return (string)$id;
     }

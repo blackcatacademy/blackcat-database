@@ -1,0 +1,21 @@
+<?php
+declare(strict_types=1);
+use PHPUnit\Framework\TestCase;
+use BlackCat\Core\Database;
+final class {{Name}}KeysetPaginationTest extends TestCase {
+  public function test_seek(): void {
+    $db = Database::getInstance();
+    $tbl = '{{Table}}_kp';
+    $db->exec("DROP TABLE IF EXISTS $tbl");
+    $db->exec($db->isPg()
+      ? "CREATE TABLE $tbl (id BIGSERIAL PRIMARY KEY, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), name TEXT)"
+      : "CREATE TABLE $tbl (id BIGINT PRIMARY KEY AUTO_INCREMENT, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, name VARCHAR(50))");
+    for ($i=1;$i<=60;$i++) { $db->exec("INSERT INTO $tbl(name) VALUES ('n{$i}')"); }
+    $p1 = $db->fetchAll("SELECT id,created_at FROM $tbl ORDER BY created_at DESC, id DESC LIMIT 10");
+    $last = end($p1);
+    $sql = "SELECT id,created_at FROM $tbl WHERE (created_at < :ts) OR (created_at = :ts AND id < :id) ORDER BY created_at DESC, id DESC LIMIT 10";
+    $p2 = $db->fetchAll($sql, [':ts'=>$last['created_at'], ':id'=>$last['id']]);
+    $ids1 = array_column($p1,'id'); $ids2 = array_column($p2,'id');
+    $this->assertSame([], array_values(array_intersect($ids1,$ids2)));
+  }
+}

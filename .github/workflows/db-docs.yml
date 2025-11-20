@@ -24,7 +24,7 @@ jobs:
 
     steps:
       - name: Checkout (with submodules)
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: recursive
@@ -40,50 +40,137 @@ jobs:
           $PSVersionTable
           git --version
 
+      - name: Resolve schema metadata paths
+        id: schema_meta
+        shell: pwsh
+        run: |
+          $mapCandidates = @(
+            'scripts/schema-map.psd1',
+            'scripts/schema/schema-map-postgres.psd1',
+            'scripts/schema/schema-map-mysql.psd1'
+          )
+          $mapPath = $null
+          foreach ($cand in $mapCandidates) {
+            $full = Join-Path (Get-Location).Path $cand
+            if (Test-Path -LiteralPath $full) {
+              $mapPath = (Resolve-Path -LiteralPath $full).Path
+              break
+            }
+          }
+          if (-not $mapPath) {
+            throw "Schema map file not found. Looked in: $($mapCandidates -join ', ')"
+          }
+          $engine = ''
+          if ($mapPath -match 'schema-map-(?<eng>[a-z0-9]+)\.psd1$') {
+            $engine = $Matches.eng
+          }
+
+          $defsCandidates = @(
+            'scripts/schema-defs.psd1',
+            $(if ($engine) { "scripts/schema/schema-defs-$engine.psd1" } else { $null }),
+            'scripts/schema/schema-defs-postgres.psd1',
+            'scripts/schema/schema-defs-mysql.psd1'
+          ) | Where-Object { $_ }
+
+          $defsPath = $null
+          foreach ($cand in $defsCandidates) {
+            $full = Join-Path (Get-Location).Path $cand
+            if (Test-Path -LiteralPath $full) {
+              $defsPath = (Resolve-Path -LiteralPath $full).Path
+              break
+            }
+          }
+          if (-not $defsPath) {
+            throw "Schema definitions file not found. Looked in: $($defsCandidates -join ', ')"
+          }
+
+          "map=$mapPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "defs=$defsPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "engine=$engine" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
       - name: Validate schema output matches map
         shell: pwsh
         run: |
-          pwsh ./scripts/Test-SchemaOutput.ps1 `
-            -MapPath ./scripts/schema/schema-map.psd1 `
-            -SchemaDir ./schema
+          $mapPath = '${{ steps.schema_meta.outputs.map }}'
+          if ([string]::IsNullOrWhiteSpace($mapPath)) {
+            throw "Schema map path resolution failed."
+          }
+
+          $engine = '${{ steps.schema_meta.outputs.engine }}'
+          if ([string]::IsNullOrWhiteSpace($engine)) {
+            foreach ($cand in @('mysql','postgres')) {
+              $probe = Join-Path './schema' ("001_table.$cand.sql")
+              if (Test-Path -LiteralPath $probe) {
+                $engine = $cand
+                break
+              }
+            }
+          }
+          if ([string]::IsNullOrWhiteSpace($engine)) {
+            throw "Unable to determine schema engine (looked for mysql/postgres files)."
+          }
+
+          $bases = @('001_table','020_indexes','030_foreign_keys')
+          $tempFiles = @()
+          foreach ($base in $bases) {
+            $src = Join-Path './schema' ("$base.$engine.sql")
+            if (!(Test-Path -LiteralPath $src)) {
+              throw "Missing schema source file: $src"
+            }
+            $dest = Join-Path './schema' ("$base.sql")
+            Copy-Item -LiteralPath $src -Destination $dest -Force
+            $tempFiles += $dest
+          }
+
+          try {
+            pwsh ./scripts/quality/Test-SchemaOutput.ps1 `
+              -MapPath $mapPath `
+              -SchemaDir ./schema
+          } finally {
+            foreach ($tmp in $tempFiles) {
+              if (Test-Path -LiteralPath $tmp) {
+                Remove-Item -LiteralPath $tmp -Force
+              }
+            }
+          }
 
       - name: Split schema into packages
         shell: pwsh
         run: |
-          pwsh ./scripts/Split-SchemaToPackages.ps1 `
-            -MapPath ./scripts/schema-map.psd1 `
+          pwsh ./scripts/schema-tools/Split-SchemaToPackages.ps1 `
+            -InDir ./scripts/schema `
             -PackagesDir ./packages
 
       - name: Build READMEs
         shell: pwsh
         run: |
-          pwsh ./scripts/New-PackageReadmes.ps1 `
-            -MapPath ./scripts/schema-map.psd1 `
+          pwsh ./scripts/docs/New-PackageReadmes.ps1 `
+            -MapPath '${{ steps.schema_meta.outputs.map }}' `
             -PackagesDir ./packages `
             -Force
 
       - name: Build column definitions
         shell: pwsh
         run: |
-          pwsh ./scripts/Build-Definitions.ps1 `
-            -MapPath ./scripts/schema-map.psd1 `
-            -DefsPath ./scripts/schema-defs.psd1 `
+          pwsh ./scripts/schema-tools/Build-Definitions.ps1 `
+            -MapPath '${{ steps.schema_meta.outputs.map }}' `
+            -DefsPath '${{ steps.schema_meta.outputs.defs }}' `
             -PackagesDir ./packages `
             -Force
 
       - name: Build changelogs
         shell: pwsh
         run: |
-          pwsh ./scripts/New-PackageChangelogs.ps1 `
-            -MapPath ./scripts/schema-map.psd1 `
+          pwsh ./scripts/docs/New-PackageChangelogs.ps1 `
+            -MapPath '${{ steps.schema_meta.outputs.map }}' `
             -PackagesDir ./packages `
             -Force
 
       - name: Build packages index
         shell: pwsh
         run: |
-          pwsh ./scripts/New-DocsIndex.ps1 `
-            -MapPath ./scripts/schema-map.psd1 `
+          pwsh ./scripts/docs/New-DocsIndex.ps1 `
+            -MapPath '${{ steps.schema_meta.outputs.map }}' `
             -PackagesDir ./packages `
             -OutPath ./PACKAGES.md `
             -Force

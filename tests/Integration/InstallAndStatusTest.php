@@ -38,7 +38,7 @@ final class InstallAndStatusTest extends TestCase
 
     public function test_uninstall_removes_only_view(): void
     {
-        // Pro rychlost testujeme jen 3 náhodné moduly
+        // For speed, test only three random modules
         $pick = array_values(self::$mods);
         shuffle($pick);
         $pick = array_slice($pick, 0, min(3, count($pick)));
@@ -51,7 +51,7 @@ final class InstallAndStatusTest extends TestCase
             $view  = (method_exists($m,'contractView') ? $m::contractView() : $table);
             $m->uninstall($db, $dial);
 
-            // view pryč, tabulka zůstává
+            // view removed while table remains
             $tableOk = (int)$db->fetchOne(
                 $dial->isMysql()
                     ? "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t"
@@ -68,7 +68,7 @@ final class InstallAndStatusTest extends TestCase
             $this->assertTrue($tableOk, "Table missing after uninstall: $table");
             $this->assertTrue($viewGone, "View still present after uninstall: $view");
 
-            // reinstal zpět
+            // reinstall back
             $m->install($db, $dial);
         }
     }

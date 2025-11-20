@@ -25,7 +25,7 @@ final class ModulesContractTest extends TestCase
 
     public function test_install_idempotent_status_uninstall_reinstall(): void
     {
-        // čistá DB kvůli idempotenci
+        // clean DB to guarantee idempotency
         DbUtil::wipeDatabase();
 
         $db  = DbUtil::db();
@@ -35,11 +35,11 @@ final class ModulesContractTest extends TestCase
         $mods = DbUtil::discoverModules();
         $this->assertNotEmpty($mods, 'No modules discovered under packages/');
 
-        // 1) full install v topo pořadí + idempotentní druhý běh
+        // 1) full install in topological order + idempotent second run
         $ins->installOrUpgradeAll($mods);
         $ins->installOrUpgradeAll($mods);
 
-        // 2) per-modul status kontroly
+        // 2) per-module status checks
         foreach ($mods as $m) {
             $st = $m->status($db, $d);
             $this->assertTrue(!empty($st['table']), $m->name().' table missing');
@@ -49,7 +49,7 @@ final class ModulesContractTest extends TestCase
             $this->assertSame([], $st['missing_fk']  ?? [], $m->name().' fk missing');
         }
 
-        // 3) uninstall všech (dropnou se jen view)
+        // 3) uninstall everything (only views are dropped)
         foreach ($mods as $m) {
             $m->uninstall($db, $d);
         }
@@ -59,7 +59,7 @@ final class ModulesContractTest extends TestCase
             $this->assertTrue(empty($st2['view']),   $m->name().' view still present after uninstall');
         }
 
-        // 4) reinstall celé sady
+        // 4) reinstall the whole set
         $ins->installOrUpgradeAll($mods);
         $this->assertTrue(true);
     }

@@ -1,0 +1,18 @@
+{
+  "blocking": [
+    "plans:changed",
+    "drift:detected",
+    "docs:outdated",
+    "bench:regression",
+    "lint:sql-fail",
+    "chaos:fail",
+    "backup:fail",
+    "tls:insecure"
+  ],
+  "overrides": {
+    "users": [],
+    "labels": [
+      "override:allowed"
+    ]
+  }
+}

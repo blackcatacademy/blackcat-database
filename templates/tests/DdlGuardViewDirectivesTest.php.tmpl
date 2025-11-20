@@ -1,0 +1,20 @@
+<?php
+declare(strict_types=1);
+use PHPUnit\Framework\TestCase;
+use BlackCat\Core\Database;
+final class {{Name}}DdlGuardViewDirectivesTest extends TestCase {
+  public function test_mysql_view_has_algorithm_and_security(): void {
+    $db = Database::getInstance();
+    if ($db->isPg()) { $this->markTestSkipped('MySQL/MariaDB only'); }
+    $view = 'v_{{Table}}_test';
+    $db->exec("DROP VIEW IF EXISTS $view");
+    $tbl = '{{Table}}_v';
+    $db->exec("DROP TABLE IF EXISTS $tbl");
+    $db->exec("CREATE TABLE $tbl (id INT PRIMARY KEY AUTO_INCREMENT, v INT)");
+    $db->exec("CREATE VIEW $view ALGORITHM=MERGE SQL SECURITY INVOKER AS SELECT id,v FROM $tbl");
+    $row = $db->fetchRow("SHOW CREATE VIEW $view");
+    $ddl = (string)($row['Create View'] ?? '');
+    $this->assertStringContainsString('ALGORITHM=MERGE', $ddl);
+    $this->assertStringContainsString('SQL SECURITY INVOKER', $ddl);
+  }
+}

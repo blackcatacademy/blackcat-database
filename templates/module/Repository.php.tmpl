@@ -1,0 +1,28 @@
+\
+    <?php
+    declare(strict_types=1);
+
+    namespace {{Namespace}};
+
+    use BlackCat\Database\Contracts\ContractRepository;
+
+    final class {{Name}}Repository implements ContractRepository
+    {
+        public string $table = '{{Table}}';
+
+        public function __construct(private \BlackCat\Core\Database $db) {}
+
+        public function findById(int|string $id): ?array
+        {
+            return $this->db->fetchRow("SELECT * FROM {$this->table} WHERE id=:id", [':id'=>$id]) ?: null;
+        }
+
+        public function insert(array $row): int
+        {
+            $cols = array_keys($row);
+            $params = [];
+            foreach ($row as $k=>$v) { $params[":$k"] = $v; }
+            $sql = "INSERT INTO {$this->table} (".implode(',',$cols).") VALUES (".implode(',', array_keys($params)).")";
+            return $this->db->exec($sql, $params);
+        }
+    }

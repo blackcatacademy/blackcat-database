@@ -47,7 +47,7 @@ final class RepositoryCrudDynamicTest extends TestCase
             if (preg_match("~Duplicate entry '([^']+)'~i", $err['message'], $m)) { $err['dup'] = $m[1]; }
         }
 
-        // --- 1) Rozbal UK sloupce ---
+        // --- 1) Expand unique key columns ---
         $ukCols = [];
         if (is_array($uk)) {
             $first = (isset($uk[0]) && is_array($uk[0])) ? $uk[0] : $uk;
@@ -57,7 +57,7 @@ final class RepositoryCrudDynamicTest extends TestCase
             $ukCols = ['entity_table','entity_pk','field_name'];
         }
 
-        // --- 2) Payload + WHERE pro UK ---
+        // --- 2) Payload + WHERE clause for the unique key ---
         $payload = [];
         $conds   = [];
         $params  = [];
@@ -70,11 +70,11 @@ final class RepositoryCrudDynamicTest extends TestCase
             $params[':' . $c] = $row[$c] ?? null;
         }
 
-        // --- 3) SELECT potenciálních konfliktů dle UK ---
+        // --- 3) SELECT potential conflicts by the unique key ---
         $conflicts = [];
         if ($conds) {
             $selCols = $ukCols;
-            // přidej případný PK sloupec, ať víme i id
+            // include the PK column when available so we also know the id
             try {
                 $defsClass = self::$repos[$table] ?? null;
                 if (is_string($defsClass)) {
@@ -94,7 +94,7 @@ final class RepositoryCrudDynamicTest extends TestCase
             try { $conflicts = $db->fetchAll($sql, $params) ?? []; } catch (\Throwable $_) { $conflicts = []; }
         }
 
-        // --- 4) Pokud klíč vypadá na PRIMARY, zkus explicitně PK konflikt ---
+        // --- 4) If the key looks like PRIMARY, explicitly check for a PK conflict ---
         $pkConflict = null;
         $keyIsPrimary = $err['key'] && stripos((string)$err['key'], 'PRIMARY') !== false;
         if ($keyIsPrimary || !$ukCols) {
@@ -108,14 +108,14 @@ final class RepositoryCrudDynamicTest extends TestCase
             }
         }
 
-        // --- 5) SHOW CREATE TABLE pro MySQL/MariaDB (kvůli kolacím/indexům) ---
+        // --- 5) SHOW CREATE TABLE for MySQL/MariaDB (collation/index context) ---
         $dial = (method_exists(DbHarness::class, 'isPg') && DbHarness::isPg()) ? 'pg' : 'mysql/mariadb';
         $ddl = null;
         if ($dial !== 'pg') {
             try { $ddl = $db->fetch('SHOW CREATE TABLE ' . $db->quoteIdent($table)); } catch (\Throwable $_) {}
         }
 
-        // --- 6) Jediný jednoznačný log ---
+        // --- 6) Single unambiguous log entry ---
         $log = [
             'phase'       => $phase,
             'table'       => $table,
@@ -151,7 +151,7 @@ final class RepositoryCrudDynamicTest extends TestCase
     /** @var array<string,string> */
     private static array $repos = [];
 
-    /** Postav mapu repozitářů (idempotentně) */
+    /** Build repository map (idempotent). */
     private static function ensureReposBuilt(): void
     {
         if (self::$repos) { return; }
@@ -193,7 +193,7 @@ final class RepositoryCrudDynamicTest extends TestCase
     public static function setUpBeforeClass(): void
     {
         DbHarness::ensureInstalled();
-        // volitelné: pro logy
+        // optional: helpful for logging
         self::ensureReposBuilt();
     }
 
@@ -226,18 +226,18 @@ final class RepositoryCrudDynamicTest extends TestCase
                 $this->markTestSkipped("no sample for $table");
             }
 
-            // PG: srovnat sample (enumy/CHECK, identity, datové typy)
+            // PG: coerce the sample (enums/CHECK, identity, data types)
             if (method_exists(DbHarness::class, 'coerceForPg')) {
                 $row = DbHarness::coerceForPg($table, $row);
             }
 
-            // PG: tabulky s povinnými (NOT NULL) FK jen “smoke-skipneme”
+            // PG: tables with mandatory (NOT NULL) FKs are skipped as smoke tests
             if (method_exists(DbHarness::class, 'isPg') && DbHarness::isPg()
                 && method_exists(DbHarness::class, 'hasHardFks') && DbHarness::hasHardFks($table)) {
                 $this->markTestSkipped("PG smoke: $table has NOT NULL FKs (no parent seed)");
             }
 
-            // INSERT (zachytáváme typické PG/MySQL kolize a dáme SKIP, ne FAIL)
+            // INSERT (capture typical PG/MySQL collisions and mark SKIP instead of FAIL)
             try {
                 $repo->insert($row);
             } catch (\BlackCat\Core\DatabaseException $e) {
@@ -256,12 +256,12 @@ final class RepositoryCrudDynamicTest extends TestCase
                 if ($code === '23503' || str_contains($msg, 'foreign key')) {
                     $this->markTestSkipped("FK violation for $table (no parent seed)");
                 }
-                // MySQL vendor codes (errorInfo[1]) – ošetři jako SKIP, ať to není “umělý” FAIL
+                // MySQL vendor codes (errorInfo[1]) - treat as SKIP to avoid artificial FAIL
                 if ($prev instanceof \PDOException) {
                     $sqlstate = (string)($prev->errorInfo[0] ?? '');
                     $vendor   = (int)($prev->errorInfo[1] ?? 0);
 
-                    // duplicitní klíč
+                    // duplicate key
                     if ($vendor === 1062 || $sqlstate === '23000') {
                         $this->logUkCollision($db, $table, $row, $uk, 'insert', $e);
                         $this->markTestSkipped("unique collision for $table (seed/sample clash)");
@@ -270,12 +270,12 @@ final class RepositoryCrudDynamicTest extends TestCase
                     if ($vendor === 1452) {
                         $this->markTestSkipped("FK violation for $table (no parent seed)");
                     }
-                    // NOT NULL column missing (často u autogenerovaných sample řádků)
+                    // NOT NULL column missing (common with auto-generated sample rows)
                     if ($vendor === 1364) {
                         $this->markTestSkipped("NOT NULL column missing for $table (RowFactory sample incomplete)");
                     }
                 }
-                throw $e; // neznámé → necháme spadnout
+                throw $e; // unknown -> let it bubble up
             }
 
             $view = 'vw_' . $table;
@@ -296,7 +296,7 @@ final class RepositoryCrudDynamicTest extends TestCase
             }
 
             if ($exists) {
-                // jen sanity: SELECT první řádek
+                // sanity check: SELECT the first row
                 $db->fetchAll('SELECT * FROM ' . $db->quoteIdent($view) . ' LIMIT 1');
                 $this->assertTrue(true, "view $view is readable");
             }
@@ -305,7 +305,7 @@ final class RepositoryCrudDynamicTest extends TestCase
             $this->assertTrue($repo->exists('1=1', []));
             $this->assertGreaterThanOrEqual(1, $repo->count('1=1', []));
 
-            // najdi PK z Definitions vedle daného Repository
+            // find the PK from Definitions next to the repository
             $defsClass = preg_replace('~\\\\Repository$~', '\\\\Definitions', $repoFqn);
 
             /** @var class-string|null $defsClass */
@@ -319,14 +319,14 @@ final class RepositoryCrudDynamicTest extends TestCase
                 }
             }
 
-            // bezpecne – inicializace
+            // safe initialization
             $id = null;
-            // rozparsuj PK na pole sloupců (pro single PK vrátí 1 prvek)
+            // parse the PK into an array of columns (single PK returns one element)
             $pkSan = (string)$pk;
-            // normalize „divných“ čárek a NBSP na ASCII čárku
+            // normalize unusual commas/NBSP characters to an ASCII comma
             $pkSan = preg_replace('/[\x{201A}\x{201E}\x{FF0C}\x{00A0}]+/u', ',', $pkSan);
             $pkCols = array_values(array_filter(array_map('trim', preg_split('/\s*,\s*/', $pkSan))));
-            // nouzově – když to pořád vypadá jako jeden kus, zkus whitespace
+            // fallback - if it still looks like one chunk, split on whitespace
             if (count($pkCols) === 1 && str_contains($pkCols[0], ' ')) {
                 $pkCols = array_values(array_filter(preg_split('/\s+/', $pkCols[0])));
             }
@@ -345,18 +345,18 @@ final class RepositoryCrudDynamicTest extends TestCase
                     $found = $repo->findById($id);
                     $this->assertIsArray($found);
                 } else {
-                    // složené PK → připrav složený klíč (typově znormalizovaný)
+                    // composite PK -> prepare a typed composite key
                     $id = [];
                     foreach ($pkCols as $c) {
                         $id[$c] = self::normalizePkValue($table, $c, $peek[$c] ?? null);
                     }
 
-                    // 1) zkus repo->findById(array)
+                    // 1) try repo->findById(array)
                     try {
                         $found = $repo->findById($id);
                         $this->assertIsArray($found);
                     } catch (\Throwable $_) {
-                        // 2) fallback: ruční SELECT proti tabulce – sanity check
+                        // 2) fallback: manual SELECT against the table as a sanity check
                         $conds  = [];
                         $params = [];
                         foreach ($id as $col => $val) {
@@ -377,7 +377,7 @@ final class RepositoryCrudDynamicTest extends TestCase
                 }
             }
 
-            // UPDATE (zahladit numeric/date typy)
+            // UPDATE (normalize numeric/date types)
             if ($id !== null && $updatable) {
                 $fkCols = array_fill_keys(DbHarness::foreignKeyColumns($table), true);
                 $k = null;
@@ -387,7 +387,7 @@ final class RepositoryCrudDynamicTest extends TestCase
                 if ($k === null) {
                     $this->markTestSkipped("smoke: $table has only FK updatable columns (skip UPDATE)");
                 }
-                // vyhni se PK a version sloupci (optimistic locking)
+                // avoid PK and version columns (optimistic locking)
                 if (in_array($k, $pkCols, true)) {
                     $this->markTestSkipped("smoke: $table – refusing to UPDATE primary key column ($k)");
                 }
@@ -408,16 +408,16 @@ final class RepositoryCrudDynamicTest extends TestCase
                 $full = strtolower((string)($meta['full_type'] ?? ''));
                 $type = strtolower((string)($meta['type'] ?? ''));
 
-                // BINÁRKY: drž přesně deklarovanou délku
+                // BINARY columns: keep the declared length
                 if (preg_match('/\b(?:var)?binary\((\d+)\)/', $full, $m)) {
                     $n = (int)$m[1];
                     $newVal = random_bytes(max(1, $n));
                 }
-                // BLOB: nech relativně malý obsah
+                // BLOB: keep the payload relatively small
                 elseif (str_contains($type, 'blob')) {
                     $newVal = random_bytes(16);
                 }
-                // CHAR(N)/VARCHAR(N): nepřekroč N
+                // CHAR(N)/VARCHAR(N): never exceed N
                 elseif (preg_match('/\bchar\((\d+)\)/', $full, $m)) {
                     $n = (int)$m[1];
                     $base = isset($row[$k]) ? (string)$row[$k] : 'x';
@@ -428,14 +428,14 @@ final class RepositoryCrudDynamicTest extends TestCase
                     $base = isset($row[$k]) ? (string)$row[$k] : 'x';
                     $newVal = mb_substr($base . 'u', 0, $n);
                 }
-                // NUMERIKA/DATUMY – vaše původní větve
+                // NUMERIC/DATE types - reuse the original branches
                 elseif (preg_match('/(int|numeric|decimal|real|double|smallint|bigint|serial)/', $type)) {
                     $newVal = is_numeric($row[$k] ?? null) ? (0 + $row[$k]) + 1 : 1;
                 }
                 elseif (preg_match('/(date|time)/', $type)) {
                     $newVal = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s');
                 }
-                // FALLBACK: text bez omezení
+                // FALLBACK: unrestricted text
                 else {
                     $base = isset($row[$k]) ? (string)$row[$k] : 'x';
                     $newVal = $base . 'u';
@@ -445,7 +445,7 @@ final class RepositoryCrudDynamicTest extends TestCase
                 $this->assertSame(1, $aff);
             }
 
-            // UPSERT — na PG ošetříme “ambiguous column” (sqlstate 42702) → dáme SKIP
+            // UPSERT - on PG handle "ambiguous column" (sqlstate 42702) by marking the test as SKIP
             if (method_exists($repo, 'upsert')) {
                 try {
                     $repo->upsert($row);
@@ -470,7 +470,7 @@ final class RepositoryCrudDynamicTest extends TestCase
                         $sqlstate = (string)($prev->errorInfo[0] ?? '');
                         $vendor   = (int)($prev->errorInfo[1] ?? 0);
 
-                        // duplicitní klíč
+                        // duplicate key
                         if ($vendor === 1062 || $sqlstate === '23000') {
                             $this->logUkCollision($db, $table, $row, $uk, 'upsert', $e);
                             $this->markTestSkipped("unique collision for $table (seed/sample clash)");

@@ -24,7 +24,7 @@ final class InstallerMissingDependencyTest extends TestCase
             public function table(): string { return 'child'; }
             public function version(): string { return '1.0.0'; }
             public function dialects(): array { return ['mysql','postgres']; }
-            public function dependencies(): array { return ['table-parent']; } // parent není registrovaný
+            public function dependencies(): array { return ['table-parent']; } // parent is not registered
             public function install(Database $db, SqlDialect $d): void {}
             public function upgrade(Database $db, SqlDialect $d, string $from): void {}
             public function uninstall(Database $db, SqlDialect $d): void {}

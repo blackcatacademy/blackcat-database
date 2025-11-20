@@ -6,9 +6,9 @@ namespace BlackCat\Database\Examples;
 use BlackCat\Core\Database;
 use BlackCat\Core\Database\QueryCache;
 use BlackCat\Database\Support\ServiceHelpers;
-use BlackCat\Database\Actions\OperationResult;
+use BlackCat\Database\Support\OperationResult;
 use BlackCat\Database\Runtime;
-// Repozitáře dle tvého generatoru:
+// Repositories provided by your generator:
 use BlackCat\Database\Packages\Users\Repository as UsersRepo;
 use BlackCat\Database\Packages\UserProfiles\Repository as ProfilesRepo;
 
@@ -23,7 +23,7 @@ final class UserRegisterService
         private ?QueryCache $qcache = null
     ) {}
 
-    /** hlavní API pro FE – jedna volání = registrace */
+    /** Primary API for FE – single call equals registration */
     public function register(array $input): OperationResult
     {
         return $this->withLock('user:register:'.mb_strtolower($input['email'] ?? ''), 5, function() use ($input) {
@@ -33,7 +33,7 @@ final class UserRegisterService
                         $email = trim((string)($input['email'] ?? ''));
                         if ($email === '') return OperationResult::fail('Email required');
 
-                        // unikátnost (db-level unique je ještě důležitější)
+                        // Ensure uniqueness (DB-level unique constraint is still critical)
                         $exists = $this->db()->exists("SELECT 1 FROM users WHERE email = :e LIMIT 1", [':e'=>$email]);
                         if ($exists) return OperationResult::fail('Email already registered');
 

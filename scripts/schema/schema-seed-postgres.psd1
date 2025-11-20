@@ -16,7 +16,7 @@ ON CONFLICT (iso2) DO UPDATE
 
     permissions = @{
       seed = @'
--- Baseline RBAC (rozšířeno pro nové entity)
+-- Baseline RBAC (extended for new entities)
 INSERT INTO permissions (name, description) VALUES
   (''admin:full_access'',          ''Grants all administration privileges''),
   (''users:read'',                 ''View users''),
@@ -70,7 +70,7 @@ ON CONFLICT (slug) DO UPDATE
 
     app_settings = @{
       seed = @'
--- Operational defaults (bez skutečných tajemství)
+-- Operational defaults (no real secrets)
 INSERT INTO app_settings
   (setting_key, setting_value, "type", section, description, is_protected)
 VALUES

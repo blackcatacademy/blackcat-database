@@ -1,0 +1,18 @@
+includes:
+  - vendor/phpstan/phpstan-phpunit/extension.neon
+
+parameters:
+  level: 8
+  paths:
+    - src
+  excludePaths:
+    analyse:
+      - tests
+  bootstrapFiles:
+    - phpstan.bootstrap.php
+  tmpDir: var/phpstan
+  reportUnmatchedIgnoredErrors: true
+  tipsOfTheDay: false
+  ignoreErrors:
+    - identifier: missingType.iterableValue
+    - identifier: missingType.generics

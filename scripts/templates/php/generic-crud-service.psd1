@@ -15,21 +15,21 @@ use BlackCat\Database\Services\GenericCrudService as BaseCrud;
 use BlackCat\Database\Contracts\ContractRepository as RepoContract;
 use [[NAMESPACE]]\Definitions;
 use [[NAMESPACE]]\Criteria;
-use [[NAMESPACE]]\Support\OperationResult;
+use BlackCat\Database\Support\OperationResult;
 
 /**
- * Lokální „tenký“ CRUD service:
- * - dědí globální BaseCrud a automaticky doplní PK, cache namespace a version column z Definitions
- * - zachovává původní API wrapperů s OperationResult (ale NEoverride-uje create() ani createAndFetch())
- * - přidává užitečné 2% helperů (existsById, optimistic update, withRowLock)
+ * Local "thin" CRUD service:
+ * - extends the global BaseCrud and auto-fills PK, cache namespace and version column from Definitions
+ * - keeps the original OperationResult wrapper API (but does NOT override create() nor createAndFetch())
+ * - adds the useful extra 2% of helpers (existsById, optimistic update, withRowLock)
  *
- * @method array{id:int|string|null} create(array $row)                                   Zděděno z BaseCrud
- * @method array|null                createAndFetch(array $row, int $ttl = 0)             Zděděno z BaseCrud
+ * @method array{id:int|string|array|null} create(array $row)                         Inherited from BaseCrud
+ * @method array<string,mixed>|null         createAndFetch(array $row, int $ttl = 0)  Inherited from BaseCrud
  */
 final class GenericCrudService extends BaseCrud
 {
     public function __construct(
-        Database $db,
+        private Database $db,
         RepoContract $repo,
         ?QueryCache $qcache = null
     ) {
@@ -37,7 +37,7 @@ final class GenericCrudService extends BaseCrud
         $cacheNs  = 'table-' . Definitions::table();
         $version  = Definitions::versionColumn();
 
-        // Volitelný odhad PG sekvence pro lastInsertId(); v MySQL se ignoruje.
+        // Optional PG sequence guess for lastInsertId(); ignored by MySQL.
         $seqGuess = Definitions::isIdentityPk()
             ? (Definitions::table() . '_' . $pk . '_seq')
             : null;
@@ -46,64 +46,111 @@ final class GenericCrudService extends BaseCrud
     }
 
     /**
-     * BC forwarding pro legacy volání „list(...)“ (název je v PHP rezervované slovo).
+     * BC forwarding for legacy list(...) calls (the name is a reserved PHP keyword).
      */
-    public function __call(string $name, array $args)
+    public function __call(string $name, array $args): mixed
     {
         if ($name === 'list') { return $this->listPage(...$args); }
         throw new \BadMethodCallException("Unknown method $name");
     }
 
-    /** Alias na globální paginate.
-     *  @return array{items:array<int,array>,total:int,page:int,perPage:int}
+    /** Alias for the global paginate method.
+     *  @return array{items:array<int,array<string,mixed>>,total:int,page:int,perPage:int}
      */
     public function listPage(Criteria $c): array
     {
         return $this->paginate($c);
     }
 
-    /** Wrapper, který vrátí OperationResult místo array. */
+    /** Wrapper that returns OperationResult instead of a raw array. */
     public function createResult(array $row): OperationResult
     {
         $res = parent::create($row); // ['id'=>mixed|null]
         return OperationResult::ok($res);
     }
 
-    /** Vloží a hned načte celý řádek, ale vrátí OperationResult. */
+    /** Inserts and immediately fetches the row but returns an OperationResult. */
     public function createAndFetchResult(array $row, int $ttl = 0): OperationResult
     {
         $fetched = parent::createAndFetch($row, $ttl);
-        return $fetched !== null
-            ? OperationResult::ok(['row' => $fetched, 'id' => $fetched[Definitions::pk()] ?? null])
-            : OperationResult::fail('Vytvoření se nezdařilo nebo nebylo možné přečíst zpět.');
+        if ($fetched === null) {
+            return OperationResult::fail('Creation failed or the row could not be re-read.');
+        }
+        $pkCols = Definitions::pkColumns();
+        $id = null;
+        if (count($pkCols) <= 1) {
+            $id = $fetched[$pkCols[0]] ?? null;
+        } else {
+            $id = [];
+            foreach ($pkCols as $c) { $id[$c] = $fetched[$c] ?? null; }
+        }
+        return OperationResult::ok(['row' => $fetched, 'id' => $id]);
+    }
+
+    /** Batch insert (no IDs returned). */
+    public function createMany(array $rows): OperationResult
+    {
+        try {
+            $this->repo->insertMany($rows);
+            return OperationResult::ok(['affected' => count($rows)]);
+        } catch (\Throwable $e) {
+            return OperationResult::fail($e->getMessage());
+        }
+    }
+
+    /** Batch upsert with a best-effort fallback to insert. */
+    public function upsertMany(array $rows): OperationResult
+    {
+        try {
+            if (method_exists($this->repo, 'upsertMany')) {
+                $this->repo->upsertMany($rows);
+            } else {
+                foreach ($rows as $r) {
+                    if (method_exists($this->repo, 'upsert')) {
+                        $this->repo->upsert((array)$r);
+                    } else {
+                        $this->repo->insert((array)$r);
+                    }
+                }
+            }
+            return OperationResult::ok(['affected' => count($rows)]);
+        } catch (\Throwable $e) {
+            return OperationResult::fail($e->getMessage());
+        }
     }
 
     public function update(int|string|array $id, array $row): OperationResult
     {
         $n = parent::updateById($id, $row);
-        return $n > 0 ? OperationResult::ok(['affected' => $n]) : OperationResult::fail('Nenalezeno');
+        return $n > 0 ? OperationResult::ok(['affected' => $n]) : OperationResult::fail('Not found');
     }
 
-    /** Optimistic locking – pokud Definitions nemá version column, provede běžný update. */
+    public function touch(int|string|array $id): OperationResult
+    {
+        $n = $this->repo->updateById($id, []); // version bump handled inside the repository (version/updated_at)
+        return $n > 0 ? OperationResult::ok(['affected' => $n]) : OperationResult::fail('Not found');
+    }
+
+    /** Optimistic locking - if Definitions lacks a version column, performs a regular update. */
     public function updateOptimistic(int|string|array $id, array $row, int $expectedVersion): OperationResult
     {
         $n = Definitions::supportsOptimisticLocking()
             ? parent::updateByIdOptimistic($id, $row, $expectedVersion)
             : parent::updateById($id, $row);
 
-        return $n > 0 ? OperationResult::ok(['affected' => $n]) : OperationResult::fail('Nenalezeno nebo konflikt verze');
+        return $n > 0 ? OperationResult::ok(['affected' => $n]) : OperationResult::fail('Not found or version conflict');
     }
 
     public function delete(int|string|array $id): OperationResult
     {
         $n = parent::deleteById($id);
-        return $n > 0 ? OperationResult::ok(['affected' => $n]) : OperationResult::fail('Nenalezeno');
+        return $n > 0 ? OperationResult::ok(['affected' => $n]) : OperationResult::fail('Not found');
     }
 
     public function restore(int|string|array $id): OperationResult
     {
         $n = parent::restoreById($id);
-        return $n > 0 ? OperationResult::ok(['affected' => $n]) : OperationResult::fail('Nenalezeno');
+        return $n > 0 ? OperationResult::ok(['affected' => $n]) : OperationResult::fail('Not found');
     }
 
     public function get(int|string|array $id, int $ttl = 15): ?array
@@ -117,12 +164,52 @@ final class GenericCrudService extends BaseCrud
     }
 
     /**
-     * Proveď práci v jedné transakci s řádkovým zámkem (SELECT … FOR UPDATE).
+     * Execute work within a single transaction using a row lock (SELECT ... FOR UPDATE).
      * $fn = function(array $lockedRow, Database $db): mixed
      */
     public function withRowLock(int|string|array $id, callable $fn): mixed
     {
         return parent::withRowLock($id, $fn);
+    }
+
+    public function withAdvisoryLock(string $key, callable $fn): mixed {
+        return $this->withLock($this->db, $key, fn() => $fn($this->db));
+    }
+
+    /** Upsert that revives soft-deleted rows; returns OperationResult. */
+    public function upsertRevive(array $row): OperationResult
+    {
+        try {
+            if (method_exists($this->repo, 'upsertRevive')) {
+                $this->repo->upsertRevive($row);
+            } elseif (method_exists($this->repo, 'upsert')) {
+                $this->repo->upsert($row);
+            } else {
+                $this->repo->insert($row);
+            }
+            return OperationResult::ok();
+        } catch (\Throwable $e) {
+            return OperationResult::fail($e->getMessage());
+        }
+    }
+
+    /** Batch variant with revive. */
+    public function upsertManyRevive(array $rows): OperationResult
+    {
+        try {
+            if (method_exists($this->repo, 'upsertManyRevive')) {
+                $this->repo->upsertManyRevive($rows);
+            } else {
+                foreach ($rows as $r) {
+                    if (method_exists($this->repo, 'upsertRevive')) { $this->repo->upsertRevive((array)$r); }
+                    elseif (method_exists($this->repo, 'upsert')) { $this->repo->upsert((array)$r); }
+                    else { $this->repo->insert((array)$r); }
+                }
+            }
+            return OperationResult::ok(['affected' => count($rows)]);
+        } catch (\Throwable $e) {
+            return OperationResult::fail($e->getMessage());
+        }
     }
 }
 '@

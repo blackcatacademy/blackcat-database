@@ -19,12 +19,12 @@ final class DbUtil
         return $drv === 'pgsql' ? SqlDialect::postgres : SqlDialect::mysql;
     }
 
-    /** Drop+recreate „čistotu“ DB (bezpečně pro test). */
+    /** Drop and recreate a clean DB (safe for tests). */
     public static function wipeDatabase(): void
     {
         $db = self::db();
         if ($db->isMysql()) {
-            // drop+create aktuální DB podle DATABASE()
+            // drop+create the current DB selected by DATABASE()
             $dbName = (string)$db->fetchValue("SELECT DATABASE()", [], '');
             if ($dbName !== '') {
                 $db->exec("SET FOREIGN_KEY_CHECKS=0");
@@ -42,7 +42,7 @@ final class DbUtil
         }
     }
 
-    /** Najde všechny Module třídy podporující aktuální dialekt. */
+    /** Discover all Module classes that support the current dialect. */
     public static function discoverModules(?string $packagesDir = null): array
     {
         $packagesDir = $packagesDir ?? realpath(__DIR__ . '/../../packages');
@@ -61,7 +61,7 @@ final class DbUtil
             $pkgPascal = implode('', array_map(fn($x)=>ucfirst($x), preg_split('/[_-]/', $pkgDir)));
             $class = "BlackCat\\Database\\Packages\\{$pkgPascal}\\{$pkgPascal}Module";
 
-            require_once $path; // jistota autoloadu
+            require_once $path; // ensure autoload kicks in
             if (!class_exists($class)) continue;
 
             /** @var ModuleInterface $obj */

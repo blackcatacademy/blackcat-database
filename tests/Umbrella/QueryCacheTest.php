@@ -26,13 +26,13 @@ final class QueryCacheTest extends TestCase
         // QueryCache(cache, ?locks, ?logger, namespace)
         $this->qc = new QueryCache(new ArrayCache(), null, null, 'test:qc:');
     }
-/** Helper: cached rows přes QueryCache+Database (nahrazuje pův. selectAll) */
+/** Helper: cached rows via QueryCache+Database (replaces the legacy selectAll). */
     private function qcAll(string $sql, array $params, int $ttl): array
     {
         return $this->qc->rememberRows(DbUtil::db(), $sql, $params, $ttl);
     }
 
-    /** Helper: cached pairs key=>value (nahrazuje pův. selectPairs) */
+    /** Helper: cached key=>value pairs (replaces the legacy selectPairs). */
     private function qcPairs(string $sql, array $params, int $ttl): array
     {
         $db  = DbUtil::db();
@@ -48,7 +48,7 @@ final class QueryCacheTest extends TestCase
         return $out;
     }
 
-    /** Helper: invalidace prefixu – bump namespace (nahrazuje pův. invalidatePrefix) */
+    /** Helper: invalidate a prefix by bumping the namespace (replaces invalidatePrefix). */
     private function qcInvalidate(): void
     {
         $this->qc->newNamespace('test:qc:' . bin2hex(random_bytes(4)));
@@ -64,7 +64,7 @@ final class QueryCacheTest extends TestCase
 
         sleep(2);
         $third = $this->qcAll("SELECT * FROM q WHERE id <= :max ORDER BY id", [':max'=>2], 1);
-        $this->assertSame($first, $third, 'stále hit – data v naší jednoduché ArrayCache expirovala, ale může se stát miss u jiné impl.');
+        $this->assertSame($first, $third, 'still a hit - our simple ArrayCache expired the data already, but other implementations might miss.');
     }
 
     public function test_params_change_invalidate_key(): void
@@ -79,7 +79,7 @@ final class QueryCacheTest extends TestCase
         $pairs = $this->qcPairs("SELECT id,name FROM q ORDER BY id", [], 60);
         $this->assertSame([1=>'A',2=>'B',3=>'C'], $pairs);
 
-        // invalidace prefixem (namespace bump): jen ověříme, že volání nevyhodí
+        // prefix invalidation (namespace bump): only verify the call does not throw
         $this->qcInvalidate();
         $this->assertTrue(true);
     }

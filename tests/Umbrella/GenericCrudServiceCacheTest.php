@@ -31,30 +31,30 @@ final class GenericCrudServiceCacheTest extends TestCase
         $repo = $this->makeRepo();
 
         $svc = new class($db, $repo, 'id', $qc) extends GenericCrudService {
-            use ServiceHelpers; // zajistí db(), qcache()
+            use ServiceHelpers; // provides db() and qcache()
             public function __construct($db,$repo,$pk,$qc) { parent::__construct($db,$repo,$pk,$qc,'table-x'); }
         };
 
-        // 1) první hit jde do repo
+        // 1) first hit goes to the repository
         $r1 = $svc->getById(1);
         $this->assertSame(['id'=>1,'v'=>'x'], $r1);
         $this->assertSame(1, $repo->hits);
 
-        // 2) druhý hit z cache
+        // 2) second hit comes from cache
         $r2 = $svc->getById(1);
         $this->assertSame(1, $repo->hits, 'must be cache hit');
 
-        // 3) update invaliduje
+        // 3) update invalidates
         $svc->updateById(1, ['v'=>'y']);
         $r3 = $svc->getById(1);
         $this->assertSame(2, $repo->hits, 'cache must be invalidated after update');
 
-        // 4) delete invaliduje
+        // 4) delete invalidates
         $svc->deleteById(1);
         $r4 = $svc->getById(1);
         $this->assertSame(3, $repo->hits);
 
-        // 5) upsert s PK invaliduje
+        // 5) upsert with PK invalidates
         $svc->upsert(['id'=>1,'v'=>'z']);
         $r5 = $svc->getById(1);
         $this->assertSame(4, $repo->hits);

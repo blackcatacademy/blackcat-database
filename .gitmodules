@@ -526,3 +526,4 @@
 	path = packages/key-wrappers
 	url = https://github.com/blackcatdatabase/table-key-wrappers
 	branch = main
+	shallow = true

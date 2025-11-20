@@ -1,0 +1,25 @@
+<?php
+declare(strict_types=1);
+use PHPUnit\Framework\TestCase;
+use BlackCat\Core\Database;
+final class {{Name}}UpsertParityTest extends TestCase {
+  public function test_upsert(): void {
+    $db = Database::getInstance();
+    $tbl = '{{Table}}';
+    $db->exec("DROP TABLE IF EXISTS $tbl");
+    $sql = $db->isPg()
+      ? "CREATE TABLE $tbl (email TEXT PRIMARY KEY, name TEXT, updated_at TIMESTAMPTZ NULL)"
+      : "CREATE TABLE $tbl (email VARCHAR(120) PRIMARY KEY, name VARCHAR(50), updated_at TIMESTAMP NULL)";
+    $db->exec($sql);
+    $now = $db->isPg() ? "NOW()" : "CURRENT_TIMESTAMP";
+    if ($db->isPg()) {
+      $db->exec("INSERT INTO $tbl(email,name,updated_at) VALUES ('a@x','A',$now)
+        ON CONFLICT (email) DO UPDATE SET name=EXCLUDED.name, updated_at=$now");
+    } else {
+      $db->exec("INSERT INTO $tbl(email,name,updated_at) VALUES ('a@x','A',$now)
+        ON DUPLICATE KEY UPDATE name=VALUES(name), updated_at=$now");
+    }
+    $name = (string)$db->fetchOne("SELECT name FROM $tbl WHERE email='a@x'");
+    $this->assertSame('A', $name);
+  }
+}

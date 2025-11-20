@@ -1,0 +1,15 @@
+\
+    <?php
+    declare(strict_types=1);
+
+    use PHPUnit\Framework\TestCase;
+    use {{Namespace}}\Module;
+
+    final class {{Name}}ModuleSmokeTest extends TestCase
+    {
+        public function test_module_name(): void
+        {
+            $m = new Module();
+            $this->assertSame('{{Name}}', $m->name());
+        }
+    }

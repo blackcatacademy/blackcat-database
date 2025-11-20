@@ -1,2 +1,6 @@
 vendor/
 logs/
+scripts/dev/assets/logs/
+scripts/quality/.sqlfluff-venv/
+scripts/quality/sqlfluff*.json
+scripts/quality/sqlfluff*.txt

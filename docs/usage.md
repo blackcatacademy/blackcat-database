@@ -1,359 +1,220 @@
-# BlackCat Umbrella — Modular DB Guide
+# Usage Guide
 
-> **Audience:** engineers writing or integrating modules (packages/`table-*`) and higher‑level services.
->
-> **Goal:** build plug‑and‑play tables with predictable generated code, while the umbrella layer gives you a safe, ergonomic runtime (transactions, locks, timeouts, retries, caching).
+This guide is the single source of truth for developing, testing and operating the database modules across **PostgreSQL**, **MySQL 8+** and **MariaDB 10.4**.
+
+> Tip: CI provides slash-commands for convenience (`/bench`, `/docs regenerate`, `/override`). See README for badges and links.
 
 ---
 
-## 1) Big picture
+## 1. Setup
 
-```
-+-----------------------------+       +-----------------------------+
-|  Frontend / API handlers    |  -->  |  High-level Services        |
-|  (Controllers, Jobs, CLI)   |       |  (or Actions)               |
-+-----------------------------+       +-----------------------------+
-                                             | use ServiceHelpers
-                                             v
-                                     +--------------------+
-                                     | Generated Repos    |
-                                     | + Criteria/Defs    |
-                                     +--------------------+
-                                             | uses
-                                             v
-                                     +--------------------+
-                                     | Core Database      |
-                                     | (safe PDO wrapper) |
-                                     +--------------------+
-                                              ^
-                                              | optional
-                                              v
-                                     +--------------------+
-                                     | QueryCache (PSR-16)|
-                                     +--------------------+
+- Provide DSN via environment (or pass to scripts):  
+  - Postgres: `pgsql:host=...;port=5432;dbname=...`  
+  - MySQL/MariaDB: `mysql:host=...;port=3306;dbname=...`
+- Set `DB_USER`, `DB_PASS` in CI secrets (and `DB_DSN_PG`/`DB_DSN_MY` if you keep them separate).
+
+---
+
+## 2. Running the test-suite
+
+```bash
+# Standard PHPUnit
+vendor/bin/phpunit
 ```
 
-- **Modules (packages/`table-*`)**: each package = one table + view + indexes/FKs, generated repository & helpers.
-- **Umbrella layer** provides:
-  - `Runtime` (DI bundle of Database, dialect, logger, cache)
-  - `Orchestrator` (install/upgrade with locks & timeouts)
-  - `ServiceHelpers` trait (txn/ro/lock/timeout/retry/explain/cache/keyset)
-  - `GenericCrudService` (98% CRUD)
-  - `ActionInterface` + `OperationResult` (uniform FE/BE contract)
+- The matrix (PG/MySQL/MariaDB) runs in CI. Local runs target your default DSN.
+- Useful helpers: `DbHarness`, `RowFactory`, `AssertSql`, `ConnFactory`.
 
 ---
 
-## 2) Bootstrap
+## 3. Scaffolding new module (recommended shape)
 
-```php
-use BlackCat\Core\Database;
-use BlackCat\Database\SqlDialect;
-use BlackCat\Database\Runtime;
-use BlackCat\Core\Database\QueryCache; // wraps your PSR-16 cache
+> If you use templates/scripts, follow this layout:
+```
+packages/
+  <Module>/
+    src/ (repositories, services, DTOs, exceptions)
+    schema/
+      mysql/   (defs/ views/ seed/ map/)
+      postgres/(defs/ views/ seed/ map/)
+    tests/
+    README.md
+```
+- Generate boilerplate from templates (`*.psd1` + `Generate-PhpFromSchema.ps1`), then implement repositories/services.
+- Each package should expose a `ModuleInterface` and provide its `Installer` class.
 
-// 1) Initialize Database::init(...) in your app bootstrap (done elsewhere)
-$db = Database::getInstance();
-$dialect = $db->isPg() ? SqlDialect::postgres : SqlDialect::mysql;
+---
 
-// 2) Optional cache & logger
-$psr16 = $yourFileCache;    // PSR-16 (FileCache)
-$psr3  = $yourLogger;       // PSR-3
-$qcache = new QueryCache($psr16, $psr16 /* LockingCacheInterface? */ , $psr3);
+## 4. Generic CRUD & Query Cache
 
-$rt = new Runtime($db, $dialect, $psr3, $qcache);
+- `GenericCrudService` provides typed CRUD and bulk operations; tune cache behavior via `QueryCache` (per DB vendor).  
+- For deterministic ordering rely on **OrderCompiler** and `(created_at, id)` composite key where applicable.
+
+---
+
+## 5. Concurrency: Locks, NOWAIT, SKIP LOCKED
+
+### Worker queue pattern (recommended)
+**PostgreSQL / MySQL 8+**
+```sql
+SELECT id, payload
+FROM jobs
+WHERE status = 'queued'
+FOR UPDATE SKIP LOCKED
+LIMIT 50;
+-- mark as processing and commit
+```
+- Avoid long transactions; idempotent updates with a worker token and `updated_at` watchdog.
+- Fallback to `NOWAIT` when you need immediate failure instead of queueing.
+
+### Deadlock-aware retry
+- Use limited retries with exponential/backoff jitter; classify SQLSTATE (PG: `40P01`) and InnoDB deadlock errors to retry only where safe.
+
+---
+
+## 6. Pagination: Keyset vs OFFSET
+
+**Keyset (stable, fast)**
+```sql
+-- DESC keyset on (created_at, id)
+WHERE (created_at < :ts) OR (created_at = :ts AND id < :id)
+ORDER BY created_at DESC, id DESC
+LIMIT :page
 ```
 
-> **Tip:** Database already defaults to unbuffered MySQL queries and strict attributes to avoid RAM spikes.
-
----
-
-## 3) Managing modules (migrations)
-
-```php
-use BlackCat\Database\Registry;
-use BlackCat\Database\Orchestrator;
-
-$registry = new Registry(
-    new \BlackCat\Database\Packages\Users\UsersModule(),
-    new \BlackCat\Database\Packages\UserProfiles\UserProfilesModule(),
-    // ... add your module instances here
-);
-
-$orch = new Orchestrator($rt);
-
-// 3.1 Install/upgrade ALL (with dependency order, advisory lock, timeout)
-$orch->installOrUpgradeAll($registry);
-
-// 3.2 Status overview
-$st = $orch->status($registry); // ['modules'=>[], 'summary'=>['needsInstall'=>..,'needsUpgrade'=>..], ...]
+**OFFSET (simple, but degrades)**
+```sql
+ORDER BY created_at DESC, id DESC
+LIMIT :page OFFSET :off
 ```
 
-**What Orchestrator adds:**
-- Global advisory lock `schema:migrate` to avoid concurrent migration runs.
-- Reasonable statement timeout around install/upgrade.
-- Uses the same Installer you already have; safe defaults.
+Use keyset for feeds; keep composite index to match ordering.
 
 ---
 
-## 4) Generated code recap
+## 7. Soft-delete-safe unique
 
-Each package (e.g. `packages/users`) contains generated files:
-- `src/UsersModule.php` — implements `ModuleInterface`; knows how to install/uninstall/status.
-- `src/Repository.php` — safe CRUD (`insert`, `upsert`, `updateById`, `paginate`, ...).
-- `src/Criteria.php` — whitelist filters/sort/search builder.
-- `src/Definitions.php` — table/view names, columns, PK, unique keys, JSON cols, etc.
-- `src/Dto/*.php` + Mapper — typed DTOs & mappers (optional in services if you prefer arrays).
-- `src/Service/*` — **place for orchestration across multiple repos**. We’ll enhance these.
-
-> Generátor se drží bezpečných defaultů (parametrizované SQL, sloupce přes whitelist, paging, optimistic locking když je version col, soft delete když existuje sloupec atd.).
-
----
-
-## 5) Service layer (the ergonomic API)
-
-### 5.1 ServiceHelpers trait
-
-Add this to your service:
-
-```php
-use BlackCat\Database\Support\ServiceHelpers;
-
-final class UsersAggregateService
-{
-    use ServiceHelpers; // expects private Database $db; optional private ?QueryCache $qcache
-
-    public function __construct(
-        private \BlackCat\Core\Database $db,
-        private \BlackCat\Database\Packages\Users\Repository $users,
-        private ?\BlackCat\Core\Database\QueryCache $qcache = null
-    ) {}
-
-    public function topUsers(): array {
-        return $this->txnRO(function() {
-            $sql = "SELECT id,email,score FROM users WHERE deleted_at IS NULL ORDER BY score DESC LIMIT 10";
-            return $this->cacheRows($sql, [], 20); // uses QueryCache if present
-        });
-    }
-}
+**PostgreSQL**
+```sql
+CREATE UNIQUE INDEX ux_email_live ON users(email) WHERE deleted_at IS NULL;
 ```
-
-**What you get for free:**
-- `txn()` / `txnRO()` — transactions (RO on PG, safe fallback on MySQL)
-- `withLock($name, $timeoutSec)` — advisory locks (MySQL `GET_LOCK`, PG advisory)
-- `withTimeout($ms)` — per-scope statement timeout
-- `retry($attempts)` — simple transient retry loop (deadlock/serialization)
-- `keyset($sqlBase, $params, $pkCol, $after, $limit)` — keyset paging
-- `explain($sql, $params, $analyze)` — `EXPLAIN`/`EXPLAIN ANALYZE` (PG JSON when available)
-- `cacheRows($sql, $params, $ttl)` — via `QueryCache` (PSR‑16 under the hood)
-
-### 5.2 GenericCrudService (98% cases)
-
-```php
-use BlackCat\Database\Services\GenericCrudService;
-
-$usersCrud = new GenericCrudService(
-    db: $db,
-    repository: new \BlackCat\Database\Packages\Users\Repository($db),
-    pkCol: 'id',
-    qcache: $qcache,
-    cacheNs: 'table-users'
-);
-
-$usersCrud->create(['email' => 'a@b.cz', 'password_hash' => '...']);
-$usersCrud->getById(42, ttl: 15);
-$usersCrud->updateById(42, ['display_name' => 'Neo']);
-$usersCrud->deleteById(42);
-```
-
-This avoids repeating boilerplate; when you need custom workflows, write a specific service and still use `ServiceHelpers`.
-
-### 5.3 Actions (one‑call from FE)
-
-```php
-use BlackCat\Database\Actions\OperationResult;
-
-final class UserRegisterService
-{
-    use ServiceHelpers;
-    public function __construct(
-        private \BlackCat\Core\Database $db,
-        private \BlackCat\Database\Packages\Users\Repository $users,
-        private \BlackCat\Database\Packages\UserProfiles\Repository $profiles,
-        private ?\BlackCat\Core\Database\QueryCache $qcache = null
-    ) {}
-
-    public function register(array $input): OperationResult
-    {
-        return $this->withLock('user:register:'.mb_strtolower($input['email'] ?? ''), 5, function() use ($input) {
-            return $this->withTimeout(3000, function() use ($input) {
-                return $this->retry(3, function() use ($input) {
-                    return $this->txn(function() use ($input) {
-                        $email = trim((string)($input['email'] ?? ''));
-                        if ($email === '') return OperationResult::fail('Email required');
-
-                        if ($this->db()->exists("SELECT 1 FROM users WHERE email = :e LIMIT 1", [':e'=>$email]))
-                            return OperationResult::fail('Email already registered');
-
-                        $now = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s.u');
-                        $this->users->insert([
-                            'email' => $email,
-                            'password_hash' => password_hash((string)($input['password'] ?? ''), PASSWORD_DEFAULT),
-                            'created_at' => $now,
-                            'updated_at' => $now,
-                        ]);
-                        $uid = $this->db()->lastInsertId();
-
-                        $this->profiles->insert([
-                            'user_id' => (int)$uid,
-                            'display_name' => (string)($input['name'] ?? ''),
-                            'created_at' => $now,
-                            'updated_at' => $now,
-                        ]);
-
-                        return OperationResult::ok(['user_id'=>$uid], 'registered');
-                    });
-                });
-            });
-        });
-    }
-}
-```
-
-`OperationResult` is a small DTO: `{ ok: bool, message?: string, data: array }` — great for consistent API responses.
-
----
-
-## 6) Caching strategy
-
-- **PSR‑16 FileCache**: production‑ready, with file locks; inject into `QueryCache`.
-- **QueryCache** provides:
-  - `remember($key, $ttl, callable)` – generic value cache
-  - `rememberRows($db, $sql, $params, $ttl)` – results of SELECT
-  - Per‑DB key scoping (optional): build keys like `prefix:{$db->id()}:...` so multi‑DB apps don’t collide
-- **Invalidation**: on writes use targeted invalidation (e.g. `delete(idKey)`), avoid global flush.
-
-> TIP: Use `cacheNs` per table; compose keys as `ns:dbId:primaryKey` or from search params.
-
----
-
-## 7) Transactions, locks, timeouts, retries
-
-- Wrap multi‑repo workflows in `txn()`.
-- Long reads → `txnRO()` + `withTimeout()`.
-- Cross‑process critical sections → `withLock()`.
-- Flaky conflicts (deadlocks/serialization) → `retry(3)` around the transactional lambda.
-- Avoid unbounded `OFFSET` for deep pages → use `keyset()`.
-
----
-
-## 8) Dialect notes (MySQL vs Postgres)
-
-- **UPSERT**: Repos already generate the correct dialect: MySQL `ON DUPLICATE KEY`, PG `ON CONFLICT`.
-- **Booleans**: DB layer binds types safely; mappers cast consistently.
-- **Timestamps**: format `Y-m-d H:i:s.u` (works with `DATETIME(6)` / `timestamptz`).
-- **Advisory locks**: `GET_LOCK` vs `pg_try_advisory_lock(hashtextextended(...))`.
-- **Statement timeouts**: `SET LOCAL statement_timeout` (PG) vs `max_execution_time` (MySQL session).
-
----
-
-## 9) Security & robustness
-
-- Always pass params (no string concatenation of user data).
-- Repos whitelist columns; mappers strictly cast types.
-- Database wrapper disables emulated prepares by default.
-- Unbuffered queries on MySQL to cap memory usage.
-- Use `withStatementTimeout` for untrusted/complex filters.
-- Consider `withAdvisoryLock` for idempotent workflows (e.g. payment webhooks).
-
----
-
-## 10) Performance tips
-
-- Create indexes for common `Criteria` filters; verify via `status()['missing_idx']` from modules.
-- Prefer **keyset paging** for infinite feeds.
-- Batch writes with `insertMany()` where possible.
-- Keep rows slim in views used for listing.
-- Use `QueryCache` for hot reads with conservative TTLs (5–30s) and targeted invalidation.
-
----
-
-## 11) Writing a new module (package)
-
-1. Create `packages/your_table/` and author your SQL schema files (`001_table.*.sql`, indexes, FKs, view).
-2. Run the generator (your existing script) to create `Module`, `Repository`, `Criteria`, `Definitions`, etc.
-3. Register the module in your bootstrap registry.
-4. Install/upgrade with `Orchestrator`.
-5. Write an aggregate `Service/*` that composes repositories for business workflows.
-
-**Naming & versioning**
-- Module `name()` should be `table-<snake>`; table is `<snake>`.
-- Bump `version()` on schema changes; `Installer` records checksum in `_schema_registry`.
-- Declare `dependencies()` for FK sources (e.g. `['table-users']`).
-
----
-
-## 12) Testing & CI
-
-- Use the provided `tests/ci/run.php` to install/upgrade/status across modules.
-- In CI run 3 phases per dialect: install, idempotence pass, uninstall‑view smoke test.
-- For services, unit‑test business flows by mocking `QueryCache` and using a temporary DB.
-
-Minimal example:
-
-```php
-public function test_register_happy_path(): void {
-    $db = Database::getInstance();
-    $svc = new UserRegisterService($db, new UsersRepo($db), new ProfilesRepo($db));
-    $res = $svc->register(['email'=>'x@y.z','password'=>'secret','name'=>'X']);
-    $this->assertTrue($res->ok);
-}
+**MySQL/MariaDB**
+```sql
+ALTER TABLE users ADD UNIQUE KEY ux_email_live (email, deleted_at);
+-- ensure deleted_at is NULL for live rows (trigger or application rule)
 ```
 
 ---
 
-## 13) Troubleshooting
+## 8. Idempotent Retry (DDL/DML)
 
-- **Migration race**: ensure you call `Orchestrator->installOrUpgradeAll()` once per deploy; advisory lock prevents parallel runs.
-- **Slow queries**: enable DB debug logging, run `explain()`; add/adjust indexes.
-- **Cache misses after writes**: make sure to invalidate per‑id keys in your service; `GenericCrudService` does it for you.
-- **PG serialization failures**: wrap critical writes in `retry(3)`.
-
----
-
-## 14) API reference (helpers)
-
-From `ServiceHelpers`:
-- `txn(callable): mixed` — RW transaction
-- `txnRO(callable): mixed` — read‑only transaction (PG), safe fallback for MySQL
-- `withLock(string $name, int $timeout, callable): mixed` — advisory lock
-- `withTimeout(int $ms, callable): mixed` — statement timeout scope
-- `retry(int $attempts, callable): mixed` — transient retry loop
-- `keyset(string $sqlBase, array $params, string $pkCol, ?string $after, int $limit): array`
-- `explain(string $sql, array $params=[], bool $analyze=false): array`
-- `cacheRows(string $sql, array $params, int $ttl): array`
-
-From `GenericCrudService`:
-- `create(array $row): array {id: mixed}`
-- `upsert(array $row): void`
-- `updateById(int|string $id, array $row): int`
-- `deleteById(int|string $id): int`
-- `restoreById(int|string $id): int`
-- `getById(int|string $id, int $ttl=15): ?array`
-- `paginate(Criteria $c): array`
+- Wrap transient operations with a retry helper; use SQLSTATE codes to decide:
+  - PG: `40001` (serialization), `40P01` (deadlock) → safe to retry.
+  - MySQL/MariaDB: `1213` (deadlock), `1205` (lock wait timeout) → retry with backoff.
+- For DDL, apply `DdlGuard` with bounded attempts and audit logs.
 
 ---
 
-## 15) Conventions checklist
+## 9. Feature Flags in Views
 
-- [ ] Always use generated `Repository` for raw table ops.
-- [ ] Write business workflows in `Service/*` using `ServiceHelpers`.
-- [ ] Gate critical flows with `withLock()`.
-- [ ] Add `retry()` around conflict‑prone sections.
-- [ ] Prefer `txnRO()` for long reads.
-- [ ] Use `QueryCache` for hot lists / lookups with short TTLs.
-- [ ] Use `Orchestrator` for schema lifecycle.
+- Create `flags` table and use CASE branches inside views to toggle behavior without code deploys.
+- PHP helper: `scripts/support/FeatureFlags.php` (TTL cache).
 
 ---
 
-**That’s it.** With these pieces you can expose very small, easy‑to‑use service APIs to frontend while retaining safety, performance and observability in the umbrella layer.
+## 10. TLS & DSN Hardening
 
+- Prefer `sslmode=verify-full` (PG) or equivalent MySQL SSL settings.
+- CI includes **TLS Matrix** workflow that verifies secure modes. Fix certificates/CA if secure modes fail.
+
+---
+
+## 11. Backups: Smoke Test
+
+- PG: `pg_dump -Fc` + `pg_restore` into scratch DB, then row/table count checks.  
+- MySQL/MariaDB: `mysqldump` + restore into `restore_smoke` DB and verify.
+
+---
+
+## 12. SQL Lint
+
+- Uses **sqlfluff** on changed `.sql` files only.  
+- Update `scripts/quality/sqlfluff-baseline.txt` if you need to suppress legacy violations; new ones still fail CI.
+
+```bash
+bash scripts/quality/SqlLint-Diff.sh
+```
+
+---
+
+## 13. Benchmarks
+
+### Local quick smoke
+```bash
+pwsh ./scripts/bench/Run-Bench.ps1 `
+  -Dsn "$env:DB_DSN" -User "$env:DB_USER" -Pass "$env:DB_PASS" `
+  -Mode seek -Concurrency 2 -Duration 10 -OutDir ./bench/results
+
+python3 scripts/bench/Bench-Plot.py --glob "bench/results/*.csv" --outdir bench/plots
+```
+
+### PR commands
+- `/bench quick` (2× threads, 10s), `/bench heavy` (16×, 120s)  
+- Verdict based on **p95** vs repo SLO thresholds (`BENCH_P95_WARN`, `BENCH_P95_FAIL`).  
+- On **FAIL**: label `bench:regression` (merge-blocking).
+
+---
+
+## 14. Perf Digest (PostgreSQL)
+
+- Requires `pg_stat_statements` enabled. CI generates nightly digest with charts and (optional) Slack notification.
+
+---
+
+## 15. Slash Commands
+
+- `/override` / `/unoverride` – maintainers can bypass merge gate for exceptional cases.  
+- `/docs regenerate` – rebuild docs from templates and commit to PR.  
+- `/bench ...` – run benchmarks and post artifacts.
+
+---
+
+## 16. Pitfalls (Quick Reference)
+
+- Use **keyset** for pagination.  
+- Prefer **SKIP LOCKED** workers; use **NOWAIT** for immediate-fail sections.  
+- Collations: keep deterministic and consistent across joins; use functional indexes for case-insensitive search.  
+- JSON: avoid unindexed path filters; use GIN (PG) or generated columns (MySQL).  
+- Soft-delete + unique: partial unique (PG) or composite unique (MySQL).
+
+---
+
+## 17. DDL Guard & View Verification
+
+- `DdlGuard` (`src/Support/DdlGuard.php`) wraps every `CREATE VIEW` issued by installers: it takes an advisory lock, retries with decorrelated backoff, fences until the view is queryable, and on MySQL/MariaDB it compares `ALGORITHM`, `SQL SECURITY`, and `DEFINER` directives. Drift triggers `ViewVerificationException` so CI fails instead of silently accepting mismatched views.
+- Environment knobs: `BC_INSTALLER_LOCK_SEC`, `BC_INSTALLER_VIEW_RETRIES`, `BC_VIEW_FENCE_MS`, `BC_VIEW_IGNORE_DEFINER`. Set `BC_STRIP_DEFINER=1` / `BC_STRIP_ALGORITHM=1` / `BC_STRIP_SQL_SECURITY=1` to normalize vendor-specific headers before comparison.
+- Installers default to `dropFirst=true`, so even without `OR REPLACE` the contract views are recreated deterministically. See `docs/howto/14_rbac-audit.md` and `docs/howto/18_audit-trail.md` for practical guard usage.
+
+## 18. Tenant Scope & Multi-tenancy
+
+- Use `TenantScope` (`src/Tenancy/TenantScope.php`) to express one- or multi-tenant filters once and reuse them everywhere. The helper exposes `apply(Criteria $c)`, raw `sql()/sqlSafe()` fragments, and `appendToWhere()` to patch plain SQL strings without forgetting parameters.
+- For writes call `attach()` / `attachMany()` to enforce the tenant column and `guardRow()` / `guardIds()` for custom validation. Single-tenant scopes auto-fill the column; multi-tenant scopes require explicit values so accidental cross-tenant writes fail early.
+- Pair it with generated repositories that expose `tenant_id` filters or call `$criteria->tenant($value)` so soft-deletes, joins and pagination continue to work. The new `docs/howto/17_tenant-scope.md` dives deeper into the patterns.
+
+## 19. Idempotent CRUD & Stores
+
+- `IdempotentCrudService` extends the generated CRUD services with `withIdempotency()` plus convenience wrappers (`createIdempotent`, `updateIdempotent`, `deleteIdempotent`, ...). Supply a stable key (e.g. request UUID) and it guarantees the wrapped operation runs exactly once across callers.
+- Plug any `IdempotencyStore` implementation. `PdoIdempotencyStore` ships with the repo and persists keys in the `bc_idempotency` table using dialect-safe SQL (`ON CONFLICT DO NOTHING` / `ON DUPLICATE KEY UPDATE`). `InMemoryIdempotencyStore` is available for tests.
+- Statuses follow `in_progress` → `success`/`failed` and errors from the store never block the main action (best effort). See `docs/howto/19_idempotent-crud.md` for schema snippets and orchestration tips.
+
+## 20. Audit Trail & Observability
+
+- `AuditTrail` centralizes change logging via two tables: `changes` (row-level before/after JSON) and `audit_tx` (transaction phases plus telemetry fields). Call `record()`, `recordDiff()` or `recordTx()` with observability metadata (`corr`, `svc`, `op`, `actor`, etc.) and the helper fills timestamps + JSON bindings safely across dialects.
+- `installSchema()` sets up the audit tables (JSONB on PG, JSON/LONGTEXT on MySQL/MariaDB). Use `purgeOlderThanDays()` for retention and `recordDiff()` when only the delta matters.
+- Combined with `Observability` helpers and `AuditTrail` metadata you can tie DB mutations back to HTTP requests, background jobs or CLI tools. Detailed instructions live in `docs/howto/18_audit-trail.md`.
+
+## 21. Bulk UPSERT helpers
+
+- Generated repositories can opt into `BulkUpsertTrait` (`src/BulkUpsertRepository.php`) which deduplicates columns across rows, respects definition whitelists, auto-detects conflict keys/`updated_at`, chunk-sizes updates (parameter-safe), and retries transient failures with exponential backoff.
+- For single-row upserts use `UpsertBuilder::buildRow()` / `buildRowReturning()` + `UpsertBuilder::addReturning()` to append `RETURNING` when the server supports it (PG out of the box, MySQL ≥ 8.0.21, MariaDB ≥ 10.5).
+- Traits/hooks such as `upsertUpdateColumns()`, `afterWrite()` and `invalidateSelfCache()` allow customization per repository. `docs/howto/20_bulk-upsert.md` contains full examples.
