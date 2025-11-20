@@ -1,126 +1,185 @@
 <?php
+/*
+ *       ####                                
+ *      ######                              ██╗    ██╗███████╗██╗      ██████╗ ██████╗ ███╗   ███╗███████╗     
+ *     #########                            ██║    ██║██╔════╝██║     ██╔════╝██╔═══██╗████╗ ████║██╔════╝ 
+ *    ##########         ##                 ██║ █╗ ██║█████╗  ██║     ██║     ██║   ██║██╔████╔██║█████╗   
+ *    ###########      ####                 ██║███╗██║██╔══╝  ██║     ██║     ██║   ██║██║╚██╔╝██║██╔══╝   
+ * ###############   ######                 ╚███╔███╔╝███████╗███████╗╚██████╗╚██████╔╝██║ ╚═╝ ██║███████╗
+ * ###########  ##  #######                  ╚══╝╚══╝ ╚══════╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝     ╚═╝╚══════╝ 
+ * #########    ### #######                  
+ * #########     ###  ####                   ██╗  ██╗███████╗██████╗  ██████╗ ██╗ ██████╗███████╗ 
+ * ###########    ##    ##                   ██║  ██║██╔════╝██╔══██╗██╔═══██╗██║██╔════╝██╔════╝ 
+ * ##########                #               ███████║█████╗  ██████╔╝██║   ██║██║██║     ███████╗ 
+ * #######                     ##            ██╔══██║██╔══╝  ██╔══██╗██║   ██║██║██║     ╚════██║ 
+ * ##                            ##          ██║  ██║███████╗██║  ██║╚██████╔╝██║╚██████╗███████║ 
+ * ######              #######    ##         ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝ ╚═════╝╚══════╝ 
+ * #####            #######  ##   ##       ┌────────────────────────────────────────────────────────────────────────────┐  
+ * #####               ####  ##    #         BLACK CAT DATABASE • Arcane Custody Notice                                 │
+ * ########             #######    ##        © 2025 Black Cat Academy s. r. o. • All paws reserved.                     │
+ * ####                        #     ##      Licensed strictly under the BlackCat Database Proprietary License v1.0.    │
+ * ##########                          ##    Evaluation only; commercial rites demand written consent.                  │
+ * ####           ######  #        ######    Unauthorized forks or tampering awaken enforcement claws.                  │
+ * #####               ##  ##          ##    Reverse engineering, sublicensing, or origin stripping is forbidden.       │
+ * ##########   ###  #### ####        #      Liability for lost data, profits, or familiars remains with the summoner.  │
+ * ##                 ##  ##       ####      Infringements trigger termination; contact blackcatacademy@protonmail.com. │
+ * ###########      ##   # #   ######        Leave this sigil intact—smudging whiskers invites spectral audits.         │
+ * #########       #   ##          ##        Governed under the laws of the Slovak Republic.                            │
+ * ##############                ###         Motto: “Purr, Persist, Prevail.”                                           │
+ * #############    ###############       └─────────────────────────────────────────────────────────────────────────────┘
+ */
+
 declare(strict_types=1);
 
 namespace BlackCat\Database\Contracts;
 
 /**
- * Globální kontrakt, který musí implementovat každý balíčkový Repository.
+ * Minimal and stable CRUD/pagination/locking contract shared across packages.
  *
- * Držíme se záměrně minimální a stabilní sady metod (CRUD + stránkování + zámek),
- * aby implementace zůstaly jednoduché a testy je uměly detekovat napříč balíčky.
+ * Goals:
+ * - Consistent PK representations (simple and composite) and row payloads.
+ * - Stronger annotations for static analysis (phpstan/psalm).
+ * - Safer interfaces (SensitiveParameter on data-bearing inputs).
  *
- * Poznámky:
- * - `paginate()` je typováno volně přes objektové kritérium – jednotlivé balíčky
- *   si obvykle definují vlastní Criteria třídu; interface na ní nesmí být závislé.
- * - Návratové tvary (shapes) jsou popsány v PHPDoc, aby nástroje jako Psalm/PHPStan
- *   měly silné typové informace.
+ * @template-contravariant TCriteria of object
+ * @template TRow of array<string,mixed> = array<string,mixed>
  *
- * @template TCriteria of object
- *
- * @psalm-type PageResult = array{
- *     items: list<array<string,mixed>>,
- *     total: int,
- *     page: int,
- *     perPage: int
+ * @phpstan-type Scalar int|float|string|bool
+ * @phpstan-type Id int|string|array<string,Scalar|null>|list<Scalar|null>
+ * @phpstan-type AssocRow array<string,mixed>
+ * @phpstan-type Params array<string,Scalar|null>
+ * @phpstan-type PageResult array{
+ *   items: list<AssocRow>,
+ *   total: int,
+ *   page: int,
+ *   perPage: int
  * }
- * @phpstan-type PageResult = array{
- *     items: list<array<string,mixed>>,
- *     total: int,
- *     page: int,
- *     perPage: int
+ *
+ * @psalm-type Scalar = int|float|string|bool
+ * @psalm-type Id = int|string|array<string,Scalar|null>|list<Scalar|null>
+ * @psalm-type AssocRow = array<string,mixed>
+ * @psalm-type Params = array<string,Scalar|null>
+ * @psalm-type PageResult = array{
+ *   items: list<AssocRow>,
+ *   total: int,
+ *   page: int,
+ *   perPage: int
  * }
  */
 interface ContractRepository
 {
     /**
-     * Vloží jeden řádek.
+     * Updates a row identified by its primary key plus extra WHERE conditions.
      *
-     * @param array<string,mixed> $row
+     * @param Id $id composite PKs use ['col'=>val,...] or a positional list
+     * @param AssocRow $row data to persist
+     * @param Params $where additional AND conditions (column => value)
+     * @return int number of affected rows
      */
-    public function insert(array $row): void;
+    public function updateByIdWhere(
+        int|string|array $id,
+        #[\SensitiveParameter] array $row,
+        array $where
+    ): int;
 
     /**
-     * Vloží více řádků v jednom statementu (kde to dává smysl).
+     * Inserts a single row.
      *
-     * @param list<array<string,mixed>> $rows
+     * @param AssocRow $row
      */
-    public function insertMany(array $rows): void;
+    public function insert(#[\SensitiveParameter] array $row): void;
 
     /**
-     * Dialekt-safe UPSERT.
+     * Inserts multiple rows in a batch.
      *
-     * @param array<string,mixed> $row
+     * @param list<AssocRow> $rows
      */
-    public function upsert(array $row): void;
+    public function insertMany(#[\SensitiveParameter] array $rows): void;
 
     /**
-     * UPDATE podle primárního klíče.
+     * Performs an UPSERT (INSERT ... ON CONFLICT / ON DUPLICATE KEY UPDATE).
      *
-     * Má-li tabulka verzi pro optimistic locking, očekává, že
-     * do $row můžeš poslat i aktuální hodnotu verze (na kterou se udělá podmínka).
-     *
-     * @param int|string|array        $id  Složené PK: asociativní ['col'=>val,...] nebo poziční pole.
-     * @param array<string,mixed>     $row
-     * @return int počet změněných řádků
+     * @param AssocRow $row
      */
-    public function updateById(int|string|array $id, array $row): int;
+    public function upsert(#[\SensitiveParameter] array $row): void;
 
     /**
-     * Smaže řádek dle PK; pokud je povoleno soft-delete, provede soft-delete.
+     * Updates a row (or rows) identified by the primary key.
      *
-     * @param int|string|array $id
-     * @return int počet změněných/ovlivněných řádků
+     * @param Id $id
+     * @param AssocRow $row
+     * @return int number of affected rows
+     */
+    public function updateById(
+        int|string|array $id,
+        #[\SensitiveParameter] array $row
+    ): int;
+
+    /**
+     * Deletes by primary key (soft or hard delete depending on implementation).
+     *
+     * @param Id $id
+     * @return int number of affected rows
      */
     public function deleteById(int|string|array $id): int;
 
     /**
-     * Obnoví soft-smazaný řádek dle PK (pokud tabulka soft-delete podporuje).
+     * Restores a row by primary key (when soft-delete is supported).
      *
-     * @param int|string|array $id
-     * @return int počet změněných/ovlivněných řádků
+     * @param Id $id
+     * @return int number of affected rows
      */
     public function restoreById(int|string|array $id): int;
 
     /**
-     * Najde řádek dle PK (respektuje soft-delete guard).
+     * Fetches a row by its primary key.
      *
-     * @param int|string|array $id
-     * @return array<string,mixed>|null
+     * @param Id $id
+     * @return AssocRow|null
      */
     public function findById(int|string|array $id): ?array;
 
     /**
-     * Ověří existenci řádku dle WHERE.
+     * Checks whether any row matches the provided condition.
      *
-     * @param string                   $whereSql
-     * @param array<string,scalar|null> $params
+     * @param non-empty-string $whereSql
+     * @param Params $params
      */
-    public function exists(string $whereSql = '1=1', array $params = []): bool;
+    public function exists(
+        string $whereSql = '1=1',
+        #[\SensitiveParameter] array $params = []
+    ): bool;
 
     /**
-     * Vrátí COUNT(*) dle WHERE.
+     * Counts rows that match the provided condition.
      *
-     * @param string                   $whereSql
-     * @param array<string,scalar|null> $params
+     * @param non-empty-string $whereSql
+     * @param Params $params
      */
-    public function count(string $whereSql = '1=1', array $params = []): int;
+    public function count(
+        string $whereSql = '1=1',
+        #[\SensitiveParameter] array $params = []
+    ): int;
 
     /**
-     * Stránkování přes kritéria konkrétního balíčku.
+     * Domain-specific pagination using a criteria object/value object.
      *
      * @template T of TCriteria
      * @param T $criteria
-     * @return array{items: list<array<string,mixed>>, total:int, page:int, perPage:int}
-     * @psalm-return PageResult
+     * @return PageResult
+     *
      * @phpstan-return PageResult
+     * @psalm-return PageResult
      */
     public function paginate(object $criteria): array;
 
     /**
-     * Přečte a zamkne řádek dle PK (SELECT … FOR UPDATE) pro transakční práci.
+     * Reads and locks a row by primary key (SELECT ... FOR UPDATE).
+     * $mode: 'wait' | 'nowait' | 'skip_locked' (implementations may ignore unsupported modes).
      *
-     * @param int|string|array $id
-     * @return array<string,mixed>|null
+     * @param Id $id
+     * @param 'wait'|'nowait'|'skip_locked' $mode
+     * @return AssocRow|null
      */
-    public function lockById(int|string|array $id): ?array;
+    public function lockById(int|string|array $id, string $mode = 'wait'): ?array;
 }

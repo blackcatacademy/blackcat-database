@@ -1,0 +1,20 @@
+\
+    <?php
+    declare(strict_types=1);
+
+    namespace {{Namespace}};
+
+    final class {{Name}}Criteria
+    {
+        private array $where = [];
+        private array $params = [];
+        private array $order = [];
+
+        public function byId(int|string $id): self { $this->where[]='t.id = :id'; $this->params[':id']=$id; return $this; }
+        public function byName(string $needle): self { $this->where[]='t.name LIKE :q ESCAPE \'\\\''; $this->params[':q']='%'.strtr($needle,['\\'=>'\\\\','%'=>'\\%','_'=>'\\_']).'%'; return $this; }
+        public function orderBy(string $sql): self { $this->order[]=$sql; return $this; }
+
+        public function toWhere(string $alias='t'): string { return $this->where? ' AND '.implode(' AND ', $this->where) : ''; }
+        public function toOrder(): string { return $this->order? ' ORDER BY '.implode(', ', $this->order) : ''; }
+        public function params(): array { return $this->params; }
+    }

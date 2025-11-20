@@ -28,7 +28,7 @@
         old_value    = @{ Description='JSON snapshot before change.' }
         new_value    = @{ Description='JSON snapshot after change.' }
         changed_at   = @{ Description='When change occurred (UTC).' }
-        ip_bin       = ip_bin = @{ Description='Client IP (binary form).'; PII='plain' }
+        ip_bin       = @{ Description='Client IP (binary form).'; PII='plain' }
         user_agent   = @{ Description='Client user agent string.' }
         request_id   = @{ Description='Correlation/request id if available.' }
       }
@@ -130,7 +130,7 @@
     }
 
     cart_items = @{
-      Summary = Summary = 'Items added to shopping carts. UNIQUE (cart_id, book_id, sku) to prevent duplicate items in the cart.'
+      Summary = 'Items added to shopping carts. UNIQUE (cart_id, book_id, sku) to prevent duplicate items in the cart.'
       Columns = @{
         id             = @{ Description='Surrogate primary key.' }
         cart_id        = @{ Description='Cart identifier (UUID textual).' }
@@ -909,6 +909,696 @@
       Columns = @{
         name         = @{ Description='Lock name (primary key).' }
         locked_until = @{ Description='Lease expiration time (UTC).' }
+      }
+    }
+
+    api_keys = @{
+      Summary = 'Tenant/user scoped API tokens stored only as hashed secrets.'
+      Columns = @{
+        id                    = @{ Description='Surrogate primary key.' }
+        tenant_id             = @{ Description='Owning tenant (FK tenants.id).' }
+        user_id               = @{ Description='User that created the token (FK users.id), optional.' }
+        name                  = @{ Description='Human-friendly token label.' }
+        token_hash            = @{ Description='Hashed token payload.'; PII='hashed' }
+        token_hash_key_version= @{ Description='Key version used when hashing the token.' }
+        scopes                = @{ Description='JSON array with granted scopes.' }
+        status                = @{ Description='Lifecycle status flag.'; Enum=@('active','revoked','disabled') }
+        last_used_at          = @{ Description='Last usage timestamp (UTC).' }
+        expires_at            = @{ Description='Optional expiration timestamp.' }
+        created_at            = @{ Description='Creation timestamp (UTC).' }
+        updated_at            = @{ Description='Last update timestamp (UTC).' }
+      }
+    }
+
+    audit_chain = @{
+      Summary = 'Hash chain built on top of audit_log entries for tamper evidence.'
+      Columns = @{
+        id          = @{ Description='Surrogate primary key.' }
+        audit_id    = @{ Description='Audit entry id (FK audit_log.id).' }
+        chain_name  = @{ Description='Chain namespace (multiple chains may coexist).' }
+        prev_hash   = @{ Description='Hash of the previous audit entry in the chain.' }
+        hash        = @{ Description='Hash of the current entry.' }
+        created_at  = @{ Description='Creation timestamp (UTC).' }
+      }
+    }
+
+    crypto_algorithms = @{
+      Summary = 'Catalog of supported cryptographic primitives.'
+      Unique  = @('class, name, variant')
+      Columns = @{
+        id          = @{ Description='Surrogate primary key.' }
+        class       = @{ Description='Algorithm class.'; Enum=@('kem','sig','hash','symmetric') }
+        name        = @{ Description='Canonical algorithm name (e.g., ML-KEM-768).' }
+        variant     = @{ Description='Optional variant descriptor (hybrid, FIPS profile, etc.).' }
+        nist_level  = @{ Description='Post-quantum NIST security level, if any.' }
+        status      = @{ Description='Lifecycle flag.'; Enum=@('active','deprecated','experimental') }
+        params      = @{ Description='JSON metadata with algorithm-specific parameters.' }
+        created_at  = @{ Description='Catalog insertion timestamp (UTC).' }
+      }
+    }
+
+    crypto_standard_aliases = @{
+      Summary = 'Friendly aliases mapped to crypto_algorithms entries.'
+      Columns = @{
+        alias      = @{ Description='Alias string (primary key).' }
+        algo_id    = @{ Description='Target algorithm id (FK crypto_algorithms.id).' }
+        notes      = @{ Description='Optional documentation or rollout notes.' }
+        created_at = @{ Description='Creation timestamp (UTC).' }
+      }
+    }
+
+    data_retention_policies = @{
+      Summary = 'Declarative data-retention rules describing purge/anonymize actions.'
+      Unique  = @('entity_table, field_name, action, keep_for')
+      Columns = @{
+        id           = @{ Description='Surrogate primary key.' }
+        entity_table = @{ Description='Table affected by the policy.' }
+        field_name   = @{ Description='Optional column restricted by the policy.' }
+        action       = @{ Description='Retention action.'; Enum=@('delete','anonymize','hash','truncate') }
+        keep_for     = @{ Description='Retention window (interval / textual duration).' }
+        active       = @{ Description='Whether the policy is currently enforced.' }
+        notes        = @{ Description='Operational notes or audit context.' }
+        created_at   = @{ Description='Creation timestamp (UTC).' }
+      }
+    }
+
+    deletion_jobs = @{
+      Summary = 'Asynchronous deletion workflows coordinating cascading cleanup.'
+      Columns = @{
+        id           = @{ Description='Surrogate primary key.' }
+        entity_table = @{ Description='Target table for the deletion.' }
+        entity_pk    = @{ Description='Primary key of the row to delete.' }
+        reason       = @{ Description='Reason the deletion was requested.' }
+        hard_delete  = @{ Description='Whether to permanently delete the row.' }
+        scheduled_at = @{ Description='When the job should start.' }
+        started_at   = @{ Description='Processing start timestamp (UTC).' }
+        finished_at  = @{ Description='Completion timestamp (UTC).' }
+        status       = @{ Description='Job status flag.'; Enum=@('pending','running','done','failed','cancelled') }
+        error        = @{ Description='Failure description, if any.' }
+        created_by   = @{ Description='User/admin that created the job.' }
+        created_at   = @{ Description='Creation timestamp (UTC).' }
+      }
+    }
+
+    device_fingerprints = @{
+      Summary = 'Known device/browser fingerprints with derived risk scoring.'
+      Columns = @{
+        id                 = @{ Description='Surrogate primary key.' }
+        user_id            = @{ Description='Related user (FK users.id), nullable.' }
+        fingerprint_hash   = @{ Description='Stable hash of the fingerprint payload.'; PII='hashed' }
+        attributes         = @{ Description='JSON blob with device characteristics.' }
+        risk_score         = @{ Description='0-100 risk score derived from signals.' }
+        first_seen         = @{ Description='Timestamp when the device first appeared.' }
+        last_seen          = @{ Description='Last time the device was observed.' }
+        last_ip_hash       = @{ Description='Hashed last known IP.'; PII='hashed' }
+        last_ip_key_version= @{ Description='Key version used for last_ip_hash.' }
+      }
+    }
+
+    encryption_bindings = @{
+      Summary = 'Bindings assigning specific key wrappers to encrypted entity fields.'
+      Unique  = @('entity_table, entity_pk, field_name')
+      Columns = @{
+        id             = @{ Description='Surrogate primary key.' }
+        entity_table   = @{ Description='Table name containing encrypted data.' }
+        entity_pk      = @{ Description='Primary key value of the encrypted row.' }
+        field_name     = @{ Description='Encrypted column name; NULL = whole row binding.' }
+        key_wrapper_id = @{ Description='Assigned key wrapper (FK key_wrappers.id).' }
+        created_at     = @{ Description='Creation timestamp (UTC).' }
+      }
+    }
+
+    encryption_policy_bindings = @{
+      Summary = 'History of which encryption policy applies to a field.'
+      Columns = @{
+        id             = @{ Description='Surrogate primary key.' }
+        entity_table   = @{ Description='Table name.' }
+        field_name     = @{ Description='Column that the policy covers.' }
+        policy_id      = @{ Description='Policy identifier (FK encryption_policies.id).' }
+        effective_from = @{ Description='Timestamp when the policy becomes active.' }
+        notes          = @{ Description='Documentation / rollout notes.' }
+      }
+    }
+
+    entity_external_ids = @{
+      Summary = 'Links between local entities and identifiers in external systems.'
+      Columns = @{
+        id           = @{ Description='Surrogate primary key.' }
+        entity_table = @{ Description='Local table name.' }
+        entity_pk    = @{ Description='Primary key value of the local record.' }
+        source       = @{ Description='External system identifier.' }
+        external_id  = @{ Description='External ID for the record.' }
+        created_at   = @{ Description='Creation timestamp (UTC).' }
+      }
+    }
+
+    event_dlq = @{
+      Summary = 'Dead-letter queue holding events that failed permanently.'
+      Columns = @{
+        id             = @{ Description='Surrogate primary key.' }
+        source         = @{ Description='Event source or producer system.' }
+        event_key      = @{ Description='Event key / idempotency token.' }
+        event          = @{ Description='Original event payload (JSON).' }
+        error          = @{ Description='Error message explaining the failure.' }
+        retryable      = @{ Description='Whether the event can be retried safely.' }
+        attempts       = @{ Description='How many attempts were made.' }
+        first_failed_at= @{ Description='Timestamp of the first failure.' }
+        last_failed_at = @{ Description='Timestamp of the latest failure.' }
+      }
+    }
+
+    event_inbox = @{
+      Summary = 'Inbox table for inbound events awaiting processing.'
+      Columns = @{
+        id           = @{ Description='Surrogate primary key.' }
+        source       = @{ Description='Producer system identifier.' }
+        event_key    = @{ Description='Event key used for idempotency.' }
+        payload      = @{ Description='JSON payload to be processed.' }
+        status       = @{ Description='Processing status flag.'; Enum=@('pending','processed','failed') }
+        attempts     = @{ Description='Number of processing attempts.' }
+        last_error   = @{ Description='Last error message written for the event.' }
+        received_at  = @{ Description='When the event was received (UTC).' }
+        processed_at = @{ Description='When processing finished (UTC).' }
+      }
+    }
+
+    event_outbox = @{
+      Summary = 'Outbox table for domain events waiting to be published downstream.'
+      Columns = @{
+        id             = @{ Description='Surrogate primary key.' }
+        event_key      = @{ Description='Event key / idempotency token.' }
+        entity_table   = @{ Description='Originating table.' }
+        entity_pk      = @{ Description='Primary key of the originating row.' }
+        event_type     = @{ Description='Event type string.' }
+        payload        = @{ Description='JSON payload delivered to consumers.' }
+        status         = @{ Description='Delivery status.'; Enum=@('pending','sent','failed') }
+        attempts       = @{ Description='Number of delivery attempts.' }
+        next_attempt_at= @{ Description='When the next attempt is scheduled.' }
+        processed_at   = @{ Description='When processing completed.' }
+        producer_node  = @{ Description='Node that produced the event.' }
+        created_at     = @{ Description='Creation timestamp (UTC).' }
+      }
+    }
+
+    field_hash_policies = @{
+      Summary = 'Effective hashing policy assignments for sensitive columns.'
+      Columns = @{
+        id             = @{ Description='Surrogate primary key.' }
+        entity_table   = @{ Description='Table where the field lives.' }
+        field_name     = @{ Description='Column name.' }
+        profile_id     = @{ Description='Hash profile applied (FK hash_profiles.id).' }
+        effective_from = @{ Description='Timestamp when the policy takes effect.' }
+        notes          = @{ Description='Documentation / migration context.' }
+      }
+    }
+
+    global_id_registry = @{
+      Summary = 'ULID/UUID registry for mapping global ids to local tables.'
+      Columns = @{
+        gid         = @{ Description='Primary ULID identifier.' }
+        guid        = @{ Description='Optional UUID representation.' }
+        entity_table= @{ Description='Local table name.' }
+        entity_pk   = @{ Description='Local primary key value.' }
+        created_at  = @{ Description='Creation timestamp (UTC).' }
+      }
+    }
+
+    hash_profiles = @{
+      Summary = 'Reusable hashing profiles (algorithm + parameters).'
+      Columns = @{
+        id          = @{ Description='Surrogate primary key.' }
+        name        = @{ Description='Profile identifier.' }
+        algo_id     = @{ Description='Hash algorithm (FK crypto_algorithms.id).' }
+        output_len  = @{ Description='Optional truncated output length in bytes.' }
+        params      = @{ Description='JSON with algorithm-specific tweaks.' }
+        status      = @{ Description='Lifecycle flag.'; Enum=@('active','deprecated') }
+        created_at  = @{ Description='Creation timestamp (UTC).' }
+      }
+    }
+
+    key_wrapper_layers = @{
+      Summary = 'Individual layers that compose a key wrapper.'
+      Columns = @{
+        id             = @{ Description='Surrogate primary key.' }
+        key_wrapper_id = @{ Description='Parent key wrapper (FK key_wrappers.id).' }
+        layer_no       = @{ Description='Layer order (1..N).' }
+        kms_key_id     = @{ Description='KMS key used for the layer, if any.' }
+        kem_algo_id    = @{ Description='KEM algorithm used for wrapping (FK crypto_algorithms.id).' }
+        kem_ciphertext = @{ Description='Ciphertext blob for the wrapped key material.' }
+        encap_pubkey   = @{ Description='Optional encapsulated public key.' }
+        aad            = @{ Description='JSON AAD metadata used during wrapping.' }
+        meta           = @{ Description='Additional JSON metadata.' }
+        created_at     = @{ Description='Creation timestamp (UTC).' }
+      }
+    }
+
+    key_wrappers = @{
+      Summary = 'Composite wrappers protecting DEKs with multiple KMS/crypto layers.'
+      Columns = @{
+        id            = @{ Description='Surrogate primary key.' }
+        wrapper_uuid  = @{ Description='Stable UUID identifier.' }
+        kms1_key_id   = @{ Description='Primary wrapping KMS key.' }
+        kms2_key_id   = @{ Description='Secondary wrapping KMS key.' }
+        crypto_suite  = @{ Description='JSON description of the crypto suite used.' }
+        wrap_version  = @{ Description='Version number for the wrapper format.' }
+        status        = @{ Description='Lifecycle flag.'; Enum=@('active','rotated','retired','invalid') }
+        dek_wrap1     = @{ Description='First wrapped DEK blob.' }
+        dek_wrap2     = @{ Description='Second wrapped DEK blob.' }
+        created_at    = @{ Description='Creation timestamp (UTC).' }
+        rotated_at    = @{ Description='When the wrapper was rotated, if ever.' }
+      }
+    }
+
+    kms_health_checks = @{
+      Summary = 'Periodic health probes for KMS providers/keys.'
+      Columns = @{
+        id          = @{ Description='Surrogate primary key.' }
+        provider_id = @{ Description='KMS provider being checked (FK kms_providers.id).' }
+        kms_key_id  = @{ Description='Specific key being checked (FK kms_keys.id), optional.' }
+        status      = @{ Description='Probe result.'; Enum=@('up','degraded','down') }
+        latency_ms  = @{ Description='Measured latency in milliseconds.' }
+        error       = @{ Description='Error string when degraded/down.' }
+        checked_at  = @{ Description='Timestamp of the check (UTC).' }
+      }
+    }
+
+    kms_routing_policies = @{
+      Summary = 'Routing directives describing how tenants map to KMS providers.'
+      Columns = @{
+        id        = @{ Description='Surrogate primary key.' }
+        name      = @{ Description='Policy name.' }
+        priority  = @{ Description='Priority ordering (higher first).' }
+        strategy  = @{ Description='Routing strategy.'; Enum=@('prefer','require','avoid') }
+        match     = @{ Description='JSON filter describing when to apply the policy.' }
+        providers = @{ Description='JSON list of provider options/weights.' }
+        active    = @{ Description='Whether the policy is active.' }
+        created_at= @{ Description='Creation timestamp (UTC).' }
+      }
+    }
+
+    merkle_anchors = @{
+      Summary = 'Anchors proving Merkle roots in external systems (files, blockchain, etc.).'
+      Unique  = @('merkle_root_id, anchor_type, anchor_ref')
+      Columns = @{
+        id             = @{ Description='Surrogate primary key.' }
+        merkle_root_id = @{ Description='Referenced Merkle root (FK merkle_roots.id).' }
+        anchor_type    = @{ Description='Anchor medium.'; Enum=@('file','blockchain','notary') }
+        anchor_ref     = @{ Description='Reference or locator for the anchor.' }
+        anchored_at    = @{ Description='When the anchor was created.' }
+        meta           = @{ Description='JSON metadata tied to the anchor.' }
+      }
+    }
+
+    merkle_roots = @{
+      Summary = 'Per-period Merkle root snapshots for append-only data.'
+      Columns = @{
+        id            = @{ Description='Surrogate primary key.' }
+        subject_table = @{ Description='Table being summarized.' }
+        period_start  = @{ Description='Start timestamp of the covered period.' }
+        period_end    = @{ Description='End timestamp of the covered period.' }
+        root_hash     = @{ Description='Merkle root hash (bytea).' }
+        proof_uri     = @{ Description='Optional URI pointing to notarized proof bundles.' }
+        status        = @{ Description='Lifecycle state of the Merkle root (pending/anchored/verified/failed).' }
+        leaf_count    = @{ Description='Number of leaves included.' }
+        created_at    = @{ Description='When the root was stored.' }
+      }
+    }
+
+    migration_events = @{
+      Summary = 'Records describing migrations between schema versions.'
+      Columns = @{
+        id          = @{ Description='Surrogate primary key.' }
+        system_name = @{ Description='System/component undergoing migration.' }
+        from_version= @{ Description='Version migrated from.' }
+        to_version  = @{ Description='Target version.' }
+        status      = @{ Description='Migration status.'; Enum=@('pending','running','done','failed','cancelled') }
+        started_at  = @{ Description='Migration start timestamp (UTC).' }
+        finished_at = @{ Description='Completion timestamp (UTC).' }
+        error       = @{ Description='Failure message, if any.' }
+        meta        = @{ Description='JSON metadata or logs.' }
+      }
+    }
+
+    peer_nodes = @{
+      Summary = 'Known database/application peers for replication and sync.'
+      Columns = @{
+        id         = @{ Description='Surrogate primary key.' }
+        name       = @{ Description='Peer display name.' }
+        type       = @{ Description='Peer type.'; Enum=@('postgres','mysql','app','service') }
+        location   = @{ Description='Optional region / data center.' }
+        status     = @{ Description='Health status.'; Enum=@('active','offline','degraded','disabled') }
+        last_seen  = @{ Description='Last heartbeat timestamp.' }
+        meta       = @{ Description='JSON metadata describing the peer.' }
+        created_at = @{ Description='Registration timestamp (UTC).' }
+      }
+    }
+
+    policy_algorithms = @{
+      Summary = 'Weights and priorities for algorithms used within an encryption policy.'
+      Columns = @{
+        policy_id = @{ Description='Encryption policy id (FK encryption_policies.id).' }
+        algo_id   = @{ Description='Algorithm id (FK crypto_algorithms.id).' }
+        role      = @{ Description='Role played by the algorithm.'; Enum=@('kem','sig','hash','symmetric') }
+        weight    = @{ Description='Selection weight.' }
+        priority  = @{ Description='Fallback/ordering priority.' }
+      }
+    }
+
+    pq_migration_jobs = @{
+      Summary = 'Jobs that migrate stored data to PQ-safe hashing/encryption policies.'
+      Columns = @{
+        id               = @{ Description='Surrogate primary key.' }
+        scope            = @{ Description='What is being migrated (hashes, wrappers, signatures).' }
+        target_policy_id = @{ Description='Target encryption policy id, optional.' }
+        target_algo_id   = @{ Description='Target crypto algorithm id, optional.' }
+        selection        = @{ Description='JSON selector describing the affected dataset.' }
+        scheduled_at     = @{ Description='Scheduled start time.' }
+        started_at       = @{ Description='When the job started.' }
+        finished_at      = @{ Description='Completion timestamp.' }
+        status           = @{ Description='Execution status.'; Enum=@('pending','running','done','failed','cancelled') }
+        processed_count  = @{ Description='How many records were processed.' }
+        error            = @{ Description='Failure cause, if any.' }
+        created_by       = @{ Description='User who enqueued the job.' }
+        created_at       = @{ Description='Creation timestamp (UTC).' }
+      }
+    }
+
+    privacy_requests = @{
+      Summary = 'Data-subject privacy requests (access, erasure, portability, etc.).'
+      Columns = @{
+        id           = @{ Description='Surrogate primary key.' }
+        user_id      = @{ Description='Subject user (FK users.id).' }
+        type         = @{ Description='Request type.'; Enum=@('access','erasure','rectify','restrict','portability') }
+        status       = @{ Description='Request status.'; Enum=@('pending','processing','done','failed','cancelled') }
+        requested_at = @{ Description='When the request was submitted.' }
+        processed_at = @{ Description='When it was completed.' }
+        meta         = @{ Description='JSON blob with additional context.' }
+      }
+    }
+
+    rate_limit_counters = @{
+      Summary = 'Sliding-window counters for rate limiting enforcement.'
+      Columns = @{
+        id             = @{ Description='Surrogate primary key.' }
+        subject_type   = @{ Description='Entity type being limited (ip,user,api_key,tenant).' }
+        subject_id     = @{ Description='Identifier of the subject (stringified).' }
+        name           = @{ Description='Rate limiting bucket name.' }
+        window_start   = @{ Description='Beginning of the measurement window.' }
+        window_size_sec= @{ Description='Window length in seconds.' }
+        count          = @{ Description='Number of hits recorded during the window.' }
+        updated_at     = @{ Description='Last update timestamp (UTC).' }
+      }
+    }
+
+    rate_limits = @{
+      Summary = 'Configured rate-limiting rules at the application level.'
+      Columns = @{
+        id             = @{ Description='Surrogate primary key.' }
+        subject_type   = @{ Description='Entity type being limited.' }
+        subject_id     = @{ Description='Identifier of the subject.' }
+        name           = @{ Description='Rule/bucket name.' }
+        window_size_sec= @{ Description='Window length in seconds.' }
+        limit_count    = @{ Description='Number of allowed operations within the window.' }
+        active         = @{ Description='Whether the rule is active.' }
+        created_at     = @{ Description='Creation timestamp (UTC).' }
+      }
+    }
+
+    rbac_repositories = @{
+      Summary = 'Sources of RBAC definitions (git repos, APIs, etc.).'
+      Columns = @{
+        id            = @{ Description='Surrogate primary key.' }
+        name          = @{ Description='Repository identifier.' }
+        url           = @{ Description='Optional URL/endpoint.' }
+        signing_key_id= @{ Description='Signing key used to verify snapshots (FK signing_keys.id).' }
+        status        = @{ Description='Repository status.'; Enum=@('active','disabled') }
+        last_synced_at= @{ Description='Last successful sync time.' }
+        last_commit   = @{ Description='Hash/identifier of the last synced commit.' }
+        created_at    = @{ Description='Creation timestamp (UTC).' }
+      }
+    }
+
+    rbac_repo_snapshots = @{
+      Summary = 'Stored RBAC snapshots pulled from repositories.'
+      Columns = @{
+        id        = @{ Description='Surrogate primary key.' }
+        repo_id   = @{ Description='Source repository (FK rbac_repositories.id).' }
+        commit_id = @{ Description='Commit/version identifier stored.' }
+        taken_at  = @{ Description='When the snapshot was taken.' }
+        metadata  = @{ Description='JSON metadata associated with the snapshot.' }
+      }
+    }
+
+    rbac_role_permissions = @{
+      Summary = 'Permission rules bundled with RBAC roles.'
+      Columns = @{
+        role_id       = @{ Description='Role identifier (FK rbac_roles.id).' }
+        permission_id = @{ Description='Permission identifier (FK permissions.id).' }
+        effect        = @{ Description='Permit or deny flag.'; Enum=@('allow','deny') }
+        source        = @{ Description='Whether the rule came from repo or local overrides.'; Enum=@('repo','local') }
+        created_at    = @{ Description='Creation timestamp (UTC).' }
+      }
+    }
+
+    rbac_roles = @{
+      Summary = 'RBAC role definitions synchronized from repositories.'
+      Columns = @{
+        id          = @{ Description='Surrogate primary key.' }
+        repo_id     = @{ Description='Owning repository (FK rbac_repositories.id).' }
+        slug        = @{ Description='Stable role slug.' }
+        name        = @{ Description='Human name of the role.' }
+        description = @{ Description='Optional description.' }
+        version     = @{ Description='Version number from the repo.' }
+        status      = @{ Description='Lifecycle status.'; Enum=@('active','deprecated','archived') }
+        created_at  = @{ Description='Creation timestamp (UTC).' }
+        updated_at  = @{ Description='Last update timestamp (UTC).' }
+      }
+    }
+
+    rbac_sync_cursors = @{
+      Summary = 'Per-peer replication cursors for RBAC repositories.'
+      Columns = @{
+        repo_id        = @{ Description='Repository id (FK rbac_repositories.id).' }
+        peer           = @{ Description='Consumer identifier (service name).' }
+        last_commit    = @{ Description='Last processed commit hash.' }
+        last_synced_at = @{ Description='Timestamp when the peer last synced.' }
+      }
+    }
+
+    rbac_user_permissions = @{
+      Summary = 'Direct permission grants to users (outside of roles).'
+      Columns = @{
+        id             = @{ Description='Surrogate primary key.' }
+        user_id        = @{ Description='User receiving the grant (FK users.id).' }
+        permission_id  = @{ Description='Permission id (FK permissions.id).' }
+        tenant_id      = @{ Description='Tenant scope, optional.' }
+        scope          = @{ Description='Additional scope qualifier (string).' }
+        effect         = @{ Description='Allow or deny flag.'; Enum=@('allow','deny') }
+        granted_by     = @{ Description='User/admin who granted the permission.' }
+        granted_at     = @{ Description='Grant timestamp (UTC).' }
+        expires_at     = @{ Description='Optional expiration time (UTC).' }
+      }
+    }
+
+    rbac_user_roles = @{
+      Summary = 'Assignments of RBAC roles to users.'
+      Columns = @{
+        id         = @{ Description='Surrogate primary key.' }
+        user_id    = @{ Description='User receiving the role (FK users.id).' }
+        role_id    = @{ Description='Role granted (FK rbac_roles.id).' }
+        tenant_id  = @{ Description='Tenant scope, optional.' }
+        scope      = @{ Description='Additional scope qualifier.' }
+        status     = @{ Description='Assignment status.'; Enum=@('active','revoked','expired') }
+        granted_by = @{ Description='User/admin who granted the role.' }
+        granted_at = @{ Description='Grant timestamp (UTC).' }
+        expires_at = @{ Description='Optional expiration time (UTC).' }
+      }
+    }
+
+    replication_lag_samples = @{
+      Summary = 'Snapshot metrics measuring replication lag per peer.'
+      Columns = @{
+        id         = @{ Description='Surrogate primary key.' }
+        peer_id    = @{ Description='Peer being measured (FK peer_nodes.id).' }
+        metric     = @{ Description='Metric name (apply_lag_ms, transport_lag_ms).' }
+        value      = @{ Description='Measured value (ms).' }
+        captured_at= @{ Description='Capture timestamp (UTC).' }
+      }
+    }
+
+    retention_enforcement_jobs = @{
+      Summary = 'Runs of data-retention enforcement tasks.'
+      Columns = @{
+        id              = @{ Description='Surrogate primary key.' }
+        policy_id       = @{ Description='Retention policy being enforced (FK data_retention_policies.id).' }
+        scheduled_at    = @{ Description='Scheduled start time.' }
+        started_at      = @{ Description='Execution start timestamp.' }
+        finished_at     = @{ Description='Execution completion timestamp.' }
+        status          = @{ Description='Job status.'; Enum=@('pending','running','done','failed','cancelled') }
+        processed_count = @{ Description='How many rows were processed.' }
+        error           = @{ Description='Failure details, if any.' }
+        created_at      = @{ Description='Creation timestamp (UTC).' }
+      }
+    }
+
+    rewrap_jobs = @{
+      Summary = 'Key rewrap tasks that move ciphertexts to new key wrappers/KMS keys.'
+      Columns = @{
+        id                = @{ Description='Surrogate primary key.' }
+        key_wrapper_id    = @{ Description='Wrapper being rewrapped (FK key_wrappers.id).' }
+        target_kms1_key_id= @{ Description='Target primary KMS key.' }
+        target_kms2_key_id= @{ Description='Target secondary KMS key.' }
+        scheduled_at      = @{ Description='Scheduled start time.' }
+        started_at        = @{ Description='Processing start timestamp.' }
+        finished_at       = @{ Description='Processing completion timestamp.' }
+        status            = @{ Description='Job status flag.'; Enum=@('pending','running','done','failed') }
+        attempts          = @{ Description='Retry counter.' }
+        last_error        = @{ Description='Last error message observed.' }
+        created_at        = @{ Description='Creation timestamp (UTC).' }
+      }
+    }
+
+    schema_registry = @{
+      Summary = 'Registry of schema versions applied to various components.'
+      Columns = @{
+        id           = @{ Description='Surrogate primary key.' }
+        system_name  = @{ Description='System/service name.' }
+        component    = @{ Description='Component name (db, api, etc.).' }
+        version      = @{ Description='Version identifier.' }
+        checksum     = @{ Description='Checksum/signature of the migration bundle.' }
+        applied_at   = @{ Description='When the version was applied.' }
+        meta         = @{ Description='JSON metadata with migration context.' }
+      }
+    }
+
+    signatures = @{
+      Summary = 'Digital signatures over critical entities for audit integrity.'
+      Columns = @{
+        id            = @{ Description='Surrogate primary key.' }
+        subject_table = @{ Description='Table of the signed entity.' }
+        subject_pk    = @{ Description='Primary key of the signed record.' }
+        context       = @{ Description='Logical context (audit_chain, event_outbox, etc.).' }
+        algo_id       = @{ Description='Signature algorithm (FK crypto_algorithms.id).' }
+        signing_key_id= @{ Description='Signing key used (FK signing_keys.id).' }
+        signature     = @{ Description='Binary signature blob.' }
+        payload_hash  = @{ Description='Hash of the signed payload.' }
+        hash_algo_id  = @{ Description='Hash algorithm used (FK crypto_algorithms.id).' }
+        created_at    = @{ Description='Creation timestamp (UTC).' }
+      }
+    }
+
+    signing_keys = @{
+      Summary = 'Inventory of signing keys (local, KMS-backed, or imported).'
+      Columns = @{
+        id             = @{ Description='Surrogate primary key.' }
+        algo_id        = @{ Description='Signature algorithm (FK crypto_algorithms.id).' }
+        name           = @{ Description='Key name / identifier.' }
+        public_key     = @{ Description='Public key bytes.' }
+        private_key_enc= @{ Description='Encrypted private key blob.' }
+        kms_key_id     = @{ Description='Backing KMS key if stored hardware-side.' }
+        origin         = @{ Description='Key origin.'; Enum=@('local','kms','imported') }
+        status         = @{ Description='Lifecycle status.'; Enum=@('active','retired','compromised') }
+        scope          = @{ Description='Usage scope (audit, events, assets, ...).' }
+        created_by     = @{ Description='User who created/uploaded the key.' }
+        created_at     = @{ Description='Creation timestamp (UTC).' }
+        activated_at   = @{ Description='Activation timestamp (UTC).' }
+        retired_at     = @{ Description='Retirement timestamp (UTC).' }
+        notes          = @{ Description='Operational notes.' }
+      }
+    }
+
+    slo_status = @{
+      Summary = 'Computed status entries for service-level objectives.'
+      Unique  = @('window_id, computed_at')
+      Columns = @{
+        id           = @{ Description='Surrogate primary key.' }
+        window_id    = @{ Description='SLO window (FK slo_windows.id).' }
+        computed_at  = @{ Description='Timestamp when the SLO was evaluated.' }
+        sli_value    = @{ Description='Measured SLI value.' }
+        good_events  = @{ Description='Number of good events counted.' }
+        total_events = @{ Description='Total events observed.' }
+        status       = @{ Description='Evaluation result.'; Enum=@('good','breach','unknown') }
+      }
+    }
+
+    slo_windows = @{
+      Summary = 'Configured service-level objective windows/targets.'
+      Columns = @{
+        id              = @{ Description='Surrogate primary key.' }
+        name            = @{ Description='SLO identifier.' }
+        objective       = @{ Description='JSON description of what is being measured.' }
+        target_pct      = @{ Description='Target success percentage.' }
+        window_interval = @{ Description='Interval over which the SLO is computed.' }
+        created_at      = @{ Description='Creation timestamp (UTC).' }
+      }
+    }
+
+    sync_batch_items = @{
+      Summary = 'Individual entries inside sync batches.'
+      Columns = @{
+        id        = @{ Description='Surrogate primary key.' }
+        batch_id  = @{ Description='Parent batch (FK sync_batches.id).' }
+        event_key = @{ Description='Event identifier transported in the batch.' }
+        status    = @{ Description='Item status.'; Enum=@('pending','sent','applied','failed','skipped') }
+        error     = @{ Description='Failure reason, if applicable.' }
+        created_at= @{ Description='Creation timestamp (UTC).' }
+      }
+    }
+
+    sync_batches = @{
+      Summary = 'Batches of events replicated between peers.'
+      Columns = @{
+        id               = @{ Description='Surrogate primary key.' }
+        channel          = @{ Description='Logical replication channel.' }
+        producer_peer_id = @{ Description='Producing peer (FK peer_nodes.id).' }
+        consumer_peer_id = @{ Description='Consuming peer (FK peer_nodes.id).' }
+        status           = @{ Description='Batch status.'; Enum=@('pending','sending','completed','failed','cancelled') }
+        items_total      = @{ Description='Total number of events in the batch.' }
+        items_ok         = @{ Description='Number of events applied successfully.' }
+        items_failed     = @{ Description='Number of events that failed.' }
+        error            = @{ Description='Batch-level error, if any.' }
+        created_at       = @{ Description='Creation timestamp (UTC).' }
+        started_at       = @{ Description='Processing start timestamp.' }
+        finished_at      = @{ Description='Processing completion timestamp.' }
+      }
+    }
+
+    sync_errors = @{
+      Summary = 'Errors raised while applying replication batches.'
+      Columns = @{
+        id        = @{ Description='Surrogate primary key.' }
+        source    = @{ Description='Source subsystem/channel.' }
+        event_key = @{ Description='Offending event key (if known).' }
+        peer_id   = @{ Description='Peer involved (FK peer_nodes.id).' }
+        error     = @{ Description='Error message.' }
+        created_at= @{ Description='Timestamp when the error was recorded.' }
+      }
+    }
+
+    tenant_domains = @{
+      Summary = 'Tenant-owned domains used for routing/custom branding.'
+      Columns = @{
+        id         = @{ Description='Surrogate primary key.' }
+        tenant_id  = @{ Description='Owning tenant (FK tenants.id).' }
+        domain     = @{ Description='Original domain string.' }
+        domain_ci  = @{ Description='Lowercase domain used for uniqueness.' }
+        is_primary = @{ Description='Whether this domain is the tenant primary.' }
+        created_at = @{ Description='Creation timestamp (UTC).' }
+      }
+    }
+
+    tenants = @{
+      Summary = 'Top-level tenant/organization records used for multi-tenancy.'
+      Columns = @{
+        id         = @{ Description='Surrogate primary key.' }
+        name       = @{ Description='Tenant display name.' }
+        slug       = @{ Description='Canonical slug (unique per tenant).' }
+        slug_ci    = @{ Description='Lowercase slug used for case-insensitive uniqueness.' }
+        status     = @{ Description='Tenant status.'; Enum=@('active','suspended','deleted') }
+        version    = @{ Description='Optimistic locking version counter.' }
+        deleted_at = @{ Description='Soft-delete timestamp.' }
+        created_at = @{ Description='Creation timestamp (UTC).' }
+        updated_at = @{ Description='Last update timestamp (UTC).' }
       }
     }
 

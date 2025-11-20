@@ -39,7 +39,7 @@ if ($envNorm === '' || $pdoDriver !== $envNorm) {
 }
 if ($pdoDriver === 'pgsql') {
     try {
-        // krátké limity, ať se případné zablokování rychle vyřeší
+        // short timeouts so any blocking resolves quickly
         $db->exec("SET lock_timeout = '5s'");
         $db->exec("SET statement_timeout = '30s'");
         $db->exec("SET idle_in_transaction_session_timeout = '30s'");
@@ -47,20 +47,20 @@ if ($pdoDriver === 'pgsql') {
 }
 
 /* -----------------------------------------------------------
- * 2) Deadlock scénář – MUSÍME jet v jedné transakci!
- *    A: lockne A, pak se pokusí locknout B
- *    B: lockne B, pak se pokusí locknout A
+ * 2) Deadlock scenario - MUST run within a single transaction!
+ *    A: lock A, then try to lock B
+ *    B: lock B, then try to lock A
  * --------------------------------------------------------- */
 try {
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
     $qi    = fn(string $x) => $db->quoteIdent($x);
-    $idCol = 'id'; // tenhle test vybírá tabulku s PK 'id'
+    $idCol = 'id'; // this test targets a table with PK 'id'
 
-    // *** DŮLEŽITÉ: začni transakci před prvním FOR UPDATE ***
+    // *** IMPORTANT: begin the transaction before the first FOR UPDATE ***
     $pdo->beginTransaction();
 
-    // pro PG ještě lokální lock_timeout, aby druhý krok nevisel dlouho
+    // for PG also set LOCAL lock_timeout so the second step does not hang
     if ($pdoDriver === 'pgsql') {
         $pdo->exec("SET LOCAL lock_timeout = '5s'");
     }
@@ -71,10 +71,10 @@ try {
             "SELECT {$qi($idCol)} FROM {$qi($table)} WHERE {$qi($idCol)}=:id FOR UPDATE"
         )->execute([':id'=>$idA]);
 
-        // Krátké okno pro symetrii
+        // short window for symmetry
         usleep(150_000);
 
-        // 2) Pokus se zamknout B -> s workerem „B“ vytvoří cyklus
+        // 2) Try to lock B -> creates a cycle with worker "B"
         $pdo->prepare(
             "SELECT {$qi($idCol)} FROM {$qi($table)} WHERE {$qi($idCol)}=:id FOR UPDATE"
         )->execute([':id'=>$idB]);
@@ -89,7 +89,7 @@ try {
 
         usleep(150_000);
 
-        // 2) Pokus se zamknout A
+        // 2) Try to lock A
         $pdo->prepare(
             "SELECT {$qi($idCol)} FROM {$qi($table)} WHERE {$qi($idCol)}=:id FOR UPDATE"
         )->execute([':id'=>$idA]);

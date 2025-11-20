@@ -1,4 +1,34 @@
 <?php
+/*
+ *       ####                                
+ *      ######                              ██╗    ██╗███████╗██╗      ██████╗ ██████╗ ███╗   ███╗███████╗     
+ *     #########                            ██║    ██║██╔════╝██║     ██╔════╝██╔═══██╗████╗ ████║██╔════╝ 
+ *    ##########         ##                 ██║ █╗ ██║█████╗  ██║     ██║     ██║   ██║██╔████╔██║█████╗   
+ *    ###########      ####                 ██║███╗██║██╔══╝  ██║     ██║     ██║   ██║██║╚██╔╝██║██╔══╝   
+ * ###############   ######                 ╚███╔███╔╝███████╗███████╗╚██████╗╚██████╔╝██║ ╚═╝ ██║███████╗
+ * ###########  ##  #######                  ╚══╝╚══╝ ╚══════╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝     ╚═╝╚══════╝ 
+ * #########    ### #######                  
+ * #########     ###  ####                   ██╗  ██╗███████╗██████╗  ██████╗ ██╗ ██████╗███████╗ 
+ * ###########    ##    ##                   ██║  ██║██╔════╝██╔══██╗██╔═══██╗██║██╔════╝██╔════╝ 
+ * ##########                #               ███████║█████╗  ██████╔╝██║   ██║██║██║     ███████╗ 
+ * #######                     ##            ██╔══██║██╔══╝  ██╔══██╗██║   ██║██║██║     ╚════██║ 
+ * ##                            ##          ██║  ██║███████╗██║  ██║╚██████╔╝██║╚██████╗███████║ 
+ * ######              #######    ##         ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝ ╚═════╝╚══════╝ 
+ * #####            #######  ##   ##       ┌────────────────────────────────────────────────────────────────────────────┐  
+ * #####               ####  ##    #         BLACK CAT DATABASE • Arcane Custody Notice                                 │
+ * ########             #######    ##        © 2025 Black Cat Academy s. r. o. • All paws reserved.                     │
+ * ####                        #     ##      Licensed strictly under the BlackCat Database Proprietary License v1.0.    │
+ * ##########                          ##    Evaluation only; commercial rites demand written consent.                  │
+ * ####           ######  #        ######    Unauthorized forks or tampering awaken enforcement claws.                  │
+ * #####               ##  ##          ##    Reverse engineering, sublicensing, or origin stripping is forbidden.       │
+ * ##########   ###  #### ####        #      Liability for lost data, profits, or familiars remains with the summoner.  │
+ * ##                 ##  ##       ####      Infringements trigger termination; contact blackcatacademy@protonmail.com. │
+ * ###########      ##   # #   ######        Leave this sigil intact—smudging whiskers invites spectral audits.         │
+ * #########       #   ##          ##        Governed under the laws of the Slovak Republic.                            │
+ * ##############                ###         Motto: “Purr, Persist, Prevail.”                                           │
+ * #############    ###############       └─────────────────────────────────────────────────────────────────────────────┘
+ */
+
 declare(strict_types=1);
 
 namespace BlackCat\Database\Support;
@@ -6,44 +36,41 @@ namespace BlackCat\Database\Support;
 use BlackCat\Core\Database;
 
 /**
- * PgCompat – podpůrná vrstva pro PostgreSQL:
- *  - vytvoří schéma `bc_compat` a sadu kompat funkcí (idempotentně)
- *  - poskytne helpery pro auto-updaty timestampů a UUID binární derivát
+ * PgCompat – compatibility helpers for PostgreSQL.
  *
- * Použití:
- *   $pg = new PgCompat(Database::getInstance());
- *   $pg->install(); // jednorázově při startu/instalaci
- *   // volitelně na vybrané tabulky:
- *   $pg->ensureUpdatedAtTrigger('sessions', 'updated_at');
- *   $pg->ensureUuidBinComputed('orders', 'uuid', 'uuid_bin');
+ * Safety/ergonomics:
+ * - Consistent quoting of schema-qualified identifiers (qi/qid).
+ * - Resilient to schema-qualified inputs in informational queries.
+ * - Enforces trigger name length (PG limit 63 bytes).
+ * - Idempotent DDL (CREATE OR REPLACE, IF NOT EXISTS, existence detection).
+ * - Sanitizes precision range (0..6).
  */
 final class PgCompat
 {
     public function __construct(private Database $db) {}
 
-    /**
-     * Nainstaluje bc_compat schema a kompatibilní funkce.
-     * Idempotentní – volání opakovaně nevadí.
-     */
+    /* =======================================================================
+     *  INSTALL
+     * ======================================================================= */
+
     public function install(): void
     {
-        // 1) schéma
+        // Schema for helper functions.
         $this->db->exec("CREATE SCHEMA IF NOT EXISTS bc_compat");
 
-        // 2) LAST_INSERT_ID() → lastval()
+        // last_insert_id() – similar to MySQL (current session sequence)
         $this->db->exec(<<<'SQL'
 CREATE OR REPLACE FUNCTION bc_compat.last_insert_id() RETURNS bigint
-LANGUAGE sql IMMUTABLE STRICT AS $$ SELECT lastval()::bigint $$;
+LANGUAGE sql VOLATILE STRICT AS $$ SELECT lastval()::bigint $$;
 SQL);
 
-        // 3) CURDATE() – MySQL kompat, vrací DATE
+        // curdate()
         $this->db->exec(<<<'SQL'
 CREATE OR REPLACE FUNCTION bc_compat.curdate() RETURNS date
 LANGUAGE sql STABLE STRICT AS $$ SELECT CURRENT_DATE $$;
 SQL);
 
-        // 4) HEX helpery (bez pgcrypto; čistě přes bytea/hex literal)
-        //    unhex(text)  → bytea   ;   hex(bytea) → text( lower/upper si dořeš ve view )
+        // unhex(hex TEXT) -> BYTEA
         $this->db->exec(<<<'SQL'
 CREATE OR REPLACE FUNCTION bc_compat.unhex(hex text) RETURNS bytea
 LANGUAGE sql IMMUTABLE STRICT AS $$
@@ -51,6 +78,7 @@ LANGUAGE sql IMMUTABLE STRICT AS $$
 $$;
 SQL);
 
+        // hex(bytea) -> TEXT (lower hex)
         $this->db->exec(<<<'SQL'
 CREATE OR REPLACE FUNCTION bc_compat.hex(b bytea) RETURNS text
 LANGUAGE sql IMMUTABLE STRICT AS $$
@@ -59,7 +87,7 @@ LANGUAGE sql IMMUTABLE STRICT AS $$
 $$;
 SQL);
 
-        // 5) INET6_ATON / INET6_NTOA – VARBINARY16 styl (IPv4 → v6-mapped ::ffff.a.b.c.d)
+        // IPv4/IPv6 text -> 16B bytea (IPv4 mapped)
         $this->db->exec(<<<'SQL'
 CREATE OR REPLACE FUNCTION bc_compat.inet6_aton(addr text) RETURNS bytea
 LANGUAGE plpgsql IMMUTABLE STRICT AS $$
@@ -82,7 +110,6 @@ BEGIN
     RETURN ('\\x' || out_hex)::bytea;
   END IF;
 
-  -- IPv6 canonical + expand ::
   left_right := regexp_split_to_array(host(ip), '::');
   IF array_length(left_right,1) = 1 THEN
     hextets := regexp_split_to_array(left_right[1], ':');
@@ -112,6 +139,7 @@ BEGIN
 END $$;
 SQL);
 
+        // 16B bytea -> IPv4/IPv6 text
         $this->db->exec(<<<'SQL'
 CREATE OR REPLACE FUNCTION bc_compat.inet6_ntoa(b bytea) RETURNS text
 LANGUAGE plpgsql IMMUTABLE STRICT AS $$
@@ -123,7 +151,6 @@ BEGIN
     RAISE EXCEPTION 'inet6_ntoa expects 16 bytes, got %', length(b);
   END IF;
 
-  -- ::ffff:0:0/96 (IPv4-mapped) detekuj byte-po-bytu
   is_v4mapped :=
     get_byte(b,0)=0 AND get_byte(b,1)=0 AND get_byte(b,2)=0 AND get_byte(b,3)=0 AND
     get_byte(b,4)=0 AND get_byte(b,5)=0 AND get_byte(b,6)=0 AND get_byte(b,7)=0 AND
@@ -134,7 +161,6 @@ BEGIN
     RETURN a::text || '.' || b2::text || '.' || c::text || '.' || d::text;
   END IF;
 
-  -- prostý (nekomprimovaný) zápis IPv6
   RETURN
     lpad(to_hex(get_byte(b,0)*256 + get_byte(b,1)),4,'0') || ':' ||
     lpad(to_hex(get_byte(b,2)*256 + get_byte(b,3)),4,'0') || ':' ||
@@ -147,23 +173,18 @@ BEGIN
 END $$;
 SQL);
 
-// 5b) Přátelštější aliasy ve stejném schématu (snadné volání z view/testů)
-$this->db->exec(<<<'SQL'
+        // aliasy pro ip_pton / ip_ntop
+        $this->db->exec(<<<'SQL'
 CREATE OR REPLACE FUNCTION bc_compat.ip_pton(addr text) RETURNS bytea
-LANGUAGE sql IMMUTABLE STRICT AS $$
-  SELECT bc_compat.inet6_aton($1)
-$$;
+LANGUAGE sql IMMUTABLE STRICT AS $$ SELECT bc_compat.inet6_aton($1) $$;
 SQL);
-
-$this->db->exec(<<<'SQL'
+        $this->db->exec(<<<'SQL'
 CREATE OR REPLACE FUNCTION bc_compat.ip_ntop(b bytea) RETURNS text
-LANGUAGE sql IMMUTABLE STRICT AS $$
-  SELECT bc_compat.inet6_ntoa($1)
-$$;
+LANGUAGE sql IMMUTABLE STRICT AS $$ SELECT bc_compat.inet6_ntoa($1) $$;
 SQL);
 
-// 6) ON UPDATE CURRENT_TIMESTAMP -> univerzální trigger
-$this->db->exec(<<<'SQL'
+        // Trigger: always overwrite updated_at with NOW(6)
+        $this->db->exec(<<<'SQL'
 CREATE OR REPLACE FUNCTION bc_compat.tg_touch_updated_at() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -171,110 +192,303 @@ BEGIN
   RETURN NEW;
 END $$;
 SQL);
+
+        // Trigger: respect manual NEW.updated_at values
+        $this->db->exec(<<<'SQL'
+CREATE OR REPLACE FUNCTION bc_compat.tg_touch_updated_at_if_unmodified() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.updated_at IS NOT DISTINCT FROM OLD.updated_at THEN
+    NEW.updated_at := CURRENT_TIMESTAMP(6);
+  END IF;
+  RETURN NEW;
+END $$;
+SQL);
+
+        // tg: row_version inkrement (optimistic locking)
+        $this->db->exec(<<<'SQL'
+CREATE OR REPLACE FUNCTION bc_compat.tg_inc_row_version() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  NEW.row_version := COALESCE(OLD.row_version, 0) + 1;
+  RETURN NEW;
+END $$;
+SQL);
+    }
+
+    /* =======================================================================
+     *  PUBLIC HELPERS (timestamps / triggers / row version / touch / uuid_bin)
+     * ======================================================================= */
+
+    /**
+     * Provide MySQL-like timestamps: created_at DEFAULT NOW(p), updated_at DEFAULT NOW(p) + auto-touch on UPDATE.
+     * @param bool $respectManual  true = allows manual NEW.updated_at; otherwise always overwritten with NOW(p).
+     */
+    public function ensureTimestamps(
+        string $table,
+        string $createdCol = 'created_at',
+        string $updatedCol = 'updated_at',
+        bool $respectManual = false,
+        int $precision = 6
+    ): void {
+        $precision = $this->clampPrecision($precision);
+        [$schema, $tbl] = $this->splitSchemaAndName($table);
+
+        $qiT = $this->qi($table);
+        $qiC = $this->qid($createdCol);
+        $qiU = $this->qid($updatedCol);
+
+        // Add columns when missing
+        $this->db->exec("
+            ALTER TABLE {$qiT}
+            ADD COLUMN IF NOT EXISTS {$qiC} timestamptz({$precision}) NOT NULL DEFAULT CURRENT_TIMESTAMP({$precision})
+        ");
+        $this->db->exec("
+            ALTER TABLE {$qiT}
+            ADD COLUMN IF NOT EXISTS {$qiU} timestamptz({$precision}) NOT NULL DEFAULT CURRENT_TIMESTAMP({$precision})
+        ");
+
+        // Align defaults when column existed without one
+        $this->db->exec("ALTER TABLE {$qiT} ALTER COLUMN {$qiC} SET DEFAULT CURRENT_TIMESTAMP({$precision})");
+        $this->db->exec("ALTER TABLE {$qiT} ALTER COLUMN {$qiU} SET DEFAULT CURRENT_TIMESTAMP({$precision})");
+
+        // trigger pro auto-update updated_at
+        $this->ensureUpdatedAtTrigger($table, $updatedCol, $respectManual);
     }
 
     /**
-     * Přidá/obnoví trigger pro automatický update TIMESTAMP sloupce (default 'updated_at').
-     * (MySQL náhrada za "ON UPDATE CURRENT_TIMESTAMP")
+     * Create or refresh trigger that sets $column = NOW(6) on each row change.
+     * @param bool $respectManual true = preserve explicit updated_at values provided by UPDATE.
      */
-    public function ensureUpdatedAtTrigger(string $table, string $column = 'updated_at'): void
+    public function ensureUpdatedAtTrigger(string $table, string $column = 'updated_at', bool $respectManual = false): void
     {
-        // pojmenujeme předvídatelně, ať lze snadno DROP/CREATE
-        $trg = 'bc_touch_' . strtolower(preg_replace('~\\W+~', '_', $table)) . '_' . strtolower($column);
+        [$schema, $tbl] = $this->splitSchemaAndName($table);
 
-        // 1) pokud sloupec neexistuje, tiše skonči
+        // Validuj existenci sloupce (schema-aware).
         $exists = (bool)$this->db->fetchOne(
             "SELECT 1
              FROM information_schema.columns
-             WHERE table_schema = ANY (current_schemas(true))
-               AND lower(table_name) = lower(:t)
-               AND lower(column_name) = lower(:c)
+             WHERE lower(table_name)=lower(:t)
+               AND lower(column_name)=lower(:c)
+               AND (:s IS NULL OR table_schema = :s)
              LIMIT 1",
-            [':t'=>$table, ':c'=>$column]
+            [':t'=>$tbl, ':c'=>$column, ':s'=>$schema]
         );
-        if (!$exists) return;
+        if (!$exists) {
+            return;
+        }
 
-        // 2) nahodíme trigger (DROP IF EXISTS je až od PG 14 pro TRIGGER; obejdeme přes katalog)
+        $trg = $this->safeTriggerName('bc_touch_' . $tbl . '_' . $column);
         $this->dropTriggerIfExists($trg, $table);
 
-        $qiT = $this->db->quoteIdent($table);
-        $qiTr= $this->db->quoteIdent($trg);
-        $this->db->exec("CREATE TRIGGER {$qiTr}
-                         BEFORE UPDATE ON {$qiT}
-                         FOR EACH ROW
-                         WHEN (OLD.{$this->db->quoteIdent($column)} IS DISTINCT FROM NEW.{$this->db->quoteIdent($column)})
-                         EXECUTE FUNCTION bc_compat.tg_touch_updated_at()");
+        $qiT  = $this->qi($table);
+        $qiTr = $this->qid($trg);
+        $fn   = $respectManual ? 'bc_compat.tg_touch_updated_at_if_unmodified' : 'bc_compat.tg_touch_updated_at';
+
+        // Fire only when the row actually changes (replacement for MySQL ON UPDATE).
+        $this->db->exec("
+            CREATE TRIGGER {$qiTr}
+            BEFORE UPDATE ON {$qiT}
+            FOR EACH ROW
+            WHEN (OLD IS DISTINCT FROM NEW)
+            EXECUTE FUNCTION {$fn}()
+        ");
     }
 
     /**
-     * Doplní generovaný bytea sloupec z UUID textu – MySQL styl „uuid_bin“ (STORED).
-     * Implementace bez pgcrypto: ('\\x'||replace(uuid,'-',''))::bytea
+     * Add integer row_version (DEFAULT 0) plus trigger that increments it on each UPDATE.
      */
-    public function ensureUuidBinComputed(string $table, string $uuidCol = 'uuid', string $uuidBinCol = 'uuid_bin'): void
+    public function ensureRowVersion(string $table, string $column = 'row_version'): void
     {
-        $qiT  = $this->db->quoteIdent($table);
-        $qiU  = $this->db->quoteIdent($uuidCol);
-        $qiUB = $this->db->quoteIdent($uuidBinCol);
+        [$schema, $tbl] = $this->splitSchemaAndName($table);
 
-        // přidej sloupec, pokud chybí
+        $qiT  = $this->qi($table);
+        $qiV  = $this->qid($column);
+
         $colExists = (bool)$this->db->fetchOne(
             "SELECT 1
              FROM information_schema.columns
-             WHERE table_schema = ANY (current_schemas(true))
-               AND lower(table_name)=lower(:t) AND lower(column_name)=lower(:c)
+             WHERE lower(table_name)=lower(:t)
+               AND lower(column_name)=lower(:c)
+               AND (:s IS NULL OR table_schema = :s)
              LIMIT 1",
-            [':t'=>$table, ':c'=>$uuidBinCol]
+            [':t'=>$tbl, ':c'=>$column, ':s'=>$schema]
         );
+
         if (!$colExists) {
-            $this->db->exec(
-                "ALTER TABLE {$qiT}
-                 ADD COLUMN {$qiUB} bytea
-                 GENERATED ALWAYS AS (('\\x' || replace({$qiU}::text, '-', ''))::bytea) STORED"
-            );
+            $this->db->exec("ALTER TABLE {$qiT} ADD COLUMN {$qiV} integer NOT NULL DEFAULT 0");
+        } else {
+            $this->db->exec("ALTER TABLE {$qiT} ALTER COLUMN {$qiV} SET DEFAULT 0");
         }
 
-        // volitelný unikátní index (pokud používáš v MySQL)
-        $this->db->exec(
-            "CREATE UNIQUE INDEX IF NOT EXISTS ux_{$this->safeIdent($table)}_{$this->safeIdent($uuidBinCol)}
-             ON {$qiT} ({$qiUB})"
-        );
+        $trg  = $this->safeTriggerName('bc_incver_' . $tbl . '_' . $column);
+        $qiTr = $this->qid($trg);
+
+        $this->dropTriggerIfExists($trg, $table);
+
+        $this->db->exec("
+            CREATE TRIGGER {$qiTr}
+            BEFORE UPDATE ON {$qiT}
+            FOR EACH ROW
+            WHEN (OLD IS DISTINCT FROM NEW)
+            EXECUTE FUNCTION bc_compat.tg_inc_row_version()
+        ");
     }
 
-    /** Doporučené init příkazy pro Database::init(['init_commands'=>…]) */
+    /**
+     * Fast row touch – set updated_at = NOW(p) for given PK values.
+     * Returns number of affected rows.
+     */
+    public function touch(
+        string $table,
+        array $ids,
+        string $pk = 'id',
+        string $updatedCol = 'updated_at',
+        int $precision = 6
+    ): int {
+        if (!$ids) return 0;
+
+        $precision = $this->clampPrecision($precision);
+        $qiT = $this->qi($table);
+        $qiU = $this->qid($updatedCol);
+
+        [$inSql, $params] = $this->db->inClause($this->qid($pk), $ids, 'p', 500);
+        return $this->db->exec("UPDATE {$qiT} SET {$qiU} = CURRENT_TIMESTAMP({$precision}) WHERE {$inSql}", $params);
+    }
+
+    /**
+     * Ensure a generated uuid_bin (BYTEA) column from textual UUID plus unique index.
+     * - Useful for faster comparisons and indexing of UUIDs.
+     */
+    public function ensureUuidBinComputed(string $table, string $uuidCol = 'uuid', string $uuidBinCol = 'uuid_bin'): void
+    {
+        [$schema, $tbl] = $this->splitSchemaAndName($table);
+
+        $qiT  = $this->qi($table);
+        $qiU  = $this->qid($uuidCol);
+        $qiUB = $this->qid($uuidBinCol);
+
+        $colExists = (bool)$this->db->fetchOne(
+            "SELECT 1
+             FROM information_schema.columns
+             WHERE lower(table_name)=lower(:t)
+               AND lower(column_name)=lower(:c)
+               AND (:s IS NULL OR table_schema = :s)
+             LIMIT 1",
+            [':t'=>$tbl, ':c'=>$uuidBinCol, ':s'=>$schema]
+        );
+        if (!$colExists) {
+            $this->db->exec("
+                ALTER TABLE {$qiT}
+                ADD COLUMN {$qiUB} bytea
+                GENERATED ALWAYS AS (('\\x' || replace({$qiU}::text, '-', ''))::bytea) STORED
+            ");
+        }
+
+        $idxName = $this->safeTriggerName('ux_' . $this->safeIdent($tbl) . '_' . $this->safeIdent($uuidBinCol));
+        $qiIdx   = $this->qid($idxName);
+
+        $this->db->exec("
+            CREATE UNIQUE INDEX IF NOT EXISTS {$qiIdx}
+            ON {$qiT} ({$qiUB})
+        ");
+    }
+
+    /** @return list<string> Recommended initialization statements per session. */
     public function recommendedInitCommands(): array
     {
         return [
             "SET TIME ZONE 'UTC'",
-            // dovol používat bc_compat bez kvalifikace: SELECT last_insert_id()
             "SET search_path = public, bc_compat",
         ];
     }
 
-    /* ---------------- interní utilitky ---------------- */
+    /* =======================================================================
+     *  INTERNALS
+     * ======================================================================= */
 
+    /** Schema-aware DROP TRIGGER IF EXISTS implemented manually for PG syntax limitations. */
     private function dropTriggerIfExists(string $trigger, string $table): void
     {
+        [$schema, $tbl] = $this->splitSchemaAndName($table);
+
         $row = $this->db->fetch(
             "SELECT 1
-             FROM pg_trigger t
-             JOIN pg_class c ON c.oid=t.tgrelid
-             JOIN pg_namespace n ON n.oid=c.relnamespace
-             WHERE NOT t.tgisinternal
-               AND lower(t.tgname)=lower(:tr)
-               AND c.relname = :tbl
-               AND n.nspname = ANY (current_schemas(true))
-             LIMIT 1",
-            [':tr'=>$trigger, ':tbl'=>$table]
+            FROM pg_trigger t
+            JOIN pg_class   c ON c.oid = t.tgrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE NOT t.tgisinternal
+              AND lower(t.tgname) = lower(:tr)
+              AND lower(c.relname) = lower(:tbl)
+              AND (:s IS NULL OR n.nspname = :s)
+            LIMIT 1",
+            [':tr'=>$trigger, ':tbl'=>$tbl, ':s'=>$schema]
         );
+
         if ($row) {
-            $qiT  = $this->db->quoteIdent($table);
-            $qiTr = $this->db->quoteIdent($trigger);
+            $qiT  = $this->qi($table);
+            $qiTr = $this->qid($trigger);
             $this->db->exec("DROP TRIGGER {$qiTr} ON {$qiT}");
         }
     }
 
+    /** Safely quote schema-qualified names (split "schema.table" → "schema"."table"). */
+    private function qi(string $ident): string
+    {
+        $parts = \explode('.', $ident);
+        return \implode('.', \array_map(fn($p) => $this->qid($p), $parts));
+    }
+
+    /** Quote a single identifier with fallback + trim existing quotes. */
+    private function qid(string $name): string
+    {
+        $raw = $this->stripQuotes($name);
+        try {
+            // Prefer driver-aware quoting when the DB provides custom logic
+            return $this->db->quoteIdent($raw);
+        } catch (\Throwable) {
+            // Fallback pro PostgreSQL: "..."
+            return '"' . \str_replace('"','""',$raw) . '"';
+        }
+    }
+
+    /** Return [schema|null, table]; accepts 'schema.table' or plain 'table'. */
+    private function splitSchemaAndName(string $table): array
+    {
+        $parts = \explode('.', $table, 2);
+        if (\count($parts) === 2) {
+            return [$this->stripQuotes($parts[0]), $this->stripQuotes($parts[1])];
+        }
+        return [null, $this->stripQuotes($parts[0])];
+    }
+
+    /** PG identifier limit is 63 bytes. */
+    private function safeTriggerName(string $name): string
+    {
+        $n = $this->safeIdent($name);
+        return \strlen($n) > 63 ? \substr($n, 0, 63) : $n;
+    }
+
+    /** Normalizace na [a-z0-9_]+, lowercased. */
     private function safeIdent(string $s): string
     {
-        return strtolower(preg_replace('~[^a-z0-9_]+~i', '_', $s));
+        $x = \preg_replace('~[^a-z0-9_]+~i', '_', $s) ?? $s;
+        return \strtolower(\trim($x, '_'));
+    }
+
+    /** Precision clamp (0..6). */
+    private function clampPrecision(int $precision): int
+    {
+        return \max(0, \min(6, $precision));
+    }
+
+    /** Remove surrounding quotes "..." (when user supplies quoted input). */
+    private function stripQuotes(string $id): string
+    {
+        $id = \trim($id);
+        if (\strlen($id) >= 2 && $id[0] === '"' && \substr($id, -1) === '"') {
+            return \substr($id, 1, -1);
+        }
+        return $id;
     }
 }

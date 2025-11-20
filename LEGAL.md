@@ -1,26 +1,26 @@
 # Legal / Company Details
 
-**Obchodné meno:** Black Cat Academy s. r. o.  
-**Oddiel:** Sro  
-**Vložka číslo:** 81922/L  
+**Company name:** Black Cat Academy s. r. o.  
+**Registry section:** Sro  
+**Entry number:** 81922/L  
 
-**Sídlo:**  
-Dolná ulica 1C  
+**Registered office:**  
+Dolna ulica 1C  
 Kunerad 013 13  
 
-**IČO:** 55 396 461  
-**Deň zápisu:** 21.04.2023  
-**Právna forma:** Spoločnosť s ručením obmedzeným  
+**Company ID (ICO):** 55 396 461  
+**Date of registration:** 21 April 2023  
+**Legal form:** Limited Liability Company  
 
-**Spoločníci:**  
-- Vit Black — Vklad: 2 500 EUR (Splatené: 2 500 EUR)  
-- Jaine Black — Vklad: 2 500 EUR (Splatené: 2 500 EUR)  
+**Shareholders:**  
+- Vit Black — Contribution: 2 500 EUR (Paid: 2 500 EUR)  
+- Jaine Black — Contribution: 2 500 EUR (Paid: 2 500 EUR)  
 
-**Štatutárny orgán (konatelia):**  
+**Statutory directors:**  
 - Vit Black  
 - Jaine Black  
-*Konanie menom spoločnosti:* V mene spoločnosti koná a podpisuje každý konateľ samostatne.
+*Acting on behalf of the company:* Each director acts and signs independently.
 
-**Výška základného imania:** 5 000 EUR (Rozsah splatenia: 5 000 EUR)
+**Registered capital:** 5 000 EUR (Paid-in amount: 5 000 EUR)
 
-**Kontakt pre licencovanie:** blackcatacademy@protonmail.com
+**Licensing contact:** blackcatacademy@protonmail.com

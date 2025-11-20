@@ -1,501 +1,485 @@
 @{
   File = 'src/Repository/[[ENTITY_CLASS]]Repository.php'
   Tokens = @(
-    'NAMESPACE','ENTITY_CLASS','UPSERT_KEYS_ARRAY','UPSERT_UPDATE_COLUMNS_ARRAY','DATABASE_FQN'
-  )
+   'NAMESPACE','ENTITY_CLASS','DTO_CLASS',
+   'UPSERT_KEYS_ARRAY','UPSERT_UPDATE_COLUMNS_ARRAY','DATABASE_FQN','UNIQUE_HELPERS'
+ )
   Content = @'
 <?php
 declare(strict_types=1);
 
 namespace [[NAMESPACE]]\Repository;
 
-use [[DATABASE_FQN]];
+use [[DATABASE_FQN]] as Database;              // e.g. BlackCat\Core\Database
 use [[NAMESPACE]]\Definitions;
 use [[NAMESPACE]]\Criteria;
+use [[NAMESPACE]]\Dto\[[DTO_CLASS]] as Dto;
+use [[NAMESPACE]]\Mapper\[[DTO_CLASS]]Mapper as RowMapper;
 use BlackCat\Database\Contracts\ContractRepository as RepoContract;
+use BlackCat\Database\Contracts\KeysetRepository as KeysetRepoContract;
 use BlackCat\Database\Support\OrderByTools;
+use BlackCat\Database\Support\SqlIdentifier as Ident;
+use BlackCat\Database\Support\PkTools;
+use BlackCat\Database\Support\LockMode;
+use BlackCat\Database\Support\KeysetPaginator;
+use BlackCat\Database\Support\UpsertBuilder;
+use BlackCat\Database\Support\RepositoryHelpers;
 
-final class [[ENTITY_CLASS]]Repository implements RepoContract {
-    use OrderByTools;
-    public function __construct(private Database $db) {}
+final class [[ENTITY_CLASS]]Repository implements RepoContract, KeysetRepoContract
+{
+    use OrderByTools, PkTools, RepositoryHelpers;
 
-    /** Whitelist validních sloupců proti mass-assignmentu */
-    private function filterCols(array $row): array {
-        $out = [];
-        foreach ($row as $k=>$v) {
-            if (Definitions::hasColumn($k)) { $out[$k] = $v; }
-        }
-        return $out;
-    }
-
-    private function qi(string $ident): string
-    {
-        $parts = explode('.', $ident);
-        if ($this->db->isMysql()) {
-            return implode('.', array_map(fn($p) => "`$p`", $parts));
-        }
-        return implode('.', array_map(fn($p) => '"' . $p . '"', $parts));
-    }
-
-    /** Quote single identifier; pokud omylem přijde 't.col', deleguje na qi(). */
-    private function q(string $id): string
-    {
-        if (str_contains($id, '.')) {
-            // bezpečný fallback – nechá quoted i alias + sloupec
-            return $this->qi($id);
-        }
-        return $this->db->isMysql() ? "`$id`" : '"' . $id . '"';
-    }
-
-    private function softGuard(string $alias = 't'): string {
-        $soft = Definitions::softDeleteColumn();
-        if (!$soft) return '1=1';
-        $id = $alias !== '' ? "{$alias}.{$soft}" : $soft;
-        return $this->qi($id) . ' IS NULL';
-    }
-
-    /** Zjistí zda 'version' sloupec je číselný (bez závislosti na test-harnessu). */
-    private function isNumericVersion(): bool {
-        return Definitions::versionIsNumeric();
-    }
-
-    private function normalizeInputRow(array $row): array {
-        $aliases = Definitions::paramAliases();
-        if (!$aliases) return $row;
-        foreach ($aliases as $alias => $col) {
-            if (array_key_exists($alias, $row) && !array_key_exists($col, $row)) {
-                $row[$col] = $row[$alias];
-            }
-            unset($row[$alias]); // aliasy pryč, ať k PDO nejdou
-        }
-        return $row;
-    }
-
-    // ============ PK HELPERS (podpora složených PK) ============
-    /** @return string[] */
-    private function pkColumns(): array {
-        if (method_exists(Definitions::class, 'pkColumns')) {
-            $cols = Definitions::pkColumns();
-            return array_values(array_map('strval', $cols));
-        }
-        return [Definitions::pk()];
-    }
+    public function __construct(private readonly Database $db) {}
 
     /**
-     * Převede $id na asociativní mapu ['col' => value] pro jednoduché i složené PK.
-     * - scalar pro 1-sloupcový PK
-     * - poziční pole [val1, val2] podle pořadí sloupců PK
-     * - asociativní pole ['col1'=>v1,'col2'=>v2]
-     * @param int|string|array $id
-     * @return array<string, mixed>
+     * Optionally override the Definitions FQN – trait otherwise infers it from the repository FQN.
      */
-    private function normalizePkInput(int|string|array $id): array {
-        $cols = $this->pkColumns();
-        if (!is_array($id)) {
-           if (count($cols) !== 1) {
-                throw new \InvalidArgumentException('Composite PK vyžaduje pole hodnot (poziční nebo asociativní).');
-            }
-            return [ $cols[0] => $id ];
-        }
-        // asociativní vs poziční
-        $isAssoc = array_keys($id) !== range(0, count($id) - 1);
-        if ($isAssoc) {
-            $out = [];
-            foreach ($cols as $c) {
-                if (!array_key_exists($c, $id)) {
-                    throw new \InvalidArgumentException("Chybí hodnota pro PK sloupec '{$c}'.");
-                }
-                $out[$c] = $id[$c];
-            }
-            return $out;
-        }
-        if (count($id) !== count($cols)) {
-            throw new \InvalidArgumentException('Počet hodnot v pozičním poli neodpovídá počtu PK sloupců.');
-        }
-        $out = [];
-        foreach ($cols as $i => $c) { $out[$c] = $id[$i]; }
-        return $out;
+    protected function def(): string { return \[[NAMESPACE]]\Definitions::class; }
+
+    /** @return array<string,mixed>|Dto|null */
+    private function mapReturn(?array $row, bool $asDto): array|Dto|null {
+        if (!$asDto || !$row) return $row;
+        return RowMapper::fromRow($row);
     }
 
-    /**
-     * Sestaví WHERE výraz pro PK a plní $params (placeholdery :pk_<col>).
-     * @param string $alias tabulkový alias nebo ''.
-     * @param array<string,mixed> $idMap
-     */
-    private function buildPkWhere(string $alias, array $idMap, array &$params, string $phPrefix = 'pk_'): string {
-        $parts = [];
-        foreach ($idMap as $col => $val) {
-            $colId = $alias !== '' ? "{$alias}.{$col}" : $col;
-            $parts[] = $this->qi($colId) . ' = :' . $phPrefix . $col;
-            $params[$phPrefix . $col] = $val;
-        }
-        return implode(' AND ', $parts);
+    /** @return array<string,mixed>|Dto|null */
+    public function getById(int|string|array $id, bool $asDto = false): array|Dto|null {
+        $row = $this->findById($id);
+        return $this->mapReturn($row, $asDto);
     }
 
-    // ============ INSERT / BULK / UPSERT ============
+    // --- INSERT / BULK -------------------------------------------------------
 
-    public function insert(array $row): void {
-        $row = $this->normalizeInputRow($row);
-        $row = $this->filterCols($row);
-        if (!$row) { return; }
+    public function insert(array #[\SensitiveParameter] $row): void {
+        $row = $this->filterCols($this->normalizeInputRow($row));
+        if (!$row) return;
 
-        $cols   = array_keys($row);
-        sort($cols);
-        $place  = array_map(fn($c)=>":".$c, $cols);
+        $cols = array_keys($row); sort($cols);
+        $tbl  = Ident::qi($this->db, Definitions::table());
+        $colSql = implode(',', array_map(fn($c) => Ident::q($this->db, $c), $cols));
+        $phSql  = implode(',', array_map(fn($c) => ':' . $c, $cols));
 
-        // --- escapování identifikátorů
-        $colsEsc = implode(',', array_map(fn($c) => $this->q($c), $cols));
-
-        // Tabulku quotuj přes qi() (bezpečné i pro schema.table)
-        $tbl     = Definitions::table();
-        $tblEsc  = $this->qi($tbl);
-
-        $sql   = "INSERT INTO {$tblEsc} ($colsEsc) VALUES (".implode(',', $place).")";
-
-        // do params posíláme klíče BEZ dvojtečky
-        $params = [];
-        foreach ($cols as $c) { $params[$c] = $row[$c]; }
-
-        $this->db->execute($sql, $params);
+        $this->db->execute("INSERT INTO {$tbl} ({$colSql}) VALUES ({$phSql})", $row);
     }
 
     public function insertMany(array $rows): void {
-        // 1) normalizace + whitelist + drop prázdných řádků
         $rows = array_values(array_filter(
             array_map(fn($r) => $this->filterCols($this->normalizeInputRow($r)), $rows),
             fn($r) => !empty($r)
         ));
         if (!$rows) return;
 
-        // 2) sjednocení sloupců napříč všemi řádky
-        $colSet = [];
-        foreach ($rows as $r) {
-            foreach ($r as $k => $_) { $colSet[$k] = true; }
-        }
-        $cols = array_keys($colSet);
-
-        // --- escapování identifikátorů + deterministické pořadí sloupců
+        // unify columns across rows (missing entries -> NULL)
+        $cols = array_keys(array_reduce($rows, fn($a,$r)=>$a + array_fill_keys(array_keys($r),true), []));
         sort($cols);
-        $tbl     = Definitions::table();
-        $tblEsc  = $this->qi($tbl);
-        $colsEsc = implode(',', array_map(fn($c) => $this->q($c), $cols));
 
-        // 3) postav placeholdery + parametry (missing -> NULL)
-        $allPlace = [];
-        $params = [];
-        $i=0;
-        foreach ($rows as $r) {
-            $place = [];
-            foreach ($cols as $c) {
-                $ph  = ':p_'.$i.'_'.$c;   // placeholder se „:“ patří do SQL
-                $key =  'p_'.$i.'_'.$c;   // klíč v $params bez „:“
-                $place[]      = $ph;
-                $params[$key] = $r[$c] ?? null;
+        $tbl    = Ident::qi($this->db, Definitions::table());
+        $colSql = implode(',', array_map(fn($c)=>Ident::q($this->db,$c), $cols));
+
+        // conservative upper bound on parameters per INSERT
+        $maxParams = 32000;
+        $perRow    = max(1, count($cols));
+        $chunkSize = max(1, intdiv($maxParams, $perRow));
+
+        for ($o = 0; $o < count($rows); $o += $chunkSize) {
+            $slice  = array_slice($rows, $o, $chunkSize);
+            $valuesSql = [];
+            $params    = [];
+            $i = 0;
+            foreach ($slice as $r) {
+                $ph=[]; foreach ($cols as $c) { $k="p_{$o}_{$i}_{$c}"; $ph[]=":{$k}"; $params[$k]=$r[$c]??null; }
+                $valuesSql[]='('.implode(',', $ph).')'; $i++;
             }
-            $allPlace[] = '('.implode(',', $place).')';
-            $i++;
+            $this->db->execute("INSERT INTO {$tbl} ({$colSql}) VALUES ".implode(',', $valuesSql), $params);
         }
-
-        $sql = "INSERT INTO {$tblEsc} ($colsEsc) VALUES ".implode(',', $allPlace);
-        $this->db->execute($sql, $params);
     }
 
-    /**
-     * Dialekt-safe UPSERT (MySQL ON DUPLICATE KEY / Postgres ON CONFLICT).
-     * [[UPSERT_KEYS_ARRAY]] = unikátní klíče (sloupce) pro konflikty,
-     * [[UPSERT_UPDATE_COLUMNS_ARRAY]] = které sloupce aktualizovat.
-     */
-    public function upsert(array $row): void {
-        $row = $this->normalizeInputRow($row);
-        $row = $this->filterCols($row);
+    // --- UPSERT (including "revive" mode) ---------------------------------------
+
+    /** Internal helper: apply the "revive" policy (soft-delete -> NULL) before buildRow(). */
+    private function applyUpsertRevivePolicy(array $row, array $updateCols, bool $revive): array
+    {
+        if (!$revive) {
+            return [$row, $updateCols];
+        }
+        $soft = Definitions::softDeleteColumn();
+        if ($soft) {
+            // CLEAR: deleted_at = NULL on conflict
+            $row[$soft] = null;
+            if (!in_array($soft, $updateCols, true)) {
+                $updateCols[] = $soft;
+            }
+        }
+        return [$row, $updateCols];
+    }
+
+    /** Standard upsert – preserves soft-delete (no revive). */
+    public function upsert(array #[\SensitiveParameter] $row): void
+    {
+        $this->doUpsert($row, false);
+    }
+
+    /** Upsert that revives soft-delete (sets deleted_at = NULL on conflict). */
+    public function upsertRevive(array #[\SensitiveParameter] $row): void
+    {
+        $this->doUpsert($row, true);
+    }
+
+    /** Internal helper for both modes; when $revive = true it clears deleted_at on conflict. */
+    private function doUpsert(array $row, bool $revive): void
+    {
+        $row  = $this->filterCols($this->normalizeInputRow($row));
         if (!$row) return;
 
         $keys = [[UPSERT_KEYS_ARRAY]];
-        $upd  = [[UPSERT_UPDATE_COLUMNS_ARRAY]];
-
         if (!$keys) {
             $uqs = Definitions::uniqueKeys();
-            if (is_array($uqs) && isset($uqs[0]) && is_array($uqs[0]) && count($uqs[0]) > 0) {
-                $keys = $uqs[0];
-            } else {
-                $keys = $this->pkColumns(); // fallback na PK (včetně composite)
-            }
+            $keys = (is_array($uqs) && isset($uqs[0]) && is_array($uqs[0]) && $uqs[0]) ? $uqs[0] : $this->pkColumns(Definitions::class);
         }
 
-        // --- připrav sloupce/parametry
-        $cols  = array_keys($row);
-        sort($cols);
-        $place = array_map(fn($c)=>":".$c, $cols);
+        $updCols = [[UPSERT_UPDATE_COLUMNS_ARRAY]];
+        $updCols = array_values(array_diff($updCols, array_merge($this->pkColumns(Definitions::class), $keys)));
 
-        $params = [];
-        foreach ($cols as $c) { $params[$c] = $row[$c]; }
+        // Revive policy
+        [$row, $updCols] = $this->applyUpsertRevivePolicy($row, $updCols, $revive);
 
-        $isMysql = $this->db->isMysql();
-        $tbl     = Definitions::table();
-        $tblEsc  = $this->qi($tbl);
-
-        $colsEscIns = implode(',', array_map(fn($c) => $this->q($c), $cols));
-        $colsEscKeys= implode(',', array_map(fn($c) => $this->q($c), $keys));
-
-        // --- nikdy neupdatuj PK/konfliktní sloupce v DO UPDATE
-        $pkCols = $this->pkColumns();
-        $upd = array_values(array_diff($upd, array_merge($pkCols, $keys)));
-
-        // --- sestav UPDATE seznamy
-        $colSet   = array_fill_keys($cols, true);
-        $mysqlUpd = [];
-        $pgUpd    = [];
-
-        foreach ($upd as $c) {
-            if (!Definitions::hasColumn($c)) { continue; }
-            if ($isMysql) {
-                if (isset($colSet[$c])) { $mysqlUpd[] = $this->q($c) . ' = VALUES(' . $this->q($c) . ')'; }
-            } else {
-                if (isset($colSet[$c])) { $pgUpd[] = $this->q($c) . ' = EXCLUDED.' . $this->q($c); }
-            }
-        }
-
-        // updated_at automaticky (pokud existuje a není už v seznamu)
-        $updAt = Definitions::updatedAtColumn();
-        if ($updAt) {
-            if ($isMysql) {
-                if (!in_array($updAt, $upd, true)) { $mysqlUpd[] = $this->q($updAt) . ' = CURRENT_TIMESTAMP'; }
-            } else {
-                if (!in_array($updAt, $upd, true)) { $pgUpd[] = $this->q($updAt) . ' = CURRENT_TIMESTAMP'; }
-            }
-        }
-
-        if ($isMysql) {
-            // MySQL vyžaduje nějaký UPDATE výraz – když není co updatovat, udělej no-op přes PK
-            if (!$mysqlUpd) {
-                $firstPk = $pkCols[0] ?? Definitions::pk();
-                $mysqlUpd[] = $this->q($firstPk) . ' = ' . $this->q($firstPk);
-            }
-            $sql = "INSERT INTO {$tblEsc} ($colsEscIns) VALUES (".implode(',', $place).")"
-                . " ON DUPLICATE KEY UPDATE " . implode(',', $mysqlUpd);
-        } else {
-            // Postgres: když není co updatovat → DO NOTHING (žádné '\"id\" = \"id\"' – to dělá ambiguitu)
-            if ($pgUpd) {
-                $sql = "INSERT INTO {$tblEsc} ($colsEscIns) VALUES (".implode(',', $place).")"
-                    . " ON CONFLICT ($colsEscKeys) DO UPDATE SET " . implode(',', $pgUpd);
-            } else {
-                $sql = "INSERT INTO {$tblEsc} ($colsEscIns) VALUES (".implode(',', $place).")"
-                    . " ON CONFLICT ($colsEscKeys) DO NOTHING";
-            }
-        }
-
+        [$sql, $params] = UpsertBuilder::buildRow(
+            $this->db,
+            Definitions::table(),
+            $row,
+            $keys,
+            $updCols,
+            Definitions::updatedAtColumn()
+        );
         $this->db->execute($sql, $params);
     }
 
-    // ============ UPDATE / DELETE / RESTORE ============
+    /** Upsert by keys – default behavior keeps soft-delete. */
+    public function upsertByKeys(array $row, array $keys, array $updateColumns = []): void
+    {
+        $this->doUpsertByKeys($row, $keys, $updateColumns, false);
+    }
 
-    public function updateById(int|string|array $id, array $row): int {
-        // 0) aliasy → normalizace
+    /** Upsert by keys and revive soft-deleted rows (deleted_at=NULL on conflict). */
+    public function upsertByKeysRevive(array $row, array $keys, array $updateColumns = []): void
+    {
+        $this->doUpsertByKeys($row, $keys, $updateColumns, true);
+    }
+
+    private function doUpsertByKeys(array $row, array $keys, array $updateColumns, bool $revive): void
+    {
+        $row  = $this->filterCols($this->normalizeInputRow($row));
+        if (!$row && !$keys) return;
+
+        // ensure key values exist in the row (fill from provided keys when missing)
+        $isAssoc = $keys && array_keys($keys) !== range(0, count($keys)-1);
+        $keyCols = $isAssoc ? array_keys($keys) : array_values($keys);
+        if ($isAssoc) foreach ($keyCols as $kc) if (!array_key_exists($kc,$row) && array_key_exists($kc,$keys)) $row[$kc]=$keys[$kc];
+
+        $updCols = array_values(array_diff($updateColumns, array_merge($this->pkColumns(Definitions::class), $keyCols)));
+
+        // Revive policy
+        [$row, $updCols] = $this->applyUpsertRevivePolicy($row, $updCols, $revive);
+
+        [$sql, $params] = UpsertBuilder::buildByKeys(
+            $this->db,
+            Definitions::table(),
+            $row,
+            $keyCols,
+            $updCols,
+            Definitions::updatedAtColumn()
+        );
+        $this->db->execute($sql, $params);
+    }
+
+    /** Batch upsert - default (no revive). */
+    public function upsertMany(array $rows): int {
+        $rows = array_values(array_filter(
+            array_map(fn($r) => is_array($r) ? $this->filterCols($this->normalizeInputRow($r)) : null, $rows),
+            fn($r) => !empty($r)
+        ));
+        if (!$rows) { return 0; }
+
+        if (class_exists(\BlackCat\Database\BulkUpsertRepository::class) && [[UPSERT_KEYS_ARRAY]] !== []) {
+            $bulk = new \BlackCat\Database\BulkUpsertRepository($this->db, \[[NAMESPACE]]\Definitions::table());
+            return $bulk->upsertMany($rows, [[UPSERT_KEYS_ARRAY]], [[UPSERT_UPDATE_COLUMNS_ARRAY]]);
+        }
+
+        $n = 0;
+        foreach ($rows as $r) { $this->doUpsert((array)$r, false); $n++; }
+        return $n;
+    }
+
+    /** Batch upsert variant that revives soft-deleted rows. */
+    public function upsertManyRevive(array $rows): int {
+        $rows = array_values(array_filter($rows, 'is_array'));
+        if (!$rows) { return 0; }
+
+        // Revive policy is per row - keep it simple
+        $n = 0;
+        foreach ($rows as $r) { $this->doUpsert((array)$r, true); $n++; }
+        return $n;
+    }
+
+    // --- UPDATE / DELETE / RESTORE ------------------------------------------
+
+    public function updateById(int|string|array $id, array #[\SensitiveParameter] $row): int {
         $row = $this->normalizeInputRow($row);
 
-        $tbl     = Definitions::table();
-        $tblEsc  = $this->qi($tbl);
+        $tbl   = Ident::qi($this->db, Definitions::table());
+        $pkCols= $this->pkColumns(Definitions::class);
+        $idMap = $this->normalizePkInput($id, $pkCols);
 
-        $pkCols = $this->pkColumns();
-        $pkSet  = array_fill_keys($pkCols, true);
         $verCol = Definitions::versionColumn();
         $updAt  = Definitions::updatedAtColumn();
 
-        // 1) expected version vytáhnout PŘED filtrem
-        $hasExpectedVersion = false;
-        $expectedVersion    = null;
-        if ($verCol && array_key_exists($verCol, $row)) {
-            $expectedVersion = is_numeric($row[$verCol]) ? (int)$row[$verCol] : $row[$verCol];
-            unset($row[$verCol]);
-            $hasExpectedVersion = true;
-        }
+        $hasExpectedVersion = $verCol && array_key_exists($verCol, $row);
+        $expectedVersion = $hasExpectedVersion ? $row[$verCol] : null;
+        if ($hasExpectedVersion) unset($row[$verCol]);
 
-        // 2) whitelisting vstupních sloupců
         $row = $this->filterCols($row);
 
-        $params = [];
-        $idMap  = $this->normalizePkInput($id);
+        $params  = [];
         $wherePk = $this->buildPkWhere('', $idMap, $params, 'pk_');
-        $assign = [];
 
-        // ===== Optimistic locking přes WHERE =====
-        if ($verCol && $hasExpectedVersion) {
-            $verEsc = $this->q($verCol);
+        $pkSet   = array_fill_keys($pkCols, true);
+        $assign  = [];
 
-            // payload sloupce
-            foreach ($row as $k => $v) {
-                if (isset($pkSet[$k])) continue;
-                $assign[]   = $this->q($k) . ' = :' . $k;
-                $params[$k] = $v;
-            }
-
-            // vždy bump verze
-            if ($this->isNumericVersion()) {
-                $assign[] = $verEsc . ' = ' . $verEsc . ' + 1';
-            }
-
-            // updated_at pokud není v payloadu
-            if ($updAt && !array_key_exists($updAt, $row)) {
-                $assign[] = $this->q($updAt) . ' = CURRENT_TIMESTAMP';
-            }
-
-            if (empty($assign)) return 0;
-            $params['expected_version'] = $expectedVersion;
-
-            $sql = 'UPDATE ' . $tblEsc
-                . ' SET ' . implode(', ', $assign)
-                . ' WHERE ' . $wherePk . ' AND ' . $verEsc . ' = :expected_version';
-
-            return $this->db->execute($sql, $params);
-        }
-
-        // ===== Klasický update bez optimistic verze =====
+        // payload columns (excluding PK)
         foreach ($row as $k => $v) {
             if (isset($pkSet[$k])) continue;
-            $assign[]   = $this->q($k) . " = :$k";
-            $params[$k] = $v;
+            $assign[]     = Ident::q($this->db, $k) . ' = :' . $k;
+            $params[$k]   = $v;
         }
-        $hasPayloadChange = !empty($assign);
 
-        if ($verCol && $hasPayloadChange && $this->isNumericVersion()) {
-            $assign[] = $this->q($verCol) . ' = ' . $this->q($verCol) . ' + 1';
+        // touch – verze/updated_at
+        if ($verCol && $this->isNumericVersion()) {
+            $assign[] = Ident::q($this->db, $verCol) . ' = ' . Ident::q($this->db, $verCol) . ' + 1';
         }
         if ($updAt && !array_key_exists($updAt, $row)) {
-            $assign[] = $this->q($updAt) . " = CURRENT_TIMESTAMP";
+            $assign[] = Ident::q($this->db, $updAt) . ' = CURRENT_TIMESTAMP';
         }
-        if (empty($assign)) return 0;
 
-        $sql = "UPDATE {$tblEsc} SET " . implode(', ', $assign) . " WHERE {$wherePk}";
+        if (!$assign) return 0;
+
+        $sql = "UPDATE {$tbl} SET " . implode(', ', $assign) . " WHERE {$wherePk}";
+        if ($verCol && $hasExpectedVersion) {
+            $sql .= ' AND ' . Ident::q($this->db, $verCol) . ' = :expected_version';
+            $params['expected_version'] = is_numeric($expectedVersion) ? (int)$expectedVersion : $expectedVersion;
+        }
+
         return $this->db->execute($sql, $params);
     }
 
     public function deleteById(int|string|array $id): int {
+        $tbl = Ident::qi($this->db, Definitions::table());
+        $pk  = $this->normalizePkInput($id, $this->pkColumns(Definitions::class));
+        $params=[]; $wherePk = $this->buildPkWhere('', $pk, $params, 'pk_');
 
-        $tbl     = Definitions::table();
-        $tblEsc  = $this->qi($tbl);
-        $params  = [];
-        $wherePk = $this->buildPkWhere('', $this->normalizePkInput($id), $params, 'pk_');
-
-        $soft = Definitions::softDeleteColumn();
-        if ($soft) {
-            $updAt  = Definitions::updatedAtColumn();
-
-            $setParts = [ $this->q($soft) . ' = CURRENT_TIMESTAMP' ];
-            if ($updAt && $updAt !== $soft) {
-                $setParts[] = $this->q($updAt) . ' = CURRENT_TIMESTAMP';
+        if ($soft = Definitions::softDeleteColumn()) {
+            $set = Ident::q($this->db, $soft) . ' = CURRENT_TIMESTAMP';
+            if (($updAt = Definitions::updatedAtColumn()) && $updAt !== $soft) {
+                $set .= ', ' . Ident::q($this->db, $updAt) . ' = CURRENT_TIMESTAMP';
             }
-            $set = implode(', ', $setParts);
-
-            return $this->db->execute("UPDATE {$tblEsc} SET {$set} WHERE {$wherePk}", $params);
+            return $this->db->execute("UPDATE {$tbl} SET {$set} WHERE {$wherePk}", $params);
         }
-
-        return $this->db->execute("DELETE FROM {$tblEsc} WHERE {$wherePk}", $params);
+        return $this->db->execute("DELETE FROM {$tbl} WHERE {$wherePk}", $params);
     }
 
     public function restoreById(int|string|array $id): int {
+        $tbl = Ident::qi($this->db, Definitions::table());
+        $pk  = $this->normalizePkInput($id, $this->pkColumns(Definitions::class));
+        $params=[]; $wherePk = $this->buildPkWhere('', $pk, $params, 'pk_');
 
-        $tbl     = Definitions::table();
-        $tblEsc  = $this->qi($tbl);
-        $params  = [];
-        $wherePk = $this->buildPkWhere('', $this->normalizePkInput($id), $params, 'pk_');
-
-        $soft = Definitions::softDeleteColumn();
-        if (!$soft) return 0;
-
-        $updAt = Definitions::updatedAtColumn();
-
-        $setParts = [ $this->q($soft) . ' = NULL' ];
-        if ($updAt && $updAt !== $soft) {
-            $setParts[] = $this->q($updAt) . ' = CURRENT_TIMESTAMP';
+        $soft = Definitions::softDeleteColumn(); if (!$soft) return 0;
+        $set = Ident::q($this->db, $soft) . ' = NULL';
+        if (($updAt = Definitions::updatedAtColumn()) && $updAt !== $soft) {
+            $set .= ', ' . Ident::q($this->db, $updAt) . ' = CURRENT_TIMESTAMP';
         }
-        $set = implode(', ', $setParts);
-
-        return $this->db->execute("UPDATE {$tblEsc} SET $set WHERE {$wherePk}", $params);
+        return $this->db->execute("UPDATE {$tbl} SET {$set} WHERE {$wherePk}", $params);
     }
 
-    // ============ READ / PAGE / LOCK ============
+    // --- READ / PAGE / LOCK --------------------------------------------------
 
     public function findById(int|string|array $id): ?array {
-        $view = Definitions::contractView();
-        $tbl  = Definitions::table();
-        $viewEsc = $this->qi($view);
-        $tblEsc  = $this->qi($tbl);
-        
-        $params = [];
-        $idMap  = $this->normalizePkInput($id);
+        $view = Ident::qi($this->db, Definitions::contractView());
+        $tbl  = Ident::qi($this->db, Definitions::table());
 
-        // 1) view (s aliasem t)
-        $guardV = $this->softGuard('t');
+        $params=[]; $idMap = $this->normalizePkInput($id, $this->pkColumns(Definitions::class));
+
+        // 1) view
         try {
-            $whereV = $this->buildPkWhere('t', $idMap, $params, 'pk_');
-            $sqlV = "SELECT t.* FROM {$viewEsc} t WHERE {$whereV} AND {$guardV}";
-            $rowsV = $this->db->fetchAll($sqlV, $params);
-            if ($rowsV) return $rowsV[0];
-        } catch (\Throwable $e) { /* fallback níže */ }
+            $where = $this->buildPkWhere('t', $idMap, $params, 'pk_');
+            $rows  = $this->db->fetchAll("SELECT t.* FROM {$view} t WHERE {$where} AND ".$this->softGuard('t'), $params);
+            if ($rows) return $rows[0];
+        } catch (\Throwable) { /* fallback below */ }
 
-        // 2) tabulka (bez aliasu)
-        $guardT = $this->softGuard('');
-        $whereT = $this->buildPkWhere('', $idMap, $params, 'pk_');
-        $sqlT  = "SELECT * FROM {$tblEsc} WHERE {$whereT}";
-        if ($guardT !== '1=1') { $sqlT .= " AND {$guardT}"; }
-        $rowsT = $this->db->fetchAll($sqlT, $params);
-        return $rowsT[0] ?? null;
-    }
-
-    public function exists(string $whereSql = '1=1', array $params = []): bool {
-        $view = Definitions::contractView();
-        $viewEsc = $this->qi($view);
-        $where = '(' . $whereSql . ') AND ' . $this->softGuard();
-        $sql = "SELECT 1 FROM {$viewEsc} t WHERE $where LIMIT 1";
-        return (bool)$this->db->fetchOne($sql, $params);
-    }
-
-    public function count(string $whereSql = '1=1', array $params = []): int {
-        $view = Definitions::contractView();
-        $viewEsc = $this->qi($view);
-        $where = '(' . $whereSql . ') AND ' . $this->softGuard();
-        $sql = "SELECT COUNT(*) FROM {$viewEsc} t WHERE $where";
-        return (int)$this->db->fetchOne($sql, $params);
+        // 2) table fallback
+        $where = $this->buildPkWhere('', $idMap, $params, 'pk_');
+        $sql   = "SELECT * FROM {$tbl} WHERE {$where}";
+        $guard = $this->softGuard('');
+        if ($guard !== '1=1') $sql .= ' AND ' . $guard;
+        return $this->db->fetch($sql, $params) ?: null;
     }
 
     /**
-     * Stránkování přes Criteria (viz Criteria).
-     * Vrací: ['items'=>[], 'total'=>int, 'page'=>int, 'perPage'=>int]
+     * Find multiple rows by a list of primary keys. For composite PK expect maps (['col'=>val,...]).
+     * @param array<int,int|string|array> $ids
+     * @return array<int,array<string,mixed>>
      */
-    public function paginate(object $criteria): array
+    public function findAllByIds(array $ids): array
     {
-        if (!$criteria instanceof Criteria) {
-            throw new \InvalidArgumentException('Expected ' . Criteria::class);
+        if (!$ids) return [];
+        $tbl = Ident::qi($this->db, Definitions::table());
+        $pkCols = $this->pkColumns(Definitions::class);
+        $whereParts = [];
+        $params = [];
+        $i = 0;
+
+        if (count($pkCols) === 1) {
+            // fast path: IN (:p0,:p1,...)
+            $col = Ident::q($this->db, $pkCols[0]);
+            $guard = $this->softGuard('');
+            $all = [];
+            $ids = array_values($ids);
+            $chunk = 1000;
+            for ($o = 0; $o < count($ids); $o += $chunk) {
+                $slice = array_slice($ids, $o, $chunk);
+                $ph=[]; $params=[]; $j=0;
+                foreach ($slice as $v) { $k="p{$o}_{$j}"; $ph[]=":$k"; $params[$k]=$v; $j++; }
+                $sql = "SELECT * FROM {$tbl} WHERE {$col} IN (" . implode(',', $ph) . ")";
+                if ($guard !== '1=1') $sql .= ' AND ' . $guard;
+                $all = array_merge($all, $this->db->fetchAll($sql, $params));
+            }
+            return $all;
         }
-        /** @var Criteria $c */
+
+        foreach ($ids as $id) {
+            $map = $this->normalizePkInput($id, $pkCols);
+            $whereParts[] = '(' . $this->buildPkWhere('', $map, $params, 'b'.$i.'_') . ')';
+            $i++;
+        }
+
+        $sql = "SELECT * FROM {$tbl} WHERE " . implode(' OR ', $whereParts);
+        $guard = $this->softGuard('');
+        if ($guard !== '1=1') $sql .= ' AND ' . $guard;
+
+        return $this->db->fetchAll($sql, $params);
+    }
+
+    /**
+     * Fetch a record by a unique combination (aka "business keys").
+     * @param array<string,mixed> $keyValues assoc: sloupec => hodnota
+     * @return array<string,mixed>|Dto|null
+     */
+    public function getByUnique(array $keyValues, bool $asDto = false): array|Dto|null
+    {
+        if (!$keyValues) return null;
+        $view = Ident::qi($this->db, Definitions::contractView());
+
+        $parts  = [];
+        $params = [];
+        foreach ($keyValues as $col => $val) {
+            $colQ = 't.' . Ident::q($this->db, (string)$col);
+            if ($val === null) {
+                $parts[] = $colQ . ' IS NULL';
+            } else {
+                $ph = 'u_' . $col;
+                $parts[] = $colQ . ' = :' . $ph;
+                $params[$ph] = $val;
+            }
+        }
+        $where = '(' . implode(' AND ', $parts) . ') AND ' . $this->softGuard('t');
+
+        $row = $this->db->fetch("SELECT t.* FROM {$view} t WHERE {$where} LIMIT 1", $params) ?: null;
+        return $this->mapReturn($row, $asDto);
+    }
+
+    public function exists(string $whereSql = '1=1', array $params = []): bool {
+        $view = Ident::qi($this->db, Definitions::contractView());
+        $where = '(' . $whereSql . ') AND ' . $this->softGuard('t');
+        return (bool)$this->db->fetchOne("SELECT 1 FROM {$view} t WHERE {$where} LIMIT 1", $params);
+    }
+
+    public function count(string $whereSql = '1=1', array $params = []): int {
+        $view = Ident::qi($this->db, Definitions::contractView());
+        $where = '(' . $whereSql . ') AND ' . $this->softGuard('t');
+        return (int)$this->db->fetchOne("SELECT COUNT(*) FROM {$view} t WHERE {$where}", $params);
+    }
+
+    /**
+     * @return array{items:array<int,array<string,mixed>>,total:int,page:int,perPage:int}
+     */
+    public function paginate(object $criteria): array {
+        if (!$criteria instanceof Criteria) throw new \InvalidArgumentException('Expected ' . Criteria::class);
         $c = $criteria;
 
         [$where, $params, $order, $limit, $offset, $joins] = $c->toSql(true);
         $where = '(' . $where . ') AND ' . $this->softGuard('t');
-        $order = $order ?: (Definitions::defaultOrder() ?? (Definitions::pk().' DESC'));
+        $order = $order ?: (Definitions::defaultOrder() ?? (Definitions::pk() . ' DESC'));
         $orderSql = $this->buildOrderBy($order, Definitions::columns(), $this->db);
 
-        $view  = Definitions::contractView();
-        $viewEsc = $this->qi($view);
-        $total = (int)$this->db->fetchOne("SELECT COUNT(*) FROM {$viewEsc} t $joins WHERE $where", $params);
-
-        $sqlItems = "SELECT t.* FROM {$viewEsc} t $joins WHERE $where" . ($orderSql !== '' ? ' ' . $orderSql : '')
-          . " LIMIT $limit OFFSET $offset";
-
-        $items = $this->db->fetchAll($sqlItems, $params);
-        return ['items'=>$items,'total'=>$total,'page'=>$c->page(),'perPage'=>$c->perPage()];
+        $view = Ident::qi($this->db, Definitions::contractView());
+        $total = (int)$this->db->fetchOne("SELECT COUNT(*) FROM {$view} t {$joins} WHERE {$where}", $params);
+        $items = $this->db->fetchAll("SELECT t.* FROM {$view} t {$joins} WHERE {$where}" . ($orderSql ? ' '.$orderSql : '') . " LIMIT {$limit} OFFSET {$offset}", $params);
+        return ['items'=>$items, 'total'=>$total, 'page'=>$c->page(), 'perPage'=>$c->perPage()];
     }
 
-    /** Přečtení a zamknutí řádku (tabulka, nikoli view) pro transakční práci */
-    public function lockById(int|string|array $id): ?array {
-        
-        $tbl     = Definitions::table();
-        $tblEsc  = $this->qi($tbl);
-        $params = [];
-        $wherePk = $this->buildPkWhere('', $this->normalizePkInput($id), $params, 'pk_');
-        $rows = $this->db->fetchAll("SELECT * FROM {$tblEsc} WHERE {$wherePk} FOR UPDATE", $params);
-        return $rows[0] ?? null;
+    /** @param 'wait'|'nowait'|'skip_locked' $mode
+     * @param 'update'|'share' $strength
+    */
+    public function lockById(int|string|array $id, string $mode = 'wait', string $strength = 'update'): ?array {
+        $tbl = Ident::qi($this->db, Definitions::table());
+        $params=[]; $where = $this->buildPkWhere('', $this->normalizePkInput($id, $this->pkColumns(Definitions::class)), $params, 'pk_');
+        $guard = $this->softGuard('');
+        $sql = "SELECT * FROM {$tbl} WHERE {$where}";
+        if ($guard !== '1=1') { $sql .= ' AND ' . $guard; }
+
+        $dialect = $this->db->getDialect(); // 'postgres' | 'mysql' | 'mariadb' ...
+        $for = 'FOR UPDATE';
+        if ($strength === 'share') {
+            if ($dialect === 'postgres' || $dialect === 'mysql') { $for = 'FOR SHARE'; }
+            else { $for = 'LOCK IN SHARE MODE'; } // legacy MySQL/MariaDB
+        }
+        $sql .= ' ' . $for . LockMode::compile($this->db, $mode);
+        $row = $this->db->fetch($sql, $params);
+        return $row ?: null;
     }
+
+    // --- Keyset / seek pagination -------------------------------------------
+
+    public function paginateBySeek($criteria, array $order, ?array $cursor, int $limit): array {
+        if (!$criteria instanceof Criteria) throw new \InvalidArgumentException('Expected ' . Criteria::class);
+
+        [$where, $params, /*$orderIgnored*/, /*$lim*/, /*$off*/, $joins] = $criteria->toSql(true);
+        $orderSpec = [
+            'col' => $order['col'],
+            'dir' => strtolower($order['dir'] ?? 'desc'),
+            'pk'  => $order['pk'],
+        ];
+
+        return KeysetPaginator::paginate(
+            $this->db,
+            Definitions::contractView(),
+            $where,
+            $params,
+            $joins,
+            $this->softGuard('t'),
+            $orderSpec,
+            $cursor,
+            $limit
+        );
+    }
+
+    public function existsById(int|string|array $id): bool {
+        $params=[]; $where = $this->buildPkWhere('t', $this->normalizePkInput($id, $this->pkColumns(Definitions::class)), $params, 'pk_');
+        $view = Ident::qi($this->db, Definitions::contractView());
+        $where = '(' . $where . ') AND ' . $this->softGuard('t');
+        return (bool)$this->db->fetchOne("SELECT 1 FROM {$view} t WHERE {$where} LIMIT 1", $params);
+    }
+
+    // === Generated unique helpers (per table UNIQUE/PK) ===
+    [[UNIQUE_HELPERS]]
 }
 '@
 }

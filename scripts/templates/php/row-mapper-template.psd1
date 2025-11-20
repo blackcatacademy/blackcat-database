@@ -19,19 +19,21 @@ declare(strict_types=1);
 namespace [[NAMESPACE]]\Mapper;
 
 use [[NAMESPACE]]\Dto\[[DTO_CLASS]];
-use DateTimeImmutable;
+use [[NAMESPACE]]\Definitions;
 use DateTimeZone;
+use BlackCat\Database\Support\DtoHydrator;
 
 /**
- * Obousměrný mapovač řádek DB <-> DTO:
- * - bezpečné casty dle whitelistů sloupců (bool/int/float/json/date/binary)
- * - mapování názvů sloupců na vlastnosti DTO (COLUMNS_TO_PROPS_MAP)
- * - tolerantní k chybějícím sloupcům (ponechá null)
+ * Bidirectional mapper between DB rows and DTO [[DTO_CLASS]]:
+ * - Casting/JSON/binary/datetime handled by the universal DtoHydrator
+ * - Column -> property mapping is driven by COL_TO_PROP (populated by the generator)
+ * - Tolerant to missing columns (keeps null)
  */
 final class [[DTO_CLASS]]Mapper
 {
-    /** @var array<string,string> */
+    /** @var array<string,string> Column -> DTO property */
     private const COL_TO_PROP = [[COLUMNS_TO_PROPS_MAP]];
+
     /** @var string[] */
     private const BOOL_COLS   = [[BOOL_COLUMNS_ARRAY]];
     /** @var string[] */
@@ -45,151 +47,188 @@ final class [[DTO_CLASS]]Mapper
     /** @var string[] */
     private const BIN_COLS    = [[BINARY_COLUMNS_ARRAY]];
 
+    /** Preferred timezone for parsing/serializing dates */
     private const TZ = '[[TIMEZONE]]';
 
-    private static function colToProp(string $col): string {
-        return self::COL_TO_PROP[$col] ?? $col;
-    }
-    private static function propToCol(string $prop): string {
-        static $rev = null;
-        if ($rev === null) { $rev = array_flip(self::COL_TO_PROP); }
-        return $rev[$prop] ?? $prop;
-    }
+    private static ?DateTimeZone $tzObj = null;
 
-    private static function toBool(mixed $v): ?bool {
-        if ($v === null || $v === '') return null;
-        return match (true) {
-            is_bool($v)   => $v,
-            is_int($v)    => $v !== 0,
-            is_string($v) => $v !== '' && $v !== '0',
-            default       => (bool)$v,
-        };
-    }
-    private static function toInt(mixed $v): ?int {
-        if ($v === null || $v === '') return null;
-        return (int)$v;
-    }
-    private static function toFloat(mixed $v): ?float {
-        if ($v === null || $v === '') return null;
-        return (float)$v;
-    }
-    private static function toDate(mixed $v): ?DateTimeImmutable {
-        if ($v === null || $v === '') return null;
-        $tz = new DateTimeZone(self::TZ);
-        if ($v instanceof DateTimeImmutable) return $v->setTimezone($tz);
-        if (is_int($v) || (is_string($v) && ctype_digit($v))) {
-            return (new DateTimeImmutable('@'.(string)$v))->setTimezone($tz);
+    private static function tz(): DateTimeZone
+    {
+        if (self::$tzObj instanceof DateTimeZone) {
+            return self::$tzObj;
         }
         try {
-            return new DateTimeImmutable((string)$v, $tz);
+            self::$tzObj = new DateTimeZone(self::TZ);
         } catch (\Throwable) {
-            return null; // tolerantní fallback – neházej výjimky
+            self::$tzObj = new DateTimeZone('UTC');
         }
-    }
-
-    private static function decodeJson(mixed $v): ?array {
-        if ($v === null) return null;
-        if (is_array($v)) return $v;
-        if ($v instanceof \stdClass) return (array)$v;
-
-        if (is_string($v)) {
-            $t = trim($v);
-            if ($t === '' || $t === 'null') return null;
-            try {
-                /** @var mixed $x */
-                $x = json_decode($t, true, 512, JSON_THROW_ON_ERROR);
-                return is_array($x) ? $x : null;
-            } catch (\JsonException) {
-                $x = json_decode($t, true); // best-effort
-                return is_array($x) ? $x : null;
-            }
-        }
-        return (array)$v;
-    }
-
-    public static function fromRow(array $row): [[DTO_CLASS]] {
-        $vals = [];
-
-        foreach ($row as $col => $val) {
-            $col = (string)$col;
-            $prop = self::colToProp($col);
-
-            if (in_array($col, self::BOOL_COLS, true))      { $val = self::toBool($val); }
-            elseif (in_array($col, self::INT_COLS, true))   { $val = self::toInt($val); }
-            elseif (in_array($col, self::FLOAT_COLS, true)) { $val = self::toFloat($val); }
-            elseif (in_array($col, self::JSON_COLS, true))  { $val = self::decodeJson($val); }
-            else {
-                $isDate = in_array($col, self::DATE_COLS, true)
-                    || preg_match('/(^date$|_at$|_on$|_time$)/i', $col) === 1;
-                if ($isDate) { $val = self::toDate($val); }
-            }
-            // BIN_COLS ponecháváme jako raw string/resource
-
-            $vals[$prop] = $val;
-        }
-
-        $rc   = new \ReflectionClass([[DTO_CLASS]]::class);
-        $ctor = $rc->getConstructor();
-
-        if ($ctor === null || $ctor->getNumberOfRequiredParameters() === 0) {
-            return $rc->newInstance();
-        }
-
-        $ordered = [];
-        foreach ($ctor->getParameters() as $p) {
-            $name = $p->getName();
-            $ordered[] = $vals[$name] ?? ($p->isDefaultValueAvailable() ? $p->getDefaultValue() : null);
-        }
-        return $rc->newInstanceArgs($ordered);
+        return self::$tzObj;
     }
 
     /**
-     * Mapuje DTO zpět na asociativní řádek pro DB (insert/update).
-     * - JSON -> string (UTF-8, bez escapování lomítek)
-     * - DATETIME -> 'Y-m-d H:i:s.u'
-     * - bool -> 0/1 (kvůli MySQL)
+     * Hydrate a DTO from a DB row (associative array).
+     *
+     * @param array<string,mixed> $row
+     * @return [[DTO_CLASS]]
      */
-    public static function toRow([[DTO_CLASS]] $dto, ?array $onlyProps = null): array {
-        $out = [];
-        $src = $dto->toArray();
+    public static function fromRow(array $row): [[DTO_CLASS]]
+    {
+        /** @var [[DTO_CLASS]] */
+        return DtoHydrator::fromRow(
+            [[DTO_CLASS]]::class,
+            $row,
+            self::COL_TO_PROP,
+            self::BOOL_COLS,
+            self::INT_COLS,
+            self::FLOAT_COLS,
+            self::JSON_COLS,
+            self::DATE_COLS,
+            self::BIN_COLS,
+            self::tz()
+        );
+    }
 
-        if ($onlyProps !== null) {
-            $src = array_intersect_key($src, array_fill_keys($onlyProps, true));
+    public static function fromRowOrNull(?array $row): ?[[DTO_CLASS]]
+    {
+        return $row === null ? null : self::fromRow($row);
+    }
+
+    /**
+     * Serialize a DTO back into a DB row (for insert/update).
+     * - JSON -> string, DATETIME -> 'Y-m-d H:i:s.u', BOOL -> 0/1, BINARY -> raw bytes
+     *
+     * @param [[DTO_CLASS]]   $dto
+     * @param string[]|null   $onlyProps  optional whitelist of DTO properties to serialize
+     * @return array<string,mixed>
+     */
+    public static function toRow([[DTO_CLASS]] $dto, ?array $onlyProps = null): array
+    {
+        return DtoHydrator::toRow(
+            $dto,
+            self::COL_TO_PROP,
+            self::BOOL_COLS,
+            self::INT_COLS,
+            self::FLOAT_COLS,
+            self::JSON_COLS,
+            self::DATE_COLS,
+            self::BIN_COLS,
+            self::tz(),
+            $onlyProps
+        );
+    }
+
+    /** Same as toRow(), but removes keys with null values (does not overwrite DB values with NULL). */
+    public static function toRowNonNull([[DTO_CLASS]] $dto, ?array $onlyProps = null): array
+    {
+        $row = self::toRow($dto, $onlyProps);
+        foreach ($row as $k => $v) {
+            if ($v === null) unset($row[$k]);
+        }
+        return $row;
+    }
+
+    /**
+     * Compute changed columns relative to the original row (assoc array from DB).
+     * Returns only differing pairs col => newValue.
+     *
+     * @param array<string,mixed> $original
+     * @param string[] $ignore   Columns to skip during comparison (e.g., updated_at)
+     * @param bool $coerce       Normalize scalars (0 vs '0', true vs 1) before comparing
+     * @return array<string,mixed>
+     */
+    public static function diff([[DTO_CLASS]] $dto, array $original, array $ignore = [], bool $coerce = true): array
+    {
+        $now = self::toRow($dto);
+
+        if ($ignore) {
+            $drop = array_fill_keys($ignore, true);
+            $now = array_filter($now, static fn($k) => !isset($drop[$k]), ARRAY_FILTER_USE_KEY);
         }
 
-        foreach ($src as $prop => $val) {
-            $col = self::propToCol((string)$prop);
+        $out = [];
+        foreach ($now as $k => $v) {
+            $orig = $original[$k] ?? null;
 
-            if (in_array($col, self::JSON_COLS, true)) {
-                $val = $val === null ? null : json_encode(
-                    $val,
-                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
-                );
-            } elseif (in_array($col, self::DATE_COLS, true)) {
-                if ($val instanceof DateTimeImmutable) {
-                    $val = $val->format('Y-m-d H:i:s.u');
-                } elseif ($val !== null && $val !== '') {
-                    $val = (new DateTimeImmutable((string)$val, new DateTimeZone(self::TZ)))->format('Y-m-d H:i:s.u');
-                } else {
-                    $val = null;
-                }
-            } elseif (in_array($col, self::BOOL_COLS, true)) {
-                $val = $val === null ? null : ($val ? 1 : 0);
-            } elseif (in_array($col, self::INT_COLS, true)) {
-                $val = $val === null ? null : (int)$val;
-            } elseif (in_array($col, self::FLOAT_COLS, true)) {
-                $val = $val === null ? null : (float)$val;
+            if ($coerce && is_scalar($v) && is_scalar($orig)) {
+                $vn = is_bool($v) ? (int)$v : (string)$v;
+                $on = is_bool($orig) ? (int)$orig : (string)$orig;
+                if ($vn === $on) continue;
+            } elseif ($v == $orig) { // looser comparison for nested structures
+                continue;
             }
-            $out[$col] = $val;
+
+            $out[$k] = $v;
         }
         return $out;
     }
 
-    /** Batch: pole řádků -> pole DTO. */
-    public static function hydrateList(array $rows): array {
-        $out = [];
-        foreach ($rows as $r) { $out[] = self::fromRow($r); }
-        return $out;
+    /**
+     * Batch hydration: array of rows -> array of DTOs.
+     *
+     * @param array<int,array<string,mixed>> $rows
+     * @return array<int,[[DTO_CLASS]]>
+     */
+    public static function hydrateList(array $rows): array
+    {
+        /** @var array<int,[[DTO_CLASS]]> */
+        return DtoHydrator::hydrateList(
+            [[DTO_CLASS]]::class,
+            $rows,
+            self::COL_TO_PROP,
+            self::BOOL_COLS,
+            self::INT_COLS,
+            self::FLOAT_COLS,
+            self::JSON_COLS,
+            self::DATE_COLS,
+            self::BIN_COLS,
+            self::tz()
+        );
+    }
+
+    /** @return array<string,mixed> */
+    public static function toSafeArray([[DTO_CLASS]] $dto): array
+    {
+        $row = self::toRow($dto);
+
+        $pii = [];
+        if (\method_exists(Definitions::class, 'piiColumns')) {
+            $decl = (array) Definitions::piiColumns();
+
+            if ($decl) {
+                $map = self::COL_TO_PROP;         // col -> prop
+                $rev = array_flip($map);          // prop -> col
+
+                foreach ($decl as $name) {
+                    $name = (string) $name;
+                    // accept both 'email' (column) and 'emailHash' (property)
+                    $col = array_key_exists($name, $row) ? $name : ($rev[$name] ?? $name);
+                    $pii[$col] = true;
+                }
+            }
+        }
+
+        if ($pii) {
+            foreach ($row as $k => &$v) {
+                if (isset($pii[$k]) && $v !== null && $v !== '') {
+                    $v = '***';
+                }
+            }
+            unset($v);
+        }
+
+        return $row;
+    }
+
+    /**
+     * Lazy hydration - generates DTOs without buffering the entire collection.
+     * @param iterable<int,array<string,mixed>> $rows
+     * @return \Generator<int,[[DTO_CLASS]]>
+     */
+    public static function hydrate(iterable $rows): \Generator
+    {
+        foreach ($rows as $row) {
+            yield self::fromRow($row);
+        }
     }
 }
 '@

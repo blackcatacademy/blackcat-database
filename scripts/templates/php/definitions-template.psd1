@@ -4,8 +4,8 @@
     'NAMESPACE','TABLE','VIEW','COLUMNS_ARRAY','PK','SOFT_DELETE_COLUMN',
     'UPDATED_AT_COLUMN','VERSION_COLUMN','DEFAULT_ORDER_CLAUSE',
     'UNIQUE_KEYS_ARRAY','JSON_COLUMNS_ARRAY','PK_STRATEGY','IS_ROWLOCK_SAFE',
-    'INT_COLUMNS_ARRAY','PARAM_ALIASES_ARRAY'
-  )
+    'INT_COLUMNS_ARRAY','PARAM_ALIASES_ARRAY','PII_COLUMNS_ARRAY','STATUS_TRANSITIONS_MAP'
+ )
   Content = @'
 <?php
 declare(strict_types=1);
@@ -13,31 +13,48 @@ declare(strict_types=1);
 namespace [[NAMESPACE]];
 
 final class Definitions {
-    // --- základní metadata ---
+    // --- core metadata ---
     public static function table(): string { return '[[TABLE]]'; }
     public static function contractView(): string { return '[[VIEW]]'; }
     /** @return string[] */
     public static function columns(): array { return [[COLUMNS_ARRAY]]; }
 
+    /** @var array<string,array<int,string>> */
+    public const STATUS_TRANSITIONS = [[STATUS_TRANSITIONS_MAP]];
+
     /**
-     * Primární klíč(e) tabulky. Podporuje jednoduché i složené PK.
-     * [[PK]] může být "id" nebo "col1, col2".
+     * Table primary key(s). Supports single and composite PK.
+     * [[PK]] may be "id" or "col1, col2".
      * @return string[]
      */
     public static function pkColumns(): array {
         $raw = '[[PK]]';
-        // povol formát "a,b" i s mezerami
         $parts = array_values(array_filter(array_map(
             static fn($p) => trim($p, " \t\n\r\0\x0B`\""),
             preg_split('/\s*,\s*/', $raw ?? '')
         )));
-        if (!$parts) { return [$raw]; }
-        return $parts;
+        if ($parts) {
+            return $parts;
+        }
+        $rawClean = trim((string)$raw, " \t\n\r\0\x0B`\"");
+        if ($rawClean === '') {
+            throw new \InvalidArgumentException('Definitions::pkColumns(): token [[PK]] must not be empty.');
+        }
+        return [$rawClean];
     }
-    /** Zpětná kompatibilita: první sloupec z PK. */
+
+    /**
+     * Allowed state transitions (e.g., 'draft' => ['ready'], 'ready' => ['sent','canceled']).
+     * @return array<string, string[]>
+     */
+    public static function statusTransitions(): array {
+        return self::STATUS_TRANSITIONS;
+    }
+
+    /** Backward compatibility: the first column from the PK. */
     public static function pk(): string { return self::pkColumns()[0]; }
 
-    // --- volitelná metadata ---
+    // --- optional metadata ---
     public static function softDeleteColumn(): ?string {
         $c = '[[SOFT_DELETE_COLUMN]]'; return $c !== '' ? $c : null;
     }
@@ -47,31 +64,31 @@ final class Definitions {
     public static function versionColumn(): ?string {
         $c = '[[VERSION_COLUMN]]'; return $c !== '' ? $c : null;
     }
-    /** např. "created_at DESC, id DESC" */
+    /** e.g. "created_at DESC, id DESC" */
     public static function defaultOrder(): ?string {
         $c = '[[DEFAULT_ORDER_CLAUSE]]'; return $c !== '' ? $c : null;
     }
 
-    /** @return array<int,array<int,string>> seznam unikátních klíčů */
+    /** @return array<int,array<int,string>> list of unique keys */
     public static function uniqueKeys(): array { return [[UNIQUE_KEYS_ARRAY]]; }
 
-    /** @return string[] JSON sloupce kvůli castům/operacím */
+    /** @return string[] JSON columns for casts/operations */
     public static function jsonColumns(): array { return [[JSON_COLUMNS_ARRAY]]; }
 
-    /** @return string[] Seznam číselných sloupců (heuristika z generátoru; bez runtime DB dotazů). */
+    /** @return string[] List of numeric columns (generator heuristic; no runtime DB queries). */
     public static function intColumns(): array { return [[INT_COLUMNS_ARRAY]]; }
 
-    /** @return array<string,string> alias => column (pro normalizaci vstupů) */
+    /** @return array<string,string> alias => column mapping (for input normalization) */
     public static function paramAliases(): array { return [[PARAM_ALIASES_ARRAY]]; }
 
-    /** Hint pro repo: je sloupec s verzí opravdu číselný? (bez information_schema) */
+    /** Repository hint: is the version column actually numeric? (no information_schema needed) */
     public static function versionIsNumeric(): bool
     {
         $v = self::versionColumn();
         return $v !== null && in_array($v, self::intColumns(), true);
     }
 
-    // --- pomocníci ---
+    // --- helpers ---
     public static function hasColumn(string $col): bool {
         static $set = null;
         if ($set === null) { $set = array_fill_keys(self::columns(), true); }
@@ -90,17 +107,17 @@ final class Definitions {
         return self::pkStrategy() === 'identity';
     }
 
-    /** True, pokud je tabulka vhodná pro testy row-locků (bez kaskád/FK, malá šíře řádku apod.). */
+    /** True when the table is suitable for row-lock tests (no cascading FK, small row width, etc.). */
     public static function isRowLockSafe(): bool {
         return [[IS_ROWLOCK_SAFE]];
     }
 
-    /** Pohodlný alias – má tabulka verzi pro optimistic locking? */
+    /** Convenience alias - does the table have a version column for optimistic locking? */
     public static function supportsOptimisticLocking(): bool {
         return self::versionColumn() !== null;
     }
 
-    /** Pro JSON casty/operace – rychlý test bez vytváření setu. */
+    /** For JSON casts/operations - fast test without building a set. */
     public static function hasJsonColumn(string $col): bool {
         static $set = null;
         if ($set === null) { $set = array_fill_keys(self::jsonColumns(), true); }
@@ -108,6 +125,21 @@ final class Definitions {
     }
 
     public static function isSoftDeleteEnabled(): bool { return self::softDeleteColumn() !== null; }
+
+    /** @return string[] Columns containing PII for log/telemetry masking (module-specific). */
+    public static function piiColumns(): array { return [[PII_COLUMNS_ARRAY]]; }
+
+    // --- derived "HAS_*" flags as methods (instead of constants calling functions) ---
+    public static function hasTenant(): bool {
+        return in_array('tenant_id', self::columns(), true);
+    }
+    public static function hasDeletedAt(): bool {
+        return self::softDeleteColumn() !== null;
+    }
+    public static function hasUuid(): bool {
+        $cols = self::columns();
+        return in_array('uuid', $cols, true) || in_array('uuid_bin', $cols, true);
+    }
 }
 '@
 }

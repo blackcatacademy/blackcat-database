@@ -1,97 +1,189 @@
-# BlackCat Database (umbrella)
+# BlackCat Database (Umbrella)
 
 [![DB Docs](https://github.com/blackcatacademy/blackcat-database/actions/workflows/db-docs.yml/badge.svg?branch=main)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/db-docs.yml)
-[![CI (DB)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/db-ci.yml/badge.svg)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/db-ci.yml)
-
+[![DB CI](https://github.com/blackcatacademy/blackcat-database/actions/workflows/db-ci.yml/badge.svg)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/db-ci.yml)
 ![MySQL](https://img.shields.io/badge/SQL-MySQL%208.0%2B-4479A1?logo=mysql&logoColor=white)
 ![Status](https://img.shields.io/badge/status-stable-informational)
 ![License](https://img.shields.io/badge/license-BlackCat%20Proprietary-red)
 
-A curated set of reusable MySQL 8.0 table packages. Each table lives in its own repository and is pulled here as a Git submodule. This umbrella repo provides a single place to browse, generate docs, and keep the packages in sync.
+Curated, reusable MySQL 8.x table packages with batteries included: schema
+definitions, docs, changelogs, generators, and automation. Individual modules
+live in `packages/` as Git submodules; this umbrella provides a single place to
+author schemas, regenerate documentation, run CI, and ship operational tooling.
 
 ---
 
-## What’s inside
-- `scripts/` – generators (split schema, READMEs, column definitions, changelogs, index)
-- `packages/` – table packages (each is a submodule with `schema/` + generated docs)
-- `schema/` – monolithic CREATE statements (source of truth for generators)
-- `PACKAGES.md` – index of all packages (generated)
+## Contents
 
-> Browse all packages: **[PACKAGES.md](./PACKAGES.md)**
+1. [Repository map](#repository-map)
+2. [Getting started](#getting-started)
+3. [Working with packages](#working-with-packages)
+4. [Generators & automation scripts](#generators--automation-scripts)
+5. [CLI utilities & scaffolding](#cli-utilities--scaffolding)
+6. [Observability & infrastructure](#observability--infrastructure)
+7. [Continuous integration](#continuous-integration)
+8. [Contributing, security, license](#contributing)
 
 ---
 
-## Quick start
-Clone with submodules and initialize:
+## Repository map
+
+| Path | Description |
+| --- | --- |
+| [`packages/`](./PACKAGES.md) | All table packages (Git submodules). Browse the generated catalog in **[PACKAGES.md](./PACKAGES.md)**. |
+| [`schema/`](./schema) | Monolithic CREATE statements that act as the source of truth for generators. |
+| [`scripts/`](./scripts) | PowerShell / PHP helpers for splitting schemas, generating docs, linting SQL, etc. See [docs/generators.md](./docs/generators.md). |
+| [`docs/`](./docs) | Human docs: [usage.md](./docs/usage.md), [overview.md](./docs/overview.md), [CI-COMMANDS.md](./docs/CI-COMMANDS.md), [generators.md](./docs/generators.md), bench dashboards, how-to guides, etc. |
+| [`bin/`](./bin/README.md) | Operational CLI tools (ping/explain/trace, outbox worker). See [bin/README.md](./bin/README.md). |
+| [`examples/`](./examples/README.md) | Service-level samples showing how to compose repositories (see [examples/README.md](./examples/README.md)). |
+| [`tools/`](./tools/README.md) | Developer tooling such as the scaffold CLI. Details in [tools/README.md](./tools/README.md). |
+| [`infra/`](./infra/README.md) | Terraform stack for Loki/Grafana/Elasticsearch with datasources and dashboards. |
+| [`k8s/`](./k8s/README.md) | Kubernetes manifests (Grafana provisioning, Prometheus rules). |
+| [`monitoring/`](./monitoring/README.md) | Prometheus & Alertmanager configs for the bench SLOs. |
+| [`provisioning/`](./provisioning/README.md) | Import-ready Grafana dashboards and ancillary assets. |
+| [`templates/`](./templates) | PHP scaffolding templates consumed by `tools/scaffold.php`. |
+| [`tests/`](./tests) | Contract / integration suites for modules, installers, services, and orchestration helpers. |
+
+---
+
+## Getting started
 
 ```bash
 git clone --recursive https://github.com/blackcatacademy/blackcat-database.git
 cd blackcat-database
 git submodule update --init --recursive
+composer install
 ```
 
-PowerShell 7+ is used for generators on any OS (`pwsh`).
+**Requirements**
+
+- PHP 8.2+ with PDO MySQL/PostgreSQL extensions (dev + runtime)
+- PowerShell 7 (`pwsh`) for cross-platform generators
+- MySQL 8.0 (primary target) or MariaDB 10.4+ for testing
+
+See [docs/usage.md](./docs/usage.md) for DB bootstrapping and runtime wiring.
 
 ---
 
-## Generate & verify docs locally
-These commands (run from repo root) regenerate package schemas and docs. They are the same steps CI uses to verify outputs are up‑to‑date.
+## Working with packages
+
+- **Browse modules** – start from [PACKAGES.md](./PACKAGES.md) or inspect
+  individual package READMEs inside `packages/*/README.md`.
+- **Outbox / audit / tenancy utilities** – see corresponding scaffolds generated
+  via [`tools/scaffold.php`](./tools/scaffold.php) (documented
+  [here](./tools/README.md)).
+- **Runtime services** – helper traits, repositories, and installers live under
+  `src/`. Important entry points:
+  - [`src/Installer.php`](./src/Installer.php) for schema orchestration
+  - [`src/Services/GenericCrudService.php`](./src/Services/GenericCrudService.php)
+  - [`src/Support/Criteria.php`](./src/Support/Criteria.php)
+  - Example: [`examples/UserRegisterService.php`](./examples/UserRegisterService.php)
+- **Field-level encryption** – viz [docs/CRYPTO-ADAPTER.md](./docs/CRYPTO-ADAPTER.md) pro napojení na `blackcat-crypto` a automatické šifrování/HMAC při zápisu.
+
+---
+
+## Generators & automation scripts
+
+The `scripts/` directory holds the same PowerShell modules used by CI:
+
+| Script | Purpose |
+| --- | --- |
+| `schema-tools/Split-SchemaToPackages.ps1` | Decompose monolithic DDL from `schema/` into per-package migrations. |
+| `schema-tools/Build-Definitions.ps1` | Produce column dictionaries + `definitions/` artifacts referenced by services. |
+| `docs/New-PackageReadmes.ps1`, `New-PackageChangelogs.ps1`, `New-DocsIndex.ps1` | Generate documentation & aggregated changelogs, updating `PACKAGES.md`. |
+| `schema-tools/Lint-Sql.ps1`, `Generate-MermaidERD.ps1`, `packages/Audit-Packages.ps1` | Misc tooling for linting, ERD diagrams, and package health. |
+
+Usage examples and options live in [docs/generators.md](./docs/generators.md) and
+[docs/usage.md](./docs/usage.md). To reproduce what CI does:
 
 ```bash
-pwsh ./scripts/Split-SchemaToPackages.ps1 `
-  -MapPath ./scripts/schema-map.psd1 `
-  -PackagesDir ./packages
-
-pwsh ./scripts/New-PackageReadmes.ps1 `
-  -MapPath ./scripts/schema-map.psd1 `
-  -PackagesDir ./packages `
-  -Force
-
-pwsh ./scripts/Build-Definitions.ps1 `
-  -MapPath ./scripts/schema-map.psd1 `
-  -DefsPath ./scripts/schema-defs.psd1 `
-  -PackagesDir ./packages `
-  -Force
-
-pwsh ./scripts/New-PackageChangelogs.ps1 `
-  -MapPath ./scripts/schema-map.psd1 `
-  -PackagesDir ./packages `
-  -Force
-
-pwsh ./scripts/New-DocsIndex.ps1 `
-  -MapPath ./scripts/schema-map.psd1 `
-  -PackagesDir ./packages `
-  -OutPath ./PACKAGES.md `
-  -Force
+pwsh ./scripts/schema-tools/Split-SchemaToPackages.ps1 -MapPath ./scripts/schema-map.psd1 -PackagesDir ./packages
+pwsh ./scripts/docs/New-PackageReadmes.ps1 -MapPath ./scripts/schema-map.psd1 -PackagesDir ./packages -Force
+pwsh ./scripts/schema-tools/Build-Definitions.ps1 -MapPath ./scripts/schema-map.psd1 -DefsPath ./scripts/schema-defs.psd1 -PackagesDir ./packages -Force
+pwsh ./scripts/docs/New-PackageChangelogs.ps1 -MapPath ./scripts/schema-map.psd1 -PackagesDir ./packages -Force
+pwsh ./scripts/docs/New-DocsIndex.ps1 -MapPath ./scripts/schema-map.psd1 -PackagesDir ./packages -OutPath ./PACKAGES.md -Force
 ```
 
----
-
-## Deterministic outputs
-To keep CI noise‑free and cross‑OS consistent:
-- Line endings are normalized to **LF** via `.gitattributes` / `.editorconfig` in both the umbrella and submodules.
-- Generators use **stable header stamps** (schema map commit or file mtime), never the wall‑clock time.
-- Scripts avoid trailing whitespace and ensure final newlines.
+All scripts produce deterministic output (LF endings, stable headers, final
+newline) to keep diffs clean across OSes.
 
 ---
 
-## Continuous Integration
-The **DB Docs CI** workflow regenerates and verifies all artifacts on Linux & Windows, and fails the build if generated files differ from what’s committed.
+## CLI utilities & scaffolding
 
-- Workflow: [`.github/workflows/db-docs.yml`](./.github/workflows/db-docs.yml)
-- Status badge is shown at the top of this README.
+- **Operational CLIs** (`bin/`, see [bin/README.md](./bin/README.md)):
+- `dbctl.php` – ping/explain/route/wait/trace helper for live databases.
+- `dbdoctor.php` – quick health snapshot (driver, server, replica info).
+- `sync-check.php` – CLI pro porovnání počítů řádků mezi dvěma DSN (MySQL/Postgres), používá `sink/sync` helpery.
+  - `dbtrace.php` – dumps the last executed statements from
+    `Database::getLastQueries()`.
+  - `outbox-worker.php` – long-running outbox dispatcher with webhook/stdout
+    backends, PID/health files, and graceful signal handling.
+
+- **Scaffolding** (`tools/scaffold.php`, documented in
+  [tools/README.md](./tools/README.md)):
+  - `make:module`, `make:service`, `make:repository`, `make:criteria`, etc.
+  - `make:module-tests` for the full epic suite (upsert parity, keyset paging,
+    DDL guard, observability…).
+  - `make:audit-module`, `make:tenant-scope`, `make:replica-router` helpers.
+  - `make:demo-data`, `make:howto`, and `make:all` convenience commands.
+
+- **Examples** – [examples/UserRegisterService.php](./examples/UserRegisterService.php)
+  demonstrates how to compose services with `ServiceHelpers`, transactional
+  retries, and package repositories.
+
+---
+
+## Observability & infrastructure
+
+This repo also ships the assets needed to monitor and operate bench workloads:
+
+- **Terraform stack** (`infra/`, see [infra/README.md](./infra/README.md)) –
+  deploys Loki, Grafana, and optional Elasticsearch with datasources and bench
+  dashboards via Helm.
+- **Kubernetes manifests** (`k8s/`, [k8s/README.md](./k8s/README.md)) – RAW
+  ConfigMaps for Grafana provisioning and PrometheusRule resources tuned for
+  kube-prometheus-stack.
+- **Monitoring configs** (`monitoring/`, [monitoring/README.md](./monitoring/README.md)) –
+  Prometheus alert rules and Alertmanager routing ready for drop-in use.
+- **Provisioning assets** (`provisioning/`, [provisioning/README.md](./provisioning/README.md)) –
+  canonical Grafana dashboards used by both Terraform and manual imports.
+
+Bench dashboards live under `docs/bench/` and can be regenerated via
+`scripts/bench/**` helpers.
+
+---
+
+## Continuous integration
+
+GitHub Actions drive reproducibility:
+
+- **`db-docs.yml`** – regenerates schemas/docs and asserts cleanliness on Linux
+  + Windows.
+- **`db-ci.yml`** – executes the PHP + integration suite (installer, services,
+  orchestration).
+- Additional workflows (bench, chaos tests, TLS matrix, etc.) live under
+  [`.github/workflows`](./.github/workflows).
+
+For the commands executed by CI, consult [docs/CI-COMMANDS.md](./docs/CI-COMMANDS.md).
 
 ---
 
 ## Contributing
-Please read **[CONTRIBUTING.md](./CONTRIBUTING.md)** and follow **Conventional Commits** for messages. If a generator reports that artifacts are out of date, run the steps in *Generate & verify docs locally* and commit both submodule updates and umbrella changes.
 
----
+- Read [CONTRIBUTING.md](./CONTRIBUTING.md) and follow the coding standards +
+  Conventional Commits.
+- Keep submodules up to date; when generators say files changed, run the scripts
+  listed above and commit both the umbrella and package diffs.
+- Development helpers: see [tools/README.md](./tools/README.md) and
+  [bin/README.md](./bin/README.md).
 
 ## Security
-See **[SECURITY.md](./SECURITY.md)**. Do not open public issues for vulnerabilities.
 
----
+Report vulnerabilities privately per [SECURITY.md](./SECURITY.md). Do not open
+public issues for security-related topics.
 
 ## License
-Distributed under **BlackCat Store Proprietary License v1.0**. See `LICENSE`.
+
+Distributed under **BlackCat Store Proprietary License v1.0**. See
+[LICENSE](./LICENSE).

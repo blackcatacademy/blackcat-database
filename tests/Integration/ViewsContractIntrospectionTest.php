@@ -10,7 +10,7 @@ final class ViewsContractIntrospectionTest extends TestCase
 {
     private static function db(): Database { return Database::getInstance(); }
 
-    /** Seznam všech view vw_* v aktuálním schématu */
+    /** List all vw_* views in the current schema */
     private static function allViews(): array
     {
     $db = self::db();
@@ -24,7 +24,7 @@ final class ViewsContractIntrospectionTest extends TestCase
         return array_map(fn($r) => $r['table_name'], $db->fetchAll($sql, [$schema]));
     }
 
-    // PostgreSQL: všechny view ve search_path
+    // PostgreSQL: every view inside the search_path
     $sql = "SELECT table_schema, table_name
             FROM information_schema.views
             WHERE table_schema = ANY (current_schemas(true))
@@ -38,11 +38,11 @@ final class ViewsContractIntrospectionTest extends TestCase
         $db = self::db();
 
         if ($db->isPg()) {
-            $this->addToAssertionCount(1); // no-op assertion → výstup bude jen "OK"
+            $this->addToAssertionCount(1); // no-op assertion -> output will just say "OK"
             return;
         }
 
-        $exceptions = []; // až sjednotíš, nech prázdné
+        $exceptions = []; // once unified, keep this empty
         foreach (self::allViews() as $view) {
             $row = $db->fetchAll("SHOW CREATE VIEW `$view`")[0] ?? null;
             $this->assertNotNull($row, "SHOW CREATE VIEW returned nothing for $view");
@@ -107,7 +107,7 @@ final class ViewsContractIntrospectionTest extends TestCase
         return;
     }
 
-    // PostgreSQL větev
+    // PostgreSQL branch
     $cols = $db->fetchAll(
         "SELECT table_schema, table_name, column_name,
                 data_type,
@@ -122,11 +122,11 @@ final class ViewsContractIntrospectionTest extends TestCase
     foreach ($cols as $c) {
         $view = $c['table_schema'] . '.' . $c['table_name'];
         $name = $c['column_name'];
-        $t    = strtolower((string)$c['data_type']);            // např. 'boolean', 'character', 'character varying'
+        $t    = strtolower((string)$c['data_type']);            // e.g. 'boolean', 'character', 'character varying'
         $len  = (int)($c['char_len'] ?? 0);
 
         if (str_ends_with($name, '_hex')) {
-            // v našich view pro PG doporučuji:  UPPER(key_hash)::char(64)  apod.
+            // recommended in our PG views:  UPPER(key_hash)::char(64)  etc.
             $ok = in_array($t, ['character', 'character varying'], true) && ($len === 32 || $len === 64);
             if (!$ok) $problems[] = "$view.$name expected CHAR(32|64), got {$c['data_type']}({$len})";
         }
@@ -139,7 +139,7 @@ final class ViewsContractIntrospectionTest extends TestCase
             if (!$ok) $problems[] = "$view.$name expected CHAR(39), got {$c['data_type']}({$len})";
         }
         if (str_starts_with($name, 'is_')) {
-            // PG má skutečný boolean typ – to je správně
+            // PG has a native boolean type - that's the expected mapping
             $ok = ($t === 'boolean');
             if (!$ok) $problems[] = "$view.$name expected BOOLEAN, got {$c['data_type']}";
         }
@@ -177,7 +177,7 @@ final class ViewsContractIntrospectionTest extends TestCase
                     [$schema, $view]
                 );
             } else {
-                // current_schemas(true) pokrývá search_path včetně 'public'
+                // current_schemas(true) covers search_path including 'public'
                 $rows = $db->fetchAll(
                     "SELECT column_name
                     FROM information_schema.columns

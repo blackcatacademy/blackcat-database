@@ -1,0 +1,17 @@
+<?php
+declare(strict_types=1);
+use PHPUnit\Framework\TestCase;
+use BlackCat\Core\Database;
+final class {{Name}}RetryPolicyTest extends TestCase {
+  public function test_unique_violation_not_retried(): void {
+    $db = Database::getInstance();
+    $tbl = '{{Table}}_uniq';
+    $db->exec("DROP TABLE IF EXISTS $tbl");
+    $db->exec($db->isPg()
+      ? "CREATE TABLE $tbl (id BIGSERIAL PRIMARY KEY, email TEXT UNIQUE)"
+      : "CREATE TABLE $tbl (id BIGINT PRIMARY KEY AUTO_INCREMENT, email VARCHAR(120) UNIQUE)");
+    $db->exec("INSERT INTO $tbl(email) VALUES ('a@x')");
+    $this->expectException(\PDOException::class);
+    $db->exec("INSERT INTO $tbl(email) VALUES ('a@x')");
+  }
+}

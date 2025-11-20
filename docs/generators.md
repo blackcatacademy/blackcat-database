@@ -1,61 +1,95 @@
-
-`docs/generators.md`
-```md
 # Generators
 
-- Split-SchemaToPackages.ps1 → writes `schema/001/020/030` to each package
-- New-PackageReadmes.ps1     → README per package
-- Build-Definitions.ps1      → docs/definition.md (columns metadata)
-- New-PackageChangelogs.ps1  → CHANGELOG.md per package
-- New-DocsIndex.ps1          → root PACKAGES.md
+The schema that powers every module lives under `./scripts/schema/`. We keep dialect-specific metadata files and then fan them out into package SQL, docs, and PHP classes. This page captures the intended pipeline so regenerations are deterministic.
 
-Run order (umbrella root):
-```bash
-pwsh ./scripts/mk-schema.ps1 -SeedInTransaction -Force
-pwsh ./scripts/Cleanup-SchemaFolders.ps1 -WhatIf pwsh ./scripts/Cleanup-SchemaFolders.ps1
+## 1. Canonical inputs
 
-pwsh ./scripts/Split-SchemaToPackages.ps1 -PackagesDir ./packages
-pwsh ./scripts/New-PackageReadmes.ps1      -MapPath ./scripts/schema-map.psd1 -PackagesDir ./packages -Force
-pwsh ./scripts/Build-Definitions.ps1       -MapPath ./scripts/schema-map.psd1 -DefsPath ./scripts/schema-defs.psd1 -PackagesDir ./packages -Force
-pwsh ./scripts/New-PackageChangelogs.ps1   -MapPath ./scripts/schema-map.psd1 -PackagesDir ./packages -Force
-pwsh ./scripts/New-DocsIndex.ps1           -MapPath ./scripts/schema-map.psd1 -PackagesDir ./packages -OutPath ./PACKAGES.md -Force
+| File | Purpose |
+| --- | --- |
+| `schema-map-postgres.psd1`, `schema-map-mysql.psd1` | Master table/view definitions per dialect. |
+| `schema-defs-*.psd1`, `schema-seed-*.psd1`, `schema-views-*.psd1` | Column metadata, seed data and view directives consumed by the generators. |
+| `templates/php/*.psd1` | PHP scaffolding templates for repositories, services, DTOs, installers, joins, etc. |
 
-pwsh -NoProfile -File ./scripts/Generate-PhpFromSchema.ps1 `
+> Tip: keep both dialect maps in sync – most scripts accept `-MapPath` / `-DefsPath` so you can pass either Postgres or MySQL inputs explicitly.
+
+## 2. Refresh schema & cleanup
+
+```powershell
+pwsh ./scripts/schema-tools/mk-schema.ps1 -SeedInTransaction -Force
+pwsh ./scripts/schema-tools/Cleanup-SchemaFolders.ps1 -Force
+```
+
+`mk-schema.ps1` recalculates the monolithic schema maps (tables + seeds). `Cleanup-SchemaFolders.ps1` removes stale generated folders so subsequent steps start from a clean slate.
+
+## 3. Split into packages & docs
+
+Run the following for each dialect (replace the `-MapPath` / `-DefsPath` arguments accordingly):
+
+```powershell
+pwsh ./scripts/schema-tools/Split-SchemaToPackages.ps1 `
+  -MapPath ./scripts/schema/schema-map-postgres.psd1 `
+  -PackagesDir ./packages
+
+pwsh ./scripts/docs/New-PackageReadmes.ps1 `
+  -MapPath ./scripts/schema/schema-map-postgres.psd1 `
+  -PackagesDir ./packages -Force
+
+pwsh ./scripts/schema-tools/Build-Definitions.ps1 `
+  -MapPath ./scripts/schema/schema-map-postgres.psd1 `
+  -DefsPath ./scripts/schema/schema-defs-postgres.psd1 `
+  -PackagesDir ./packages -Force
+
+pwsh ./scripts/docs/New-PackageChangelogs.ps1 `
+  -MapPath ./scripts/schema/schema-map-postgres.psd1 `
+  -PackagesDir ./packages -Force
+
+pwsh ./scripts/docs/New-DocsIndex.ps1 `
+  -MapPath ./scripts/schema/schema-map-postgres.psd1 `
+  -PackagesDir ./packages `
+  -OutPath ./PACKAGES.md -Force
+```
+
+Repeat the same block with `schema-map-mysql.psd1` / `schema-defs-mysql.psd1` to refresh MySQL/MariaDB artifacts. When both vendors are up-to-date, rerun `PACKAGES.md` once more to include every module.
+
+## 4. Generate PHP from schema
+
+`Generate-PhpFromSchema.ps1` consumes the schema metadata and PowerShell templates under `scripts/templates/php`. Recommended invocation:
+
+```powershell
+pwsh -NoProfile -File ./scripts/schema-tools/Generate-PhpFromSchema.ps1 `
   -TemplatesRoot ./scripts/templates/php `
   -ModulesRoot   ./packages `
   -SchemaDir     ./scripts/schema `
   -EnginePreference auto `
+  -FailOnViewDrift `
   -StrictSubmodules `
-  -WhatIf `
   -Verbose
-pwsh -NoProfile -File ./scripts/Generate-PhpFromSchema.ps1 `
-  -TemplatesRoot ./scripts/templates/php `
-  -ModulesRoot   ./packages `
-  -SchemaDir     ./scripts/schema `
-  -EnginePreference auto `
-  -StrictSubmodules `
-  -Verbose -Force
+```
 
-docker compose run --rm -e BC_DB=mysql app php ./tests/ci/run.php  
+Useful options:
+- `-TreatWarningsAsErrors` – make template warnings fail the run.
+- `-FailOnStale` – scans generated PHP for legacy patterns listed in the script.
+- `-JoinPolicy left|all|any` – controls how FK-based joins are emitted.
+- `-AllowUnresolved` – temporarily skip placeholder enforcement when iterating on templates.
+
+Run with `-WhatIf` first if you want a dry-run diff preview.
+
+## 5. Smoke tests & linting
+
+After regeneration:
+
+```bash
+vendor/bin/phpunit
+pwsh ./scripts/quality/Test-PackagesSchema.ps1
+pwsh ./scripts/quality/Test-SchemaOutput.ps1
+bash  ./scripts/quality/SqlLint-Diff.sh
+```
+
+CI runners mirror the same steps and provide Docker Compose helpers (`app-mysql`, `app-postgres`, `app-mariadb`) when you need isolated environments:
+
+```bash
 docker compose run --rm -e BC_DB=postgres app php ./tests/ci/run.php
-
-docker compose build --no-cache app
-docker compose run --rm app composer update
 docker compose run --rm app composer dump-autoload -o
+```
 
-docker compose run --rm -e BC_DB=mysql app php ./tests/ci/run.php
-docker compose run --rm -e BC_DB=postgres app php ./tests/ci/run.php
-
-docker compose exec -T mysql mysql -uroot -proot -e "DROP DATABASE IF EXISTS `test`; CREATE DATABASE `test` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-docker compose exec -T postgres psql -U postgres -d test -v ON_ERROR_STOP=1 -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO postgres; GRANT ALL ON SCHEMA public TO public;"
-docker compose exec -T mariadb mariadb -uroot -proot -e "DROP DATABASE IF EXISTS `test`; CREATE DATABASE `test` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-
-docker compose run --rm -e BC_INSTALLER_DEBUG=1 -e BC_DEBUG=1 -e BC_TRACE_VIEWS=1 -e BC_STRESS=1 -e BC_INSTALLER_TRACE_FILES=1 -e BC_NO_CACHE=1 -e BC_INSTALLER_TRACE_SQL=1 -e BC_HARNESS_STRICT_VIEWS=1 -e BC_ORDER_GUARD=1 app-mysql ./vendor/bin/phpunit -c tests/phpunit.xml.dist --testsuite "DB Integration" 2>&1 | Tee-Object -FilePath .\logs\db-integration-mysql.log -Encoding utf8
-
-docker compose run --rm -e BC_INSTALLER_DEBUG=1 -e BC_DEBUG=1 -e BC_STRESS=1 -e BC_INSTALLER_TRACE_FILES=1 -e BC_NO_CACHE=1 -e BC_INSTALLER_TRACE_SQL=1 -e BC_HARNESS_STRICT_VIEWS=1 -e BC_ORDER_GUARD=1 app-postgres ./vendor/bin/phpunit -c tests/phpunit.xml.dist --testsuite "DB Integration" 2>&1 | Tee-Object -FilePath .\logs\db-integration-postgres.log -Encoding utf8
-
-docker compose run --rm -e BC_INSTALLER_DEBUG=1 -e BC_DEBUG=1 -e BC_TRACE_VIEWS=1 -e BC_STRESS=1 -e BC_INSTALLER_TRACE_FILES=1 -e BC_NO_CACHE=1 -e BC_INSTALLER_TRACE_SQL=1 -e BC_HARNESS_STRICT_VIEWS=1 -e BC_ORDER_GUARD=1 app-mariadb ./vendor/bin/phpunit -c tests/phpunit.xml.dist --testsuite "DB Integration" 2>&1 | Tee-Object -FilePath .\logs\db-integration-mariadb.log -Encoding utf8
-
-docker compose run --rm -e BC_STRESS=1 app-mysql ./vendor/bin/phpunit -c tests/phpunit.xml.dist --testsuite "DB Integration"
-docker compose run --rm -e BC_STRESS=1 app-postgres ./vendor/bin/phpunit -c tests/phpunit.xml.dist --testsuite "DB Integration"
-docker compose run --rm -e BC_STRESS=1 app-mariadb ./vendor/bin/phpunit -c tests/phpunit.xml.dist --testsuite "DB Integration"
+Benchmarks (`pwsh ./scripts/bench/Run-Bench.ps1 ...`) and doc rebuilds (`/docs regenerate` slash-command) are also available once the schema/code generation succeeds.

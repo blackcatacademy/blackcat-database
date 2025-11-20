@@ -45,7 +45,9 @@ jobs:
       - name: Split schema to packages (MySQL)
         shell: pwsh
         run: |
-          pwsh ./scripts/Split-SchemaToPackages.ps1 -PackagesDir ./packages
+          pwsh ./scripts/schema-tools/Split-SchemaToPackages.ps1 `
+            -InDir ./scripts/schema `
+            -PackagesDir ./packages
 
       - name: List detected schema maps (debug)
         shell: pwsh
@@ -56,7 +58,7 @@ jobs:
       - name: Validate codegen (WhatIf, autodetect)
         shell: pwsh
         run: |
-          pwsh -File ./scripts/Generate-PhpFromSchema.ps1 `
+          pwsh -File ./scripts/schema-tools/Generate-PhpFromSchema.ps1 `
             -TemplatesRoot ./scripts/templates/php `
             -ModulesRoot   ./packages `
             -SchemaDir     ./scripts/schema `
@@ -67,7 +69,7 @@ jobs:
       - name: Generate code (real) and assert clean git
         shell: pwsh
         run: |
-          pwsh -File ./scripts/Generate-PhpFromSchema.ps1 `
+          pwsh -File ./scripts/schema-tools/Generate-PhpFromSchema.ps1 `
             -TemplatesRoot ./scripts/templates/php `
             -ModulesRoot   ./packages `
             -SchemaDir     ./scripts/schema `
@@ -104,7 +106,7 @@ jobs:
           BC_RUN_IDEMPOTENT: "1"
           BC_UNINSTALL: "0"
         run: php ./tests/ci/run.php
-      - name: Behavior smoke tests (${{ matrix.php }} • ${{ matrix.db || 'mysql' }})
+      - name: Behavior smoke tests (${{ matrix.php }} • mysql)
         env:
           BC_DB: mysql           # nebo postgres v druhém jobu
           MYSQL_DSN: "mysql:host=127.0.0.1;port=3306;dbname=test;charset=utf8mb4"
@@ -170,11 +172,13 @@ jobs:
       - name: Split schema to packages
         shell: pwsh
         run: |
-          pwsh ./scripts/Split-SchemaToPackages.ps1 -PackagesDir ./packages
+          pwsh ./scripts/schema-tools/Split-SchemaToPackages.ps1 `
+            -InDir ./scripts/schema `
+            -PackagesDir ./packages
       - name: Validate codegen (WhatIf, autodetect)
         shell: pwsh
         run: |
-          pwsh -File ./scripts/Generate-PhpFromSchema.ps1 `
+          pwsh -File ./scripts/schema-tools/Generate-PhpFromSchema.ps1 `
             -TemplatesRoot ./scripts/templates/php `
             -ModulesRoot   ./packages `
             -SchemaDir     ./scripts/schema `
@@ -185,7 +189,7 @@ jobs:
       - name: Generate code (real) and assert clean git
         shell: pwsh
         run: |
-          pwsh -File ./scripts/Generate-PhpFromSchema.ps1 `
+          pwsh -File ./scripts/schema-tools/Generate-PhpFromSchema.ps1 `
             -TemplatesRoot ./scripts/templates/php `
             -ModulesRoot   ./packages `
             -SchemaDir     ./scripts/schema `
@@ -222,7 +226,7 @@ jobs:
           BC_RUN_IDEMPOTENT: "1"
           BC_UNINSTALL: "0"
         run: php ./tests/ci/run.php
-      - name: Behavior smoke tests (${{ matrix.php }} • ${{ matrix.db || 'pgsql' }})
+      - name: Behavior smoke tests (${{ matrix.php }} • postgres)
         env:
           BC_DB: postgres           # nebo postgres v druhém jobu
           MYSQL_DSN: "mysql:host=127.0.0.1;port=3306;dbname=test;charset=utf8mb4"

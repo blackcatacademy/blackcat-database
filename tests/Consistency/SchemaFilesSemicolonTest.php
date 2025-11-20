@@ -9,7 +9,7 @@ final class SchemaFilesSemicolonTest extends TestCase
 {
     public function testAllSchemaFilesEndWithSemicolon(): void
     {
-        $root = \realpath(__DIR__ . '/../../'); // projekt root = tests/.. (dvě úrovně nahoru)
+        $root = \realpath(__DIR__ . '/../../'); // project root = tests/.. (two levels up)
         $this->assertNotFalse($root, 'Cannot resolve project root');
         $packages = $root . '/packages';
         $this->assertDirectoryExists($packages, "Missing directory: $packages");
@@ -36,23 +36,23 @@ final class SchemaFilesSemicolonTest extends TestCase
             if (substr($fn, -4) !== '.sql') {
                 continue;
             }
-            // optional: vynecháme prázdné/komentářové soubory
+            // optional: skip empty/comment-only files
             $raw = @file_get_contents($fn);
             if ($raw === false) {
                 $missing[] = [$fn, 'unreadable'];
                 continue;
             }
 
-            // odstranit BOM a oříznout whitespace na konci
+            // remove BOM and trim trailing whitespace
             $raw = preg_replace('/^\xEF\xBB\xBF/', '', $raw);
             $trimmed = rtrim($raw);
 
-            // pokud je soubor po odfiltrování prázdný (nebo jen komentáře), přeskoč
+            // skip if the file is empty after filtering (or comments only)
             if ($this->isEffectivelyEmptySql($trimmed)) {
                 continue;
             }
 
-            // poslední non-whitespace znak musí být ';'
+            // last non-whitespace character must be ';'
             $endsWithSemicolon = (bool)preg_match('/;\s*$/', $trimmed);
 
             if (!$endsWithSemicolon) {
@@ -75,19 +75,19 @@ final class SchemaFilesSemicolonTest extends TestCase
     }
 
     /**
-     * Heuristika: ignoruj soubory, které po odstranění whitespace
-     * a komentářů (SQL -- a /* * /) neobsahují žádný příkaz.
+     * Heuristic: ignore files that after stripping whitespace
+     * and comments (SQL -- and /* * /) contain no statements.
      */
     private function isEffectivelyEmptySql(string $sql): bool
     {
         $s = $sql;
 
-        // odstranění block komentářů /* ... */
+        // remove block comments /* ... */
         $s = preg_replace('#/\*.*?\*/#s', '', $s);
-        // odstranění single-line komentářů -- ... na konci řádku
+        // remove single-line comments -- ... at EOL
         $s = preg_replace('/--[^\n\r]*/', '', $s);
 
-        // po odstranění komentářů a whitespace je prázdné?
+        // empty after removing comments and whitespace?
         return trim($s) === '';
     }
 }

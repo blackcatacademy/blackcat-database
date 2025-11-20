@@ -1,12 +1,13 @@
 @{
   File   = 'src/Service/[[SERVICE_CLASS]].php'
   Tokens = @(
-    'NAMESPACE',        # např. BlackCat\Database\Packages\Orders
-    'SERVICE_CLASS',    # např. OrdersAggregateService
-    'USES_ARRAY',       # pole plných use, např. ["use BlackCat\Core\Database;","use BlackCat\Database\Packages\Orders\Repository as OrdersRepo;"]
-    'CTOR_PARAMS',      # např. "private Database $db, private OrdersRepo $orders, private OrderItemsRepo $orderItems"
-    'AGGREGATE_METHODS' # vygenerované/kostra metod – může zůstat prázdné
-  )
+    'NAMESPACE',
+    'SERVICE_CLASS',
+    'USES_ARRAY',
+    'CTOR_PARAMS',
+    'REPOSITORY_MAP',
+    'AGGREGATE_METHODS'
+ )
   Content = @'
 <?php
 declare(strict_types=1);
@@ -15,108 +16,90 @@ namespace [[NAMESPACE]]\Service;
 
 [[USES_ARRAY]]
 
+use BlackCat\Database\Support\ServiceHelpers;
+use BlackCat\Database\Contracts\ContractRepository as RepoContract;
+
 /**
- * Orchestruje více repozitářů v jedné transakci (s podporou savepointů).
- * - Idempotence/locking nechává na Repository/DB vrstvě.
- * - Má helpery: runInTransaction(), retryOnDeadlock(), withLock().
+ * Orchestrates multiple repositories within a single transaction (savepoints supported).
+ * - Leaves idempotence/locking to the Repository/DB layer.
+ * - Provides a helper: withRowLock().
  */
 final class [[SERVICE_CLASS]]
 {
+    use ServiceHelpers;
+
+    /** @var array<string,object> */
+    private readonly array $repositories;
+
     public function __construct(
         [[CTOR_PARAMS]]
-    ) {}
+    ) {
+        // Repository autowiring (generated)
+        $this->repositories = [[REPOSITORY_MAP]];
+    }
 
-    /**
-     * Spusť v transakci. Preferuje Database::transaction(callable): mixed.
-     * Fallback: begin/commit/rollback, případně savepointy pokud už transakce běží.
-     */
-    private function runInTransaction(callable $fn): mixed
+    private function repo(string $alias): RepoContract
     {
-        if (method_exists($this->db, 'transaction')) {
-            return $this->db->transaction(fn() => $fn($this->db));
+        if (!isset($this->repositories[$alias])) {
+            throw new \InvalidArgumentException("Unknown repository alias '$alias'.");
         }
-
-        $hasTxApi = method_exists($this->db, 'beginTransaction')
-            && method_exists($this->db, 'commit')
-            && method_exists($this->db, 'rollBack');
-
-        $hasExec = method_exists($this->db, 'exec');
-        $inTx    = method_exists($this->db, 'inTransaction') ? (bool)$this->db->inTransaction() : false;
-
-        if ($hasTxApi) {
-            if ($inTx && $hasExec) {
-                // savepoint branch
-                $sp = '__svc_' . bin2hex(random_bytes(4));
-                $this->db->exec('SAVEPOINT ' . $sp);
-                try {
-                    $res = $fn($this->db);
-                    $this->db->exec('RELEASE SAVEPOINT ' . $sp);
-                    return $res;
-                } catch (\Throwable $e) {
-                    $this->db->exec('ROLLBACK TO SAVEPOINT ' . $sp);
-                    throw $e;
-                }
-            }
-
-            $this->db->beginTransaction();
-            try {
-                $res = $fn($this->db);
-                $this->db->commit();
-                return $res;
-            } catch (\Throwable $e) {
-                $this->db->rollBack();
-                throw $e;
-            }
-        }
-
-        // nouzový běh bez transakce (např. v test double)
-        return $fn($this->db);
+        /** @var RepoContract */
+        return $this->repositories[$alias];
     }
 
     /**
-     * Opakuj blok při deadlocku / serialization failure (exponenciální backoff).
-     * Detekuje PG SQLSTATE 40001/40P01 a MySQL kódy 1205/1213.
+     * Lock a row (SELECT ... FOR UPDATE) and execute work within the same transaction.
+     * - $locker is a callable that performs the locking SELECT (ideally $repo->lockById)
+     * - Supports locker signatures with or without the $mode argument ('wait'|'nowait'|'skip_locked').
+     * - $fetch: callable(array|null $lockedRow, Database $db): mixed
      */
-    private function retryOnDeadlock(callable $fn, int $maxAttempts = 3): mixed
+    protected function withRowLock(callable $locker, int|string|array $id, callable $fetch, string $mode = 'wait'): mixed
     {
-        $attempt = 0;
-        do {
+        $mode = strtolower($mode);
+        if (!in_array($mode, ['wait', 'skip_locked', 'nowait'], true)) { $mode = 'wait'; }
+
+        return $this->txn(function () use ($locker, $id, $fetch, $mode) {
+            // Support locker($id, $mode) as well as locker($id)
             try {
-                return $fn();
-            } catch (\Throwable $e) {
-                $attempt++;
-                $sig   = strtolower($e->getMessage());
-                $state = ($e instanceof \PDOException) ? strtolower((string)($e->errorInfo[0] ?? '')) : '';
-                $code  = ($e instanceof \PDOException) ? (int)($e->errorInfo[1] ?? 0) : 0;
-
-                $isPgDeadlock  = in_array($state, ['40001','40p01'], true);
-                $isMyDeadlock  = in_array($code, [1205,1213], true);
-                $looksDeadlock = $isPgDeadlock || $isMyDeadlock
-                    || str_contains($sig, 'deadlock') || str_contains($sig, 'serialization');
-
-                if (!$looksDeadlock || $attempt >= $maxAttempts) {
-                    throw $e;
+                $num = 1;
+                if (is_array($locker) && count($locker) === 2) {
+                    $rm  = new \ReflectionMethod($locker[0], (string)$locker[1]);
+                    $num = $rm->getNumberOfParameters();
+                } elseif ($locker instanceof \Closure) {
+                    $rf  = new \ReflectionFunction($locker);
+                    $num = $rf->getNumberOfParameters();
+                } elseif (is_object($locker) && is_callable($locker)) {
+                    $rm  = new \ReflectionMethod($locker, '__invoke');
+                    $num = $rm->getNumberOfParameters();
+                } elseif (is_string($locker) && \function_exists($locker)) {
+                    $rf  = new \ReflectionFunction($locker);
+                    $num = $rf->getNumberOfParameters();
                 }
-
-                // backoff
-                usleep((int)(100000 * (2 ** ($attempt - 1)))); // 0.1s, 0.2s, 0.4s
+                $row = ($num >= 2) ? $locker($id, $mode) : $locker($id);
+            } catch (\Throwable) {
+                // Best-effort fallback
+                $row = is_callable($locker) ? $locker($id) : null;
             }
-        } while (true);
-    }
 
-    /**
-     * Zamkni řádek (FOR UPDATE) a proveď práci uvnitř téže transakce.
-     * $fetch je callable(array $row, Database $db): mixed
-     */
-    protected function withLock(callable $locker, int|string|array $id, callable $fetch): mixed
-    {
-        return $this->runInTransaction(function () use ($locker, $id, $fetch) {
-            $row = $locker($id); // očekává se $repo->lockById($id)
+            if ($mode === 'skip_locked' && $row === null) {
+                return null; // respect skip_locked - no record currently available
+            }
             if (!$row) {
-                throw new \[[NAMESPACE]]\ModuleException("Záznam $id nenalezen pro zámek.");
+                $idStr = is_array($id) ? json_encode($id, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : (string)$id;
+                throw new \[[NAMESPACE]]\ModuleException("Record {$idStr} not found for locking.");
             }
-            return $fetch($row, $this->db);
+            return $fetch($row, $this->db());
         });
+    }
+
+    public function withAdvisoryLock(string $key, callable $fn): mixed {
+        return $this->withLock($this->db(), $key, fn() => $fn($this->db()));
+    }
+
+    /** Attempt a lock with SKIP LOCKED; returns null when the row is locked instead of throwing. */
+    public function tryWithRowLock(callable $locker, int|string|array $id, callable $fetch): mixed
+    {
+        return $this->withRowLock($locker, $id, $fetch, 'skip_locked');
     }
 
 [[AGGREGATE_METHODS]]

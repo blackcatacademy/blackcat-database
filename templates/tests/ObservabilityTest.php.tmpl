@@ -1,0 +1,13 @@
+<?php
+declare(strict_types=1);
+use PHPUnit\Framework\TestCase;
+final class {{Name}}ObservabilityTest extends TestCase {
+  public function test_sql_comment(): void {
+    if (!class_exists('\\BlackCat\\Support\\Observability')) {
+      $this->markTestSkipped('Observability helper not found');
+    }
+    $c = \BlackCat\Support\Observability::sqlComment(['module'=>'users','action'=>'list','corr'=>'abcd']);
+    $this->assertStringStartsWith('/*app:', $c);
+    $this->assertStringEndsWith('*/ ', $c);
+  }
+}

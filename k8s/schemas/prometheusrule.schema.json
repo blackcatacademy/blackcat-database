@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PrometheusRule",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "enum": ["monitoring.coreos.com/v1"]
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["PrometheusRule"]
+    },
+    "metadata": {
+      "$ref": "#/definitions/objectMeta"
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "groups": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/ruleGroup" }
+        }
+      },
+      "required": ["groups"]
+    }
+  },
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "definitions": {
+    "objectMeta": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "namespace": { "type": "string" },
+        "labels": { "$ref": "#/definitions/stringMap" },
+        "annotations": { "$ref": "#/definitions/stringMap" }
+      },
+      "additionalProperties": true
+    },
+    "stringMap": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "ruleGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "interval": { "type": "string" },
+        "rules": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/rule" }
+        }
+      },
+      "required": ["name", "rules"]
+    },
+    "rule": {
+      "type": "object",
+      "properties": {
+        "record": { "type": "string" },
+        "alert": { "type": "string" },
+        "expr": { "type": "string" },
+        "for": { "type": "string" },
+        "labels": { "$ref": "#/definitions/stringMap" },
+        "annotations": { "$ref": "#/definitions/stringMap" }
+      },
+      "required": ["expr"],
+      "additionalProperties": true
+    }
+  }
+}

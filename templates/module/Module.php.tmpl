@@ -1,0 +1,28 @@
+\
+    <?php
+    declare(strict_types=1);
+
+    namespace {{Namespace}};
+
+    use BlackCat\Database\ModuleInterface;
+
+    final class Module implements ModuleInterface
+    {
+        public function name(): string { return '{{Name}}'; }
+
+        public function dialects(): array
+        {
+            return ['postgres','mysql'];
+        }
+
+        public function installSql(): array
+        {
+            return [
+                "CREATE TABLE IF NOT EXISTS {{Table}} (id BIGINT PRIMARY KEY, name TEXT)"
+            ];
+        }
+
+        public function seedSql(): array { return []; }
+
+        public function viewsSql(): array { return []; }
+    }

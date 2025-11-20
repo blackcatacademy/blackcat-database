@@ -25,6 +25,8 @@
     "blackcatacademy/blackcat-core": "dev-main"
   },
   "require-dev": {
+    "phpstan/phpstan": "^1.11",
+    "phpstan/phpstan-phpunit": "^1.4",
     "phpunit/phpunit": "^10.5 || ^11.0"
   },
   "repositories": [
@@ -48,7 +50,7 @@
   },
   "scripts": {
     "test": "php tests/ci/run.php",
-    "codegen:php": "pwsh -NoLogo -NoProfile -File scripts/Generate-PhpFromSchema.ps1 -MapPath scripts/schema-map.psd1 -TemplatesRoot scripts/templates/php -ModulesRoot packages -NameResolution detect -StrictSubmodules",
+    "codegen:php": "pwsh -NoLogo -NoProfile -File scripts/schema-tools/Generate-PhpFromSchema.ps1 -MapPath scripts/schema-map.psd1 -TemplatesRoot scripts/templates/php -ModulesRoot packages -NameResolution detect -StrictSubmodules",
     "submodules:update": "git submodule sync --recursive && git submodule update --init --recursive",
     "dump": "composer dump-autoload -o"
   },

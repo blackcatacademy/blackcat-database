@@ -12,14 +12,14 @@ use RecursiveIteratorIterator;
 use FilesystemIterator;
 
 /**
- * DbHarness – testovací “lešení” pro databázi (MySQL/Postgres) s bohatým logováním přes BC_DEBUG=1.
+ * DbHarness - testing scaffolding for the database (MySQL/Postgres) with rich logging via BC_DEBUG=1.
  *
- * - Instaluje/upgradeuje moduly (Installer), hlídá pořadí závislostí.
- * - Staví registr tabulek → Definitions/Repository FQN.
- * - Unifikované introspekce: sloupce, FK (detaily), unique key (schema+definitions), enum-like volby.
- * - Helpery pro vložení řádku a dohledání PK.
+ * - Installs/upgrades modules (Installer) and enforces dependency ordering.
+ * - Builds a registry of tables -> Definitions/Repository FQN.
+ * - Unified introspection: columns, FK details, unique keys (schema + definitions), enum-like options.
+ * - Helpers for inserting rows and looking up PKs.
  *
- * LOGGING: nastavte BC_DEBUG=1 (nebo true) pro podrobné logy (stderr).
+ * LOGGING: set BC_DEBUG=1 (or true) for verbose logs (stderr).
  */
 final class DbHarness
 {
@@ -47,7 +47,7 @@ final class DbHarness
             $t = @mb_convert_encoding($s, 'UTF-8', $enc);
             if ($t !== false && mb_check_encoding($t, 'UTF-8')) return $t;
         }
-        return $s; // poslední možnost – vrať bez konverze
+        return $s; // last resort - return without conversion
     }
 
     private static function mysqlErrno(\Throwable $e): ?int
@@ -57,7 +57,7 @@ final class DbHarness
             : null;
     }
 
-    /** SQLSTATE z PDO výjimky (např. 42S02, 42P01). */
+    /** SQLSTATE from a PDO exception (e.g., 42S02, 42P01). */
     private static function sqlState(\Throwable $e): ?string
     {
         return ($e instanceof \PDOException && isset($e->errorInfo[0]))
@@ -65,7 +65,7 @@ final class DbHarness
             : null;
     }
 
-    /** Chyby „objekt neexistuje“ – vhodné tlumit na dbg. */
+    /** "Object does not exist" errors - suitable for dbg-level logging. */
     private static function isBenignMissing(\Throwable $e): bool
     {
         $errno = self::mysqlErrno($e);
@@ -73,7 +73,7 @@ final class DbHarness
         return $errno === 1146 || $state === '42S02' || $state === '42P01';
     }
 
-    /** Jednorázový warn (stejné hlášky nespamují log). */
+    /** One-time warning (prevents repeated log spam for identical messages). */
     private static array $warnOnceCache = [];
     private static function warnOnce(string $key, string $fmt, mixed ...$args): void
     {
@@ -102,14 +102,14 @@ final class DbHarness
 
     private static function warn(string $fmt, mixed ...$args): void
     {
-        // normalize všechny stringové argumenty do UTF-8 (kvůli mojibake)
+        // normalize all string arguments to UTF-8 (avoid mojibake)
         foreach ($args as $i => $a) {
             if (is_string($a)) $args[$i] = self::normalizeUtf8($a);
         }
         error_log('[DbHarness][WARN] ' . vsprintf($fmt, $args));
     }
 
-    // === TRACE_VIEWS (tichý režim: aktivní jen při BC_TRACE_VIEWS=1/true) =======================
+    // === TRACE_VIEWS (silent mode: active only when BC_TRACE_VIEWS=1/true) =======================
     private static function traceViewsEnabled(): bool
     {
         $v = $_ENV['BC_TRACE_VIEWS'] ?? getenv('BC_TRACE_VIEWS') ?? '';
@@ -131,21 +131,21 @@ final class DbHarness
         return (string)($_ENV['BC_CACHE_BUSTER'] ?? getenv('BC_CACHE_BUSTER') ?? '');
     }
 
-    /** Volitelné: shodí high-level registry; cache buster pro per-method caches změň přes env. */
+    /** Optional: drops the high-level registry; bump per-method cache busters via env. */
     public static function clearProcessCaches(): void {
         self::$registry = [];
     }
-    /** Volitelné: lokálně „bumpni“ cache buster i bez restartu procesu. */
+    /** Optional: locally bump the cache buster without restarting the process. */
     public static function bumpCacheBuster(): void {
         @putenv('BC_CACHE_BUSTER=' . (string)microtime(true));
     }
     
     // -------------------- PUBLIC API --------------------
 
-    /** Nainstaluje všechny moduly idempotentně + sestaví registry. Vrací seznam modulů. */
+    /** Installs all modules idempotently and builds the registry. Returns the module list. */
     public static function ensureInstalled(): array
     {
-        self::$bootstrapped = true; // aby bootstrapOnce() už nezkoušelo instalovat znovu
+        self::$bootstrapped = true; // so bootstrapOnce() does not re-run installation
         $db = Database::getInstance();
         $pdo = $db->getPdo();
         $driver = (string)$pdo->getAttribute(\PDO::ATTR_DRIVER_NAME);
@@ -168,7 +168,7 @@ final class DbHarness
                 self::logDbError('SET search_path', $e);
             }
         } else {
-            // MySQL: zaloguj aktivní databázi
+            // MySQL: log the active database
             try {
                 $curDb = (string)($db->fetchOne('SELECT DATABASE()') ?? '');
                 self::dbg('ensureInstalled: MySQL DATABASE()=%s', $curDb !== '' ? $curDb : '(NULL)');
@@ -177,23 +177,23 @@ final class DbHarness
             }
         }
 
-        // Najdi moduly a proveď install/upgrade
+        // Discover modules and run install/upgrade
         $mods = self::discoverModules($dialect);
         $installer = new Installer($db, $dialect);
         $installer->ensureRegistry();
 
-        // volitelně zpřísnit chování Installeru přímo z Harnessu
+        // optionally tighten Installer behavior directly from the harness
         $strictViews = self::envTrue('BC_HARNESS_STRICT_VIEWS');
         $prevStrict  = getenv('BC_INSTALLER_STRICT_VIEWS') ?: '';
         if ($strictViews) { @putenv('BC_INSTALLER_STRICT_VIEWS=1'); }
 
-        // 1) průchod – tabulky, indexy, seeds…
+        // Pass 1 - tables, indexes, seeds, ...
         foreach ($mods as $m) {
             self::dbg('Install pass #1: %s', $m->name());
             $installer->installOrUpgrade($m);
         }
 
-        // 2) průchod – vynucený replay view (BC_REPAIR=1) + idempotence
+        // Pass 2 - forced view replay (BC_REPAIR=1) + idempotence
         $prevRepair = getenv('BC_REPAIR') ?: '';
         @putenv('BC_REPAIR=1');
         foreach ($mods as $m) {
@@ -204,10 +204,10 @@ final class DbHarness
         if ($prevRepair === '') { @putenv('BC_REPAIR'); } else { @putenv('BC_REPAIR='.$prevRepair); }
         if ($prevStrict === '') { @putenv('BC_INSTALLER_STRICT_VIEWS'); } else { @putenv('BC_INSTALLER_STRICT_VIEWS='.$prevStrict); }
 
-        // 3) **ANTIRACE**: ověř, že všechna deklarovaná view skutečně existují; případně jednou oprav.
+        // 3) **ANTIRACE**: verify that every declared view truly exists; repair once if needed.
         self::verifyViewsOrRepair($mods, $installer, $dialect);
 
-        // … dál už beze změny:
+        // ... nothing else changes:
         if ($dialect->isPg()) {
             try {
                 $schema = self::pgSchema();
@@ -222,7 +222,7 @@ final class DbHarness
             self::traceViewsSnapshot();
         }
 
-        // Smoke-check: zjisti, zda information_schema vidí tabulky
+        // Smoke-check: ensure information_schema sees the tables
         try {
             if ($dialect->isPg()) {
                 $schema = self::pgSchema();
@@ -241,12 +241,12 @@ final class DbHarness
         } catch (\Throwable $e) {
             self::logDbError('ensureInstalled: information_schema smoke-check', $e, false, 'smoke-check');
         }
-        // Po instalaci/upgrade chceme nové introspekce → bump cache buster
+        // After install/upgrade we want fresh introspection -> bump cache buster
         self::bumpCacheBuster();
         return $mods;
     }
 
-    /** Najde a instancuje všechny Module třídy kompatibilní s daným dialektem (toposort). */
+    /** Finds and instantiates all Module classes compatible with the dialect (toposort). */
     public static function discoverModules(SqlDialect $dialect): array
     {
         $root = realpath(__DIR__ . '/../../packages');
@@ -300,7 +300,7 @@ final class DbHarness
 
         $repoFqn = $inf['repo'];
         if (!$repoFqn || !class_exists($repoFqn)) {
-            // registry může být z jiného běhu → zkus odvodit znovu
+            // registry may come from another run -> re-derive it
             $repoFqn = self::resolveRepoFqn($inf['ns'] ?? '', $inf['defs'] ?? '');
         }
         if (!$repoFqn || !class_exists($repoFqn)) {
@@ -311,7 +311,7 @@ final class DbHarness
         return new $repoFqn(Database::getInstance());
     }
 
-    /** Definitions FQN (třída s metadaty). */
+    /** Definitions FQN (metadata class). */
     public static function definitionsFor(string $table): string
     {
         self::ensureRegistry();
@@ -322,7 +322,7 @@ final class DbHarness
         return $inf['defs'];
     }
 
-    /** Primární klíč podle Definitions::pk() (fallback 'id'). */
+    /** Primary key from Definitions::pk() (fallback 'id'). */
     public static function primaryKey(string $table): string
     {
         try {
@@ -357,7 +357,7 @@ final class DbHarness
         $db = \BlackCat\Core\Database::getInstance();
 
         if (self::isMysql()) {
-            // preferuj skutečné view „vw_<table>“ (respektuje prefixy přes resolvePhysicalName)
+            // prefer actual views "vw_<table>" (resolvePhysicalName respects prefixes)
             $cand = 'vw_' . $table;
             $phys = self::resolvePhysicalName($cand);
             $isView = (int)$db->fetchOne(
@@ -389,7 +389,7 @@ final class DbHarness
 
         }
         if (self::traceViewsEnabled()) self::tv('[CV] FALLBACK: %s -> %s (no view found)', $table, $table);
-        // definitivní fallback: tabulka
+        // final fallback: table
         return $table;
     }
 
@@ -397,7 +397,7 @@ final class DbHarness
     public static function rollback(): void { Database::getInstance()->rollBack(); }
 
     /**
-     * Columns meta z information_schema (unifikované). Loguje důvody, když nic nenajde.
+     * Column metadata from information_schema (normalized). Logs reasons when nothing is found.
      * @return array<int,array{name:string,type:string,full_type:string,nullable:bool,col_default:mixed,is_identity:bool}>
      */
     public static function columns(string $table): array
@@ -419,11 +419,11 @@ final class DbHarness
                 self::dbg('columns(%s): resolved physical=%s', $table, $phys);
             }
 
-            // cache klíč podle fyzického jména
+            // cache key based on the physical name
             $keyPhys = 'mysql:' . $phys . ':' . $sfx;
             if ($useCache && isset($cache[$keyPhys])) { return $cache[$keyPhys]; }
 
-            // information_schema nejdřív
+            // use information_schema first
             $sql = "SELECT COLUMN_NAME AS name, DATA_TYPE AS type, COLUMN_TYPE AS full_type,
                         IS_NULLABLE='YES' AS nullable,
                         COLUMN_DEFAULT AS col_default,
@@ -438,7 +438,7 @@ final class DbHarness
                 return $rows;
             }
 
-            // nic v I_S → zkontroluj skutečnou existenci tabulky (ať nevoláme SHOW na neexistující)
+            // nothing in I_S -> verify the table actually exists (avoid SHOW on non-existent tables)
             $curDb = (string)($db->fetchOne('SELECT DATABASE()') ?? '');
             $existsTable = (int)$db->fetchOne(
                 "SELECT COUNT(*) FROM information_schema.TABLES
@@ -474,7 +474,7 @@ final class DbHarness
                     $table, $curDb !== '' ? $curDb : '(NULL)');
             }
 
-            // Fallback #2: contract view — pouze když je to skutečný view (contractView() vrátí odlišný název)
+            // Fallback #2: contract view — only when it is a real view (contractView() returns a different name)
             $view = self::contractView($table);
             if ($view !== '' && strcasecmp($view, $table) !== 0) {
                 $viewPhys = self::resolvePhysicalName($view);
@@ -510,13 +510,13 @@ final class DbHarness
                 }
             }
 
-            // Vše vyčerpáno – žádný křik, protože to je očekávatelné před instalací modulů
+            // Exhausted options - stay quiet because this is expected before modules are installed
             self::dbg('columns(%s): MySQL fallbacks exhausted, returning empty meta', $table);
             if ($useCache) { $cache[$keyPhys] = []; }
             return [];
         }
 
-        // ===== Postgres beze změn =====
+        // ===== Postgres unchanged =====
         $schema = self::pgSchema();
         $sql = "SELECT column_name AS name, data_type AS type, udt_name AS full_type,
                     is_nullable='YES' AS nullable,
@@ -545,7 +545,7 @@ final class DbHarness
         return $rows;
     }
 
-    /** Detaily cizích klíčů (seskupené podle constraintu). */
+    /** Foreign key details grouped by constraint. */
     public static function foreignKeysDetailed(string $table): array
     {
         [$dial] = self::dialect(); /** @var SqlDialect $dial */
@@ -599,7 +599,7 @@ final class DbHarness
         return array_values($grp);
     }
 
-    /** pouze názvy FK sloupců (kompatibilita) */
+    /** FK column names only (compatibility) */
     public static function foreignKeyColumns(string $table): array
     {
         $fks = self::foreignKeysDetailed($table);
@@ -608,7 +608,7 @@ final class DbHarness
         return $out;
     }
 
-    /** Definitions::columns() pro whitelist; fallback na information_schema když není. */
+    /** Definitions::columns() for whitelist; fallback to information_schema when absent. */
     public static function allowedColumns(string $table): array
     {
         try {
@@ -629,7 +629,7 @@ final class DbHarness
         return $cols;
     }
 
-    /** Unikátní klíče ze schématu (information_schema) – včetně PK. */
+    /** Unique keys from schema (information_schema) - including PK. */
     public static function uniqueKeysFromSchema(string $table): array
     {
         [$dial] = self::dialect(); /** @var SqlDialect $dial */
@@ -674,7 +674,7 @@ final class DbHarness
         return $out;
     }
 
-    /** Unikátní klíče z Definitions (mohou být prázdné). */
+    /** Unique keys from Definitions (may be empty). */
     public static function uniqueKeys(string $table): array
     {
         try {
@@ -690,7 +690,7 @@ final class DbHarness
         return [];
     }
 
-    /** Definitions ∪ Schema, odfiltrované na povolené sloupce (repo je propustí). */
+    /** Definitions ∪ Schema filtered to allowed columns (permitted by the repo). */
     public static function resolvedUniqueKeys(string $table): array
     {
         $allowed = array_fill_keys(self::allowedColumns($table), true);
@@ -719,7 +719,7 @@ final class DbHarness
     }
 
     /**
-     * Vloží řádek přes repo a zkusí vrátit PK (row[pk] / lastInsertId / dohledání přes unique / další fallbacky).
+     * Inserts a row via the repo and tries to return the PK (row[pk] / lastInsertId / lookup via unique / other fallbacks).
      * @return array{pkCol:string,pk:mixed}|null
      */
     public static function insertAndReturnId(string $table, array $row): ?array
@@ -731,7 +731,7 @@ final class DbHarness
         $allowedSet = array_fill_keys(self::allowedColumns($table), true);
         $rowUsed    = array_intersect_key($row, $allowedSet);
 
-        // Pokud volající přinesl PK – rovnou ho vraťme.
+        // If the caller provided a PK - just return it.
         if (array_key_exists($pkCol, $rowUsed) && $rowUsed[$pkCol] !== null && $rowUsed[$pkCol] !== '') {
             self::dbg('insertAndReturnId(%s): PK provided in payload (%s) → insert + return', $table, $pkCol);
             $repo->insert($rowUsed);
@@ -761,14 +761,14 @@ final class DbHarness
             self::dbg('insertAndReturnId(%s): lastInsertId exception: %s', $table, $e->getMessage());
         }
 
-        // 3) Dohledání přes unikáty nad TABULKOU
+        // 3) Lookup via table unique keys
         $found = self::fetchPkByUniqueKey($table, $rowUsed, $pkCol);
         if ($found !== null) {
             self::dbg('insertAndReturnId(%s): found via unique key → %s', $table, (string)$found);
             return ['pkCol'=>$pkCol, 'pk'=>$found];
         }
 
-        // 4) Plný row-match
+        // 4) Full row match
         $found = self::fetchPkByRowMatch($table, $rowUsed, $pkCol);
         if ($found !== null) {
             self::dbg('insertAndReturnId(%s): found via row-match → %s', $table, (string)$found);
@@ -793,7 +793,7 @@ final class DbHarness
             self::dbg('insertAndReturnId(%s): PG currval fallback failed: %s', $table, $e->getMessage());
         }
 
-        // 6) Generic: poslední záznam dle PK DESC
+        // 6) Generic: last row ordered by PK DESC
         try {
             $pkExpr  = $db->quoteIdent($pkCol);
             $phys    = self::resolvePhysicalName($table);
@@ -811,7 +811,7 @@ final class DbHarness
         return null;
     }
 
-    /** Dohledá PK podle prvního splnitelného unique key (všechny jeho sloupce jsou v $row). */
+    /** Finds the PK via the first satisfiable unique key (all columns present in $row). */
     public static function fetchPkByUniqueKey(string $table, array $row, string $pkCol = 'id'): mixed
     {
         $db = Database::getInstance();
@@ -835,11 +835,11 @@ final class DbHarness
             if ($id !== null) return $id;
         }
 
-        // fallback – zkus plný row-match
+        // fallback - try a full row match
         return self::fetchPkByRowMatch($table, $row, $pkCol);
     }
 
-    /** Vytáhne PK dotazem přes “equal match” na všechny ne-NULL sloupce, které v tabulce existují. */
+    /** Fetches the PK by matching all non-null columns present in the table. */
     private static function fetchPkByRowMatch(string $table, array $row, string $pkCol = 'id'): mixed
     {
         $db = Database::getInstance();
@@ -851,7 +851,7 @@ final class DbHarness
         $conds = []; $params = [];
         foreach ($row as $k => $v) {
             if (!isset($metaCols[$k])) continue;
-            if ($v === null) continue; // NULL rovnost by nic nenašla
+            if ($v === null) continue; // equality on NULL would find nothing
             $conds[] = $db->quoteIdent($k) . ' = :' . $k;
             $params[':'.$k] = $v;
         }
@@ -867,7 +867,7 @@ final class DbHarness
 
     // -------------------- ENUM-like + REQUIRED-by-CHECK --------------------
 
-    /** Vrátí mapu enum-like možností: [col => ['a','b',...]]. */
+    /** Returns the enum-like map: [col => ['a','b',...]]. */
     public static function enumChoices(string $table): array
     {
         static $cache = [];
@@ -889,7 +889,7 @@ final class DbHarness
 
         if ($dial->isPg()) {
             self::dbg('enumChoices(%s): PG mode', $table);
-            // a) skutečné PG ENUM (včetně domén nad ENUM)
+            // a) native PG ENUM (including domains over ENUM)
             $rows = $db->fetchAll(<<<'SQL'
                 SELECT a.attname AS col, e.enumlabel AS val
                 FROM pg_attribute a
@@ -904,7 +904,7 @@ final class DbHarness
             SQL, [':schema'=>self::pgSchema(), ':t'=>$table]) ?? [];
             foreach ($rows as $r) { $map[(string)$r['col']][] = (string)$r['val']; }
 
-            // b) CHECK constrainty – dvojí zdroj: (1) pg_get_constraintdef, (2) pg_get_expr(c.conbin, ...)
+            // b) CHECK constraints - two sources: (1) pg_get_constraintdef, (2) pg_get_expr(c.conbin, ...)
             $defs = $db->fetchAll(
                 "SELECT pg_get_constraintdef(c.oid) AS def,
                         pg_get_expr(c.conbin, c.conrelid) AS expr
@@ -921,7 +921,7 @@ final class DbHarness
                 $cands = array_filter([$def, $expr], fn($s)=>$s !== '');
 
                 foreach ($cands as $s) {
-                    // NEW: literal equality cases: col = 'val' nebo 'val' = col (vč. LOWER/UPPER a ::cast)
+                    // NEW: literal equality cases: col = 'val' or 'val' = col (including LOWER/UPPER and ::cast)
                     if (preg_match_all(
                             '/\b(?:LOWER|UPPER)\s*\(\s*"?(?<col>[a-z0-9_]+)"?(?:::?[a-z_]+\[]?)?\s*\)\s*=\s*\'((?:\'\'|[^\'])+)\'/i',
                             $s, $mm1, PREG_SET_ORDER
@@ -990,7 +990,7 @@ final class DbHarness
                     // = ANY ('{A,B,C}'::text[])
                     if (preg_match('/\b"?(?<col>[a-z0-9_]+)"?(?:::?[a-z_]+\[]?)?\s*=\s*ANY\s*\(\s*\'\{(?<vals_brace>[^}]*)\}\'::[a-z_]+\[\]\s*\)/i', $s, $m)) {
                         $inside = (string)$m['vals_brace'];
-                        // Preferuj přesné matchnutí quoted položek: 'A','B'
+                        // Prefer an exact match on quoted items: 'A','B'
                         if (preg_match_all("/'((?:''|[^'])*)'/", $inside, $mm)) {
                             $vals = array_map(fn($s)=>str_replace("''","'", $s), $mm[1]);
                         } else {
@@ -1009,7 +1009,7 @@ final class DbHarness
                 }
             }
 
-            // (volitelný) debug: ukaž, co se skutečně detekovalo
+            // (optional) debug: show what was detected
             if (self::isDebug()) {
                 foreach ($map as $col => $vals) {
                     self::dbg('enumChoices[%s].%s = [%s]', $table, $col, implode(',', $vals));
@@ -1018,7 +1018,7 @@ final class DbHarness
         } else {
             self::dbg('enumChoices(%s): MySQL mode', $table);
             $phys = self::resolvePhysicalName($table);
-            // (cache klíč i check už je připraven nahoře)
+            // (cache key and check prepared above)
             $rows = $db->fetchAll(
                 "SELECT column_name, column_type
                  FROM information_schema.columns
@@ -1033,7 +1033,7 @@ final class DbHarness
                 }
             }
             foreach (self::mysqlCheckClausesForTable($table) as $exprRaw) {
-                $expr = $exprRaw; // už samotná podmínka, bez "CHECK(...)"
+                $expr = $exprRaw; // just the condition itself, no "CHECK(...)"
                 if (preg_match('/\b(?:LOWER|UPPER)\s*\(\s*`?(?<col>[A-Za-z0-9_]+)`?\s*\)\s+IN\s*\(\s*(?<vals>[^)]+)\)/i', $expr, $m)
                  || preg_match('/\b`?(?<col>[A-Za-z0-9_]+)`?\s+IN\s*\(\s*(?<vals>[^)]+)\)/i', $expr, $m)) {
                     $vals = [];
@@ -1061,7 +1061,7 @@ final class DbHarness
         return $map;
     }
 
-    /** Povinné sloupce podle CHECK (viz RowFactory). */
+    /** Required columnsce podle CHECK (viz RowFactory). */
     public static function requiredByCheck(string $table): array
     {
         static $cache = [];
@@ -1104,7 +1104,7 @@ final class DbHarness
             }
         } else {
                 $phys = self::resolvePhysicalName($table);
-                // (cache klíč i check už je připraven nahoře)
+                // (cache key and check prepared above)
             foreach (self::mysqlCheckClausesForTable($table) as $exprRaw) {
                 $expr = $exprRaw;
                 if (preg_match_all('/`(?<col>[A-Za-z0-9_]+)`\s+IS\s+NOT\s+NULL/i', $expr, $m)) {
@@ -1225,7 +1225,7 @@ final class DbHarness
             }
         }
 
-        // --- PASS 2: MariaDB CHECK(json_valid(col)) -> zajisti validní JSON ---
+        // --- PASS 2: MariaDB CHECK(json_valid(col)) -> ensure valid JSON ---
         $mustJson = [];
         foreach (self::mysqlCheckClausesForTable($table) as $exprRaw) {
             if (preg_match_all('/json_valid\s*\(\s*`?([A-Za-z0-9_]+)`?\s*\)/i', (string)$exprRaw, $mm)) {
@@ -1256,13 +1256,13 @@ final class DbHarness
     }
 
     /**
-     * Upraví sample řádek tak, aby PG nepadal na type/check/identity.
-     * - vynechá identity PK (např. id)
-     * - pro sloupce typu type/status/channel/mode/event/level zkusí nasadit hodnotu z CHECK/ENUM
-     * - numerika převede na čísla
-     * - datum/čas dá do platného stringu (dle typu)
+     * Adjusts the sample row so PG does not fail on type/check/identity.
+     * - skips identity PK (e.g., id)
+     * - for columns like type/status/channel/mode/event/level try to use values from CHECK/ENUM
+     * - casts numeric values to numbers
+     * - converts date/time into a valid string per type
      *
-     * Loguje přes BC_DEBUG.
+     * Logs via BC_DEBUG.
      */
    public static function coerceForPg(string $table, array $row): array
     {
@@ -1273,7 +1273,7 @@ final class DbHarness
         $cols = self::columns($table);
         if (!$cols) { return $row; }
 
-        // index meta podle názvů
+        // index metadata by column names
         $meta = [];
         foreach ($cols as $c) {
            $name = (string)$c['name'];
@@ -1285,7 +1285,7 @@ final class DbHarness
             ];
         }
 
-        // id (identity) neposílat
+        // do not send id (identity)
         if (isset($row['id']) && isset($meta['id']) && $meta['id']['is_identity']) {
             self::dbg('coerceForPg(%s): unset identity id', $table);
             unset($row['id']);
@@ -1311,7 +1311,7 @@ final class DbHarness
                 continue;
             }
 
-            // json/jsonb → validní JSON string
+            // json/jsonb -> valid JSON string
             if (str_contains($type, 'json')) {
                 if (is_array($v) || is_object($v)) {
                     $row[$k] = json_encode($v, JSON_UNESCAPED_UNICODE);
@@ -1327,7 +1327,7 @@ final class DbHarness
                 continue;
             }
 
-            // Máme-li enum-like volby pro daný sloupec, vždy je respektuj (bez ohledu na název)
+            // If enum-like options exist for the column, always respect them (regardless of name)
             $choices = $enumMap[$k] ?? $enumMapLc[$kLc] ?? null;
             if ($choices) {
                 $choicesStr = array_map('strval', $choices);
@@ -1338,7 +1338,7 @@ final class DbHarness
                 continue;
             }
 
-            // čísla → čísla (PG kontroluje typy přísněji)
+            // numbers -> numbers (PG validates types strictly)
             if (preg_match('/int|numeric|decimal|double|real|smallint|bigint/i', $type)) {
                 if (!is_int($v) && !is_float($v)) {
                     $row[$k] = is_numeric($v) ? 0 + $v : 0;
@@ -1347,7 +1347,7 @@ final class DbHarness
                 }
             }
 
-            // datum/čas → validní string dle typu
+            // date/time -> valid string per type
             if (preg_match('/date|time/i', $type) && !is_string($v)) {
                 $now = new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
                 $isDate = stripos($type, 'date') !== false;
@@ -1360,8 +1360,8 @@ final class DbHarness
         }
         
         // --- Cross-column heuristics (percent/fixed + currency) -----------------------------
-        // Pokud máme enum-like 'type' s hodnotami ['percent','fixed'] a existuje sloupec 'currency',
-        // srovnejme row tak, aby vyhověl typickému CHECKu (viz coupons).
+        // If we have enum-like 'type' values ['percent','fixed'] and a 'currency' column exists,
+        // align the row so it satisfies the typical CHECK (see coupons).
         $typeChoices = array_map('strtolower', $enumMapLc['type'] ?? ($enumMap['type'] ?? []));
         if (in_array('percent', $typeChoices, true) && in_array('fixed', $typeChoices, true)
             && isset($meta['type']) && isset($meta['currency'])) {
@@ -1399,8 +1399,8 @@ final class DbHarness
     }
 
     /**
-     * Má tabulka aspoň jeden NOT NULL FK sloupec? (rychlé PG smoke testy — můžeš je přeskakovat)
-     * Loguje přes BC_DEBUG.
+     * Does the table have at least one NOT NULL FK column? (fast PG smoke tests — may be skipped)
+     * Logs via BC_DEBUG.
      */
     public static function hasHardFks(string $table): bool
     {
@@ -1418,10 +1418,10 @@ final class DbHarness
     }
 
     /**
-     * Rychlý bezpečnostní profil tabulky pro generování vzorků přes Repository.
-     * - flagne REQUIRED multi-column FK (nebudeme hádat kompozity),
+     * Quick safety profile of a table for generating samples via the Repository.
+     * - flags REQUIRED multi-column FKs (we won't guess composites),
      * - flagne NOT NULL FK,
-     * - flagne required-by-check/enum-like sloupce, které repo nepropouští a nemají DEFAULT.
+     * - flags required-by-check/enum-like columns blocked by the repo without a DEFAULT.
      * @return array{unsafe:bool,reasons:array<int,string>}
      */
     public static function safetyProfile(string $table): array
@@ -1433,7 +1433,7 @@ final class DbHarness
             $byName[strtolower((string)$c['name'])] = $c;
         }
 
-        // (1) multi-column FK, kde jsou VŠECHNY sloupce NOT NULL
+        // (1) multi-column FK where ALL columns are NOT NULL
         foreach (self::foreignKeysDetailed($table) as $fk) {
             $cols = (array)$fk['cols'];
             if (count($cols) >= 2) {
@@ -1451,12 +1451,12 @@ final class DbHarness
             }
         }
 
-        // (2) obecně NOT NULL FKs
+        // (2) generic NOT NULL FKs
         if (self::hasHardFks($table)) {
             $reasons[] = 'has NOT NULL foreign keys';
         }
 
-        // (3) required-by-check / enum-like nepovolené repo whitelistem bez DEFAULT
+        // (3) required-by-check / enum-like columns forbidden by repo whitelist without DEFAULT
         $allowed      = self::allowedColumns($table);
         $allowedSet   = array_fill_keys($allowed, true);
         $allowedSetLc = array_fill_keys(array_map('strtolower', $allowed), true);
@@ -1505,7 +1505,7 @@ final class DbHarness
         return $out;
     }
 
-    /** Jednorázový rentgen views a kontraktů (aktivní jen s BC_TRACE_VIEWS). */
+    /** One-off X-ray of views and contracts (active only with BC_TRACE_VIEWS). */
     private static function traceViewsSnapshot(): void
     {
         $db = Database::getInstance();
@@ -1529,7 +1529,7 @@ final class DbHarness
             self::tv('[SNAP] MySQL db=%s views.count=%d -> %s', $curDb !== '' ? $curDb : '(NULL)', count($all), implode(', ', $all));
         }
 
-        // Mapování kontraktů u všech registrovaných tabulek
+        // Contract mapping across all registered tables
         foreach (array_keys(self::$registry) as $t) {
             $cv = self::contractView($t);
             $physCv = self::resolvePhysicalName($cv);
@@ -1550,7 +1550,7 @@ final class DbHarness
             $kind = $isView > 0 ? 'view' : 'table';
             self::tv('[MAP] table=%s -> contractView=%s (phys=%s kind=%s)', $t, $cv, $physCv, $kind);
 
-            // Detekce „duplikátů“ názvů (typicky prefix + vw_<table>) – jen MySQL
+            // Detect duplicate names (e.g., prefix + vw_<table>) - MySQL only
             if (!$dial->isPg()) {
                 $cand = 'vw_' . $t;
                 $rows = $db->fetchAll(
@@ -1567,7 +1567,7 @@ final class DbHarness
             }
         }
 
-        // Kontrola očekávaných computed sloupců (jen MySQL)
+        // Check expected computed columns (MySQL only)
         if (!$dial->isPg()) {
             $strictRaw = $_ENV['BC_STRICT_TRACE_VIEWS'] ?? getenv('BC_STRICT_TRACE_VIEWS') ?? '';
             $strict = ($strictRaw === '1' || strcasecmp((string)$strictRaw, 'true') === 0);
@@ -1624,9 +1624,9 @@ final class DbHarness
     private static function pgNormalizeChoice(string $v): string
     {
         $v = trim($v);
-        // odstraň trailing cast: ::text, ::varchar, ::text[], …
+        // remove trailing casts: ::text, ::varchar, ::text[], ...
         $v = (string)preg_replace('/::[a-z_]+(\[\])?$/i', '', $v);
-        // 'foo' -> foo ; "foo" -> "foo" (typicky ne, ale nevadí)
+        // 'foo' -> foo ; "foo" -> "foo" (rare but fine)
         if ($v !== '' && $v[0] === "'" && substr($v, -1) === "'") {
             $v = substr($v, 1, -1);
         }
@@ -1640,7 +1640,7 @@ final class DbHarness
         return $v === '1' || strcasecmp((string)$v, 'true') === 0;
     }
 
-    /** Najde <repo>/schema vedle /src modulu (best-effort, stačí pro testy). */
+    /** Finds <repo>/schema next to /src in the module (best-effort for tests). */
     private static function moduleSchemaDir(ModuleInterface $m): ?string {
         try {
             $file = (new \ReflectionClass($m))->getFileName() ?: '';
@@ -1649,7 +1649,7 @@ final class DbHarness
         }
         if ($file === '') return null;
         $dir = dirname($file);
-        // šplhej nahoru a hledej souběžné 'src' a 'schema'
+        // walk up and look for sibling 'src' and 'schema'
         while ($dir && $dir !== DIRECTORY_SEPARATOR) {
             $cand = $dir . DIRECTORY_SEPARATOR . 'schema';
             if (is_dir($cand) && is_dir($dir . DIRECTORY_SEPARATOR . 'src')) {
@@ -1664,7 +1664,7 @@ final class DbHarness
         return is_dir($fallback) ? (realpath($fallback) ?: $fallback) : null;
     }
 
-    /** Vyparsuje názvy view z 040_views.<dial>.sql pro daný modul. */
+    /** Parse view names from 040_views.<dial>.sql for a module. */
     private static function declaredViewsForModule(ModuleInterface $m, SqlDialect $dialect): array {
         $schemaDir = self::moduleSchemaDir($m);
         if (!$schemaDir) return [];
@@ -1673,14 +1673,14 @@ final class DbHarness
         if (!is_file($path)) return [];
         $sql = (string)@file_get_contents($path);
         if ($sql === '') return [];
-        // stejné jádro regexu jako v Installeru
+        // same regex core as Installer
         if (preg_match_all(
             '~CREATE\s+(?:OR\s+REPLACE\s+)?'
         . '(?:ALGORITHM\s*=\s*\w+\s+|DEFINER\s*=\s*(?:`[^`]+`@`[^`]+`|[^ \t]+)\s+|SQL\s+SECURITY\s+\w+\s+)*'
         . 'VIEW\s+(`?"?)([A-Za-z0-9_]+)\1\s+AS~i',
             $sql, $m1
         )) {
-            // case-insensitive set, vracej hezké názvy
+            // case-insensitive set, return clean names
             $set = [];
             foreach ($m1[2] as $v) { $set[strtolower((string)$v)] = (string)$v; }
             return array_values($set);
@@ -1695,7 +1695,7 @@ final class DbHarness
         $missing = [];
         foreach ($mods as $m) {
             $decl = self::declaredViewsForModule($m, $dialect);
-            if (!$decl) continue; // modul žádná view nedefinuje
+            if (!$decl) continue; // module does not define views
             foreach ($decl as $name) {
                 if (self::isMysql()) {
                     $cnt = (int)$db->fetchOne(
@@ -1710,7 +1710,7 @@ final class DbHarness
                 }
                 if ($cnt > 0) continue;
 
-                // první pokus o opravu: přehraj jen tento modul
+                // first attempt to repair: replay this module only
                 self::dbg('verifyViews: %s missing -> replay module %s', $name, $m->name());
                 $installer->installOrUpgrade($m);
 
@@ -1749,21 +1749,21 @@ final class DbHarness
         return [$driver === 'mysql' ? SqlDialect::mysql : SqlDialect::postgres, $driver];
     }
 
-    /** Rychlá kontrola: běžíme na Postgresu? */
+    /** Quick check: are we running on Postgres? */
     public static function isPg(): bool
     {
         [$dial] = self::dialect(); /** @var SqlDialect $dial */
         return $dial->isPg();
     }
 
-    /** Rychlá kontrola: běžíme na MySQL? */
+    /** Quick check: are we running on MySQL? */
     public static function isMysql(): bool
     {
         [$dial] = self::dialect(); /** @var SqlDialect $dial */
         return $dial->isMysql();
     }
 
-    /** Aktuální PG schema (fallback 'public'); pro MySQL se ignoruje. */
+    /** Current PG schema (fallback 'public'); ignored on MySQL. */
     private static function pgSchema(): string
     {
         $s = getenv('BC_PG_SCHEMA');
@@ -1771,7 +1771,7 @@ final class DbHarness
         return $schema;
     }
 
-    /** MySQL – vrátí seznam CHECK_CLAUSE výrazů pro danou tabulku (pro parsování enum-like/required). */
+    /** MySQL - returns CHECK_CLAUSE expressions for a table (for enum-like/required parsing). */
     private static function mysqlCheckClausesForTable(string $table): array
     {
         static $cache = [];
@@ -1831,16 +1831,16 @@ final class DbHarness
         $idx = strtolower($logical) . '|' . self::cacheSuffix();
         if ($useCache && isset($cache[$idx])) return $cache[$idx];
 
-        // Postgres: žádné domýšlení – pracujeme se jménem tak, jak je (schema řeší jinde).
+        // Postgres: no guessing - use the name as-is (schema handled elsewhere).
         if (self::isPg()) {
             if ($useCache) $cache[$idx] = $logical;
             return $logical;
         }
 
-        // MySQL/MariaDB: jen striktní 1:1 shody, bez LIKE, bez suffix/prefix heuristik.
+        // MySQL/MariaDB: strict 1:1 matches, no LIKE, no suffix/prefix heuristics.
         $db = \BlackCat\Core\Database::getInstance();
 
-        // 1) přesná shoda v TABLES
+        // 1) exact match in TABLES
         $found = (string)($db->fetchOne(
             "SELECT TABLE_NAME FROM information_schema.TABLES
              WHERE TABLE_SCHEMA = DATABASE() AND LOWER(TABLE_NAME) = LOWER(:t) LIMIT 1",
@@ -1848,7 +1848,7 @@ final class DbHarness
         ) ?? '');
         if ($found !== '') { if ($useCache) $cache[$idx] = $found; return $found; }
 
-        // 2) přesná shoda ve VIEWS
+        // 2) exact match in VIEWS
         $found = (string)($db->fetchOne(
             "SELECT TABLE_NAME FROM information_schema.VIEWS
              WHERE TABLE_SCHEMA = DATABASE() AND LOWER(TABLE_NAME) = LOWER(:t) LIMIT 1",
@@ -1856,32 +1856,32 @@ final class DbHarness
         ) ?? '');
         if ($found !== '') { if ($useCache) $cache[$idx] = $found; return $found; }
 
-        // 3) nic nenalezeno → vrať logické jméno (žádné hádání).
+        // 3) nothing found -> return logical name (no guessing).
         if ($useCache) $cache[$idx] = $logical;
         self::dbg('resolvePhysicalName: %s -> %s (no guess)', $logical, $logical);
         return $logical;
     }
 
-    /** Logické -> fyzické jméno (MySQL prefix; na PG beze změny). */
+    /** Logical -> physical name (MySQL prefixes; unchanged on PG). */
     public static function physicalName(string $name): string
     {
         return self::resolvePhysicalName($name);
     }
 
     /**
-     * Zkusí převést fyzické jméno (např. 'bc_users') zpět na logické (např. 'users').
-     * Pokud už je to logické, vrátí originál.
+     * Tries to convert a physical name (e.g., 'bc_users') back to logical (e.g., 'users').
+     * If it is already logical, returns the original.
      */
     public static function logicalFromPhysical(string $maybePhysical): string
     {
         self::ensureRegistry();
 
-        // 1) přímá shoda na klíčích registru (case-insensitive)
+        // 1) direct match in registry keys (case-insensitive)
         foreach (array_keys(self::$registry) as $t) {
             if (strcasecmp($t, $maybePhysical) === 0) return $t;
         }
 
-        // 2) MySQL: porovnej přes fyzické jméno z resolvePhysicalName()
+        // 2) MySQL: compare physical names via resolvePhysicalName()
         if (self::isMysql()) {
             foreach (array_keys(self::$registry) as $t) {
                 $phys = self::resolvePhysicalName($t);
@@ -1889,11 +1889,11 @@ final class DbHarness
             }
         }
 
-        // 3) fallback – nic lepšího nevíme
+        // 3) fallback - nothing better
         return $maybePhysical;
     }
 
-    /** Vybuduje registr {table => ns/repo/defs/view} z dostupných modulů. */
+    /** Builds the registry {table => ns/repo/defs/view} from available modules. */
     private static function buildRegistry(array $mods): void
     {
         self::$registry = [];
@@ -1901,14 +1901,14 @@ final class DbHarness
             if (!method_exists($m, 'table')) continue;
 
             $table  = (string)$m->table();
-            $cls    = get_class($m); // …\Packages\X\XModule → základ …\Packages\X
+            $cls    = get_class($m); // ...\Packages\X\XModule -> base ...\Packages\X
             $nsBase = (string)preg_replace('~\\\[^\\\]+$~', '', $cls);
             $nsBase = (string)preg_replace('~Module$~', '', $nsBase);
             if (str_ends_with($nsBase, '\\')) $nsBase = substr($nsBase, 0, -1);
 
             $defs = $nsBase . '\\Definitions';
 
-            // contract view (pokud jde vyčíst)
+            // contract view (when retrievable)
             $view = null;
             if (class_exists($defs) && method_exists($defs, 'contractView')) {
                 try { $view = (string)$defs::contractView(); } catch (\Throwable $_) {}
@@ -1928,14 +1928,14 @@ final class DbHarness
         }
     }
 
-    /** Najde Repository FQN pro daný balík (nsBase = …\Packages\X). */
+    /** Finds the Repository FQN for the package (nsBase = ...\Packages\X). */
     private static function resolveRepoFqn(string $nsBase, string $defsFqn): ?string
     {
         if ($nsBase === '' || $defsFqn === '' || !class_exists($defsFqn)) return null;
 
         // 1) konvence: \Repository\{Entity}Repository, kde {Entity}=PascalCase(singular(Definitions::table()))
         try {
-            $table = (string)$defsFqn::table(); // např. "users", "order_items"
+            $table = (string)$defsFqn::table(); // e.g., "users", "order_items"
         } catch (\Throwable) {
             $table = '';
         }
@@ -1945,15 +1945,15 @@ final class DbHarness
             if (class_exists($cand)) return $cand;
         }
 
-        // 2) fallback: proskenuj soubory …/packages/<Pkg>/src/Repository/*Repository.php
-        $pkgPascal = basename(str_replace('\\', '/', $nsBase)); // "Users", "Orders", …
+        // 2) fallback: scan files .../packages/<Pkg>/src/Repository/*Repository.php
+        $pkgPascal = basename(str_replace('\\', '/', $nsBase)); // "Users", "Orders", ...
         $dir = realpath(__DIR__ . "/../../packages/{$pkgPascal}/src/Repository");
         if ($dir && is_dir($dir)) {
             foreach (glob($dir . '/*Repository.php') ?: [] as $file) {
-                $base = basename($file, '.php');              // např. UserRepository
+                $base = basename($file, '.php');              // e.g., UserRepository
                 $fqn  = $nsBase . "\\Repository\\{$base}";
                 if (class_exists($fqn)) return $fqn;
-                require_once $file;                            // dovyžádej
+                require_once $file;                            // load it
                 if (class_exists($fqn)) return $fqn;
             }
         }
@@ -1961,7 +1961,7 @@ final class DbHarness
         return null;
     }
 
-    /** velmi jednoduchá singulizace v souladu s generátorem */
+    /** very simple singularization aligned with the generator */
     private static function singularize(string $word): string
     {
         if (preg_match('~ies$~i', $word))   return preg_replace('~ies$~i', 'y', $word);
@@ -1980,25 +1980,25 @@ final class DbHarness
         return implode('', $parts);
     }
 
-    /** zamezí duplicitnímu bootstrapu v rámci procesu */
+    /** prevents duplicate bootstrap within the process */
     private static bool $bootstrapped = false;
 
     private static function bootstrapOnce(): void
     {
         if (self::$bootstrapped) return;
         self::$bootstrapped = true;
-        // nainstaluje/upgradeuje moduly + postaví registry
+        // installs/upgrades modules + builds registry
         self::ensureInstalled();
     }
 
     private static function ensureRegistry(): void
     {
         if (self::$registry) return;
-        // NOVÉ: místo prostého discover/build vždy nejdřív zajistit instalaci
+        // NEW: instead of discover/build, always ensure install first
         self::bootstrapOnce();
-        if (self::$registry) return; // ensureInstalled už registry postavil
+        if (self::$registry) return; // ensureInstalled already built the registry
 
-        // (bezpečnostní fallback – běžet by nemělo, ale neuškodí)
+        // safety fallback - should not run, but harmless
         [$dial] = self::dialect();
         $mods = self::discoverModules($dial);
         self::buildRegistry($mods);

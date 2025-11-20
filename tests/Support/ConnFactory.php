@@ -34,17 +34,17 @@ final class ConnFactory
             } else {
                 throw new \RuntimeException("ConnFactory: No DB configured. Set BC_DB or one of PG_DSN/MYSQL_DSN.");
             }
-            // Propaguj, ať child procesy dědí stejné rozhodnutí
+            // propagate so child processes inherit the same decision
             putenv("BC_DB={$norm}");
         }
 
-        // Pokud už je Database hotová, přizpůsob se skutečnému PDO driveru
+        // If Database is already initialized, align with the actual PDO driver
         if (class_exists(Database::class) && Database::isInitialized()) {
             $pdo     = Database::getInstance()->getPdo();
             $drv     = (string)$pdo->getAttribute(\PDO::ATTR_DRIVER_NAME); // 'mysql' | 'pgsql'
             $drvNorm = $drv === 'mysql' ? 'mysql' : ($drv === 'pgsql' ? 'pg' : $drv);
             if ($drvNorm !== $norm) {
-                // Zamez cross-backend mixu: preferuj už inicializovaný driver
+                // Prevent cross-backend mix: prefer the already-initialized driver
                 $norm = $drvNorm;
                 putenv("BC_DB={$norm}");
             }
@@ -91,7 +91,7 @@ final class ConnFactory
         $safe   = preg_replace('/[^a-z0-9_]/i', '', $schema);
         $pdo->exec("SET search_path TO {$safe}, bc_compat, public");
 
-        // Ať to nikdy nevisí v paralelách
+        // Prevent parallel runs from hanging indefinitely
         $pdo->exec("SET lock_timeout TO '10s'");
         $pdo->exec("SET statement_timeout TO '30s'");
         $pdo->exec("SET idle_in_transaction_session_timeout TO '30s'");
@@ -105,7 +105,7 @@ final class ConnFactory
         if ($drv === 'mysql') {
             $sec = max(1, (int)ceil($ms / 1000));
             $pdo->exec("SET innodb_lock_wait_timeout = {$sec}");
-            // Bezpečnější chování při timeoutu
+            // safer behavior on timeout
             try { $pdo->exec("SET SESSION innodb_rollback_on_timeout = 1"); } catch (\Throwable $e) {}
             return;
         }

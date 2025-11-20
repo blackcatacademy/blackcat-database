@@ -4,10 +4,10 @@ declare(strict_types=1);
 namespace BlackCat\Database\Tests\Support;
 
 /**
- * Generuje minimálně validní řádky:
- * - povinné (NOT NULL bez defaultu) FK řeší rekurzí (rodiče přes Repository),
- * - ostatní povinné sloupce = deterministický dummy (nikdy null),
- * - VŽDY doplní sloupce PRVNÍHO dostupného unique key (Definitions ∪ Schema) omezeného na povolené sloupce.
+ * Generates minimally valid rows:
+ * - required (NOT NULL without default) FKs are resolved recursively (parents via Repository),
+ * - other required columns receive deterministic dummy values (never null),
+ * - ALWAYS fills columns of the FIRST available unique key (Definitions ∪ Schema) limited to allowed columns.
  */
 final class RowFactory
 {
@@ -26,23 +26,23 @@ final class RowFactory
     }
 
     /**
-     * Pokud má tabulka v MySQL/MariaDB CHECK(json_valid(col)),
-     * zajisti, že vygenerovaný sample má v těchto sloupcích validní JSON string.
+     * If a MySQL/MariaDB table uses CHECK(json_valid(col)),
+     * ensure the generated sample stores a valid JSON string in those columns.
      */
     private static function coerceJsonForMysql(string $table, array &$row): void
     {
-        if (DbHarness::isPg()) return; // PG to nepotřebuje
+        if (DbHarness::isPg()) return; // PG does not need this
 
         $must = DbHarness::jsonValidatedColumns($table);
         if (!$must) return;
         $mustJson = array_fill_keys($must, true);
 
-        // Mapování klíčů v payloadu (case-insensitive)
+        // Map payload keys (case-insensitive)
         $mapRow = [];
         foreach (array_keys($row) as $k) $mapRow[strtolower($k)] = $k;
 
         foreach (array_keys($mustJson) as $lc) {
-            $k = $mapRow[$lc] ?? $lc;            // zachovej původní casing, nebo použij lc jako klíč
+            $k = $mapRow[$lc] ?? $lc;            // keep original casing or fall back to lowercase
             $v = $row[$k] ?? null;
 
             if (is_array($v) || is_object($v)) {
@@ -52,20 +52,20 @@ final class RowFactory
             $s  = is_string($v) ? $v : '';
             $ok = ($s !== '' && json_decode($s, true) !== null);
             if (!$ok) {
-                $row[$k] = '{}';                  // jednoduchý validní JSON
+                $row[$k] = '{}';                  // simple valid JSON
             }
         }
     }
 
     /**
-     * @param array $overrides možnost předepsat hodnoty (např. ['user_id'=>123])
+     * @param array $overrides optional preset values (e.g., ['user_id'=>123])
      * @return array{0:?array,1:array<int,string>,2:array<int,string>}
      */
     public static function makeSample(string $table, array $overrides = []): array
     {
         $cols = DbHarness::columns($table);
         self::dbg('makeSample(%s): start', $table);
-                // Tvrdá branka – pokud DbHarness označí tabulku jako „unsafe“, vůbec ji nezkoušej.
+                // Hard gate - if DbHarness marks the table as "unsafe", skip it entirely.
         if (!DbHarness::isInsertSafe($table)) {
             self::dbg('makeSample(%s): unsafe by DbHarness::safetyProfile -> skip', $table);
             return [null, [], []];
@@ -78,13 +78,13 @@ final class RowFactory
         $pkMeta = null; foreach ($cols as $c) { if (strcasecmp((string)$c['name'],$pk)===0) { $pkMeta=$c; break; } }
         $pkIsIdentity = (bool)($pkMeta['is_identity'] ?? false);
         self::dbg('makeSample(%s): pk=%s identity=%s', $table, $pk ?? '(?)', $pkIsIdentity ? 'yes' : 'no');
-        // 1) Safe režim (řeší povinné FK)
+        // 1) Safe mode (handles required FKs)
         try {
             [$row, $upd, $uk] = self::buildRow($table, $overrides, 0, []);
             if ($row !== null) {
                 $byName = self::indexByName($cols);
                 $uk = self::ensureFirstResolvedUniqueFilled($table, $byName, $row) ?: $uk;
-                // ořízni na allowed columns (repo filter) – case-insensitive jako ve fallbacku
+                // trim to allowed columns (repo filter) - case-insensitive just like the fallback
                 $allowed     = DbHarness::allowedColumns($table);
                 $allowedSet  = array_fill_keys($allowed, true);
                 $allowedSetLc= array_fill_keys(array_map('strtolower', $allowed), true);
@@ -127,8 +127,8 @@ final class RowFactory
         $allowedSetLc= array_fill_keys(array_map('strtolower', $allowed), true);
         $enumMap = DbHarness::enumChoices($table);
 
-        // [SAFETY GATE] Pokud má tabulka enum-like CHECK sloupce, ale repo je neumožní zapisovat,
-        // tuhle tabulku neumíme bezpečně vložit přes Repository → vyřadíme ji.
+        // [SAFETY GATE] If the table has enum-like CHECK columns but the repository cannot write them,
+        // the table cannot be safely inserted through the repository -> skip it.
         $colsByName = self::indexByName($cols);
         $requiredByCheck = DbHarness::requiredByCheck($table); // [lower(col)=>true]
         foreach ($enumMap as $col => $_) {
@@ -145,13 +145,13 @@ final class RowFactory
             }
         }
 
-        // [SAFETY GATE #2] Pokud repo NEpovolí typické enum-like sloupce a nemají non-null DEFAULT,
-        // tabulka není „safe“ pro generování sample řádku přes Repository.
+        // [SAFETY GATE #2] If the repository forbids typical enum-like columns and they lack a non-null DEFAULT,
+        // the table is not "safe" for generating a sample row via the repository.
         foreach (['type','status','state','level','mode','channel','event'] as $sus) {
             if (!isset($colsByName[$sus])) continue;
             if (isset($allowedSet[$sus]) || isset($allowedSetLc[$sus])) continue;
             $isRequired = isset($requiredByCheck[$sus]) || isset($requiredByCheck[strtolower($sus)]);
-            if (!$isRequired) continue; // není povinné → nevyřazuj tabulku
+            if (!$isRequired) continue; // not required -> do not exclude the table
             $meta = $colsByName[$sus];
             $hasNonNullDefault = array_key_exists('col_default', $meta) && $meta['col_default'] !== null;
             if (!$hasNonNullDefault) {
@@ -164,7 +164,7 @@ final class RowFactory
             $name = (string)$c['name'];
             $nameLc = strtolower($name);
             if (!empty($c['is_identity'])) continue;
-            // PK přeskočit jen pokud je identity; natural PK ponechat k vyplnění
+            // skip PK only when it is identity; keep natural PK for filling
             if ($pkIsIdentity && strcasecmp($name, $pk) === 0) continue;
             
             if (self::isRequired($c) && !isset($fkSet[$nameLc]) && (isset($allowedSet[$name]) || isset($allowedSetLc[$nameLc]))) {
@@ -197,7 +197,7 @@ final class RowFactory
             implode(',', $updatable)
         );
         $uk = self::ensureFirstResolvedUniqueFilled($table, $byName, $row);
-        // [ADD] doplň chybějící enum-like sloupce (PG CHECK může vyžadovat nenull)
+        // [ADD] fill missing enum-like columns (PG CHECK may require non-null)
         $rowLc = array_change_key_case($row, CASE_LOWER);
         foreach ($enumMap as $col => $choices) {
             if (!isset($allowedSet[$col]) && !isset($allowedSetLc[strtolower($col)])) continue;
@@ -206,7 +206,7 @@ final class RowFactory
             }
         }
 
-        // [ADD] zkoercuj případně nevalidní hodnoty enum-like sloupců
+        // [ADD] coerce invalid enum-like values when necessary
         foreach (array_keys($row) as $col) {
             $row[$col] = self::coerceEnumIfNeeded($enumMap, $col, $row[$col]);
         }
@@ -218,7 +218,7 @@ final class RowFactory
             ARRAY_FILTER_USE_BOTH
         );
         self::dbg('makeSample(%s): FALLBACK after whitelist keys=[%s]', $table, implode(',', array_keys($row)));
-        // Stejná pojistka i ve fallbacku
+        // Same safeguard also applies in the fallback
         if (empty($row)) {
             if (!empty($updatable)) {
                 $colsByName = self::indexByName($cols);
@@ -238,7 +238,7 @@ final class RowFactory
         return [$row, array_values(array_unique($updatable)), $uk ?? []];
     }
 
-    /** Rekurzivní konstrukce vložitelného řádku včetně povinných FK parentů. */
+    /** Recursive construction of an insertable row including required FK parents. */
     private static function buildRow(string $table, array $overrides, int $depth, array $stack): array
     {
         if ($depth > self::MAX_DEPTH) {
@@ -265,12 +265,12 @@ final class RowFactory
         $pk = DbHarness::primaryKey($table);
         $pkIsIdentity = (bool)(($byName[strtolower($pk)]['is_identity'] ?? false));
 
-        // 1) povinné FK (single-column). Multi-column povinné → fail (raději než hádat).
+        // 1) required single-column FKs. Multi-column required FKs -> fail instead of guessing.
         $fks = DbHarness::foreignKeysDetailed($table);
         foreach ($fks as $fk) {
             $local   = $fk['cols'];
             $refTIn  = (string)$fk['ref_table'];
-            // Logické jméno pro práci s repozitářem:
+            // Logical name to work with the repository:
             $refT    = DbHarness::logicalFromPhysical($refTIn);
             $refCols = $fk['ref_cols'];
 
@@ -296,7 +296,7 @@ final class RowFactory
             if (array_key_exists($lc, $overrides)) {
                 $useOverride = false;
                 if (self::isRequired($meta)) {
-                    // ověř, že rodič skutečně existuje (dotaz na FYZICKOU tabulku)
+                    // verify the parent actually exists (query the PHYSICAL table)
                     $refPk   = DbHarness::primaryKey($refT);
                     $refPhys = DbHarness::physicalName($refT);
                     $db      = \BlackCat\Core\Database::getInstance();
@@ -315,7 +315,7 @@ final class RowFactory
                         $row[$lc] = $overrides[$lc];
                     }
                 } else {
-                    // založ rodiče
+                    // create the parent
                     [$parentRow] = self::buildRow($refT, [], $depth + 1, array_merge($stack, [$table]));
                     if ($parentRow === null) return [null, [], []];
 
@@ -334,7 +334,7 @@ final class RowFactory
                 continue;
             }
 
-            // bez override: když je FK povinný, založ rodiče
+            // without overrides: if the FK is required, create the parent
             if (self::isRequired($meta)) {
                 [$parentRow] = self::buildRow($refT, [], $depth + 1, array_merge($stack, [$table]));
                 if ($parentRow === null) return [null, [], []];
@@ -352,7 +352,7 @@ final class RowFactory
                 }
             }
         }
-        // 2) doplň ostatní povinné ne-FK sloupce (bez identity)
+        // 2) fill remaining required non-FK columns (excluding identity)
         for ($i=0, $n=count($cols); $i<$n; $i++) {
             $c = $cols[$i];
             $name = (string)$c['name'];
@@ -374,7 +374,7 @@ final class RowFactory
             }
         }
 
-        // 3) updatable – bez PK/ID/timestampů/datetime/enum/version
+        // 3) updatable - skip PK/ID/timestamps/datetime/enum/version
         $upd = [];
         foreach ($cols as $c) {
             $n = (string)$c['name'];
@@ -389,18 +389,18 @@ final class RowFactory
             $upd[] = $n;
         }
 
-        // 4) doplň PRVNÍ resolved unique key
+        // 4) fill the FIRST resolved unique key
         $uk = self::ensureFirstResolvedUniqueFilled($table, $byName, $row) ?? [];
 
-        // [ADD] 5) zajisti validní hodnoty pro enum-like sloupce (PG CHECK může vyžadovat nenull + konkrétní hodnoty)
+        // [ADD] 5) ensure valid values for enum-like columns (PG CHECK may require non-null + exact values)
         $rowLc = array_change_key_case($row, CASE_LOWER);
         foreach ($enumMap as $col => $choices) {
             if (!isset($allowedSet[$col]) && !isset($allowedSetLc[strtolower($col)])) continue;
             if (!array_key_exists($col, $row) && !isset($rowLc[strtolower($col)])) {
-                // chybí → nastav 1. povolenou
+                // missing -> set the first allowed value
                 if ($choices) { $row[$col] = (string)$choices[0]; }
             } else {
-                // je vyplněn → případně zkoercuj na povolenou
+                // already filled -> coerce to an allowed value if needed
                 $row[$col] = self::coerceEnumIfNeeded($enumMap, $col, $row[$col]);
             }
         }
@@ -413,7 +413,7 @@ final class RowFactory
         return [$row, array_values(array_unique($upd)), $uk];
     }
 
-    /** Vrátí true pokud je sloupec NOT NULL bez defaultu. */
+    /** Return true when the column is NOT NULL without a default. */
     private static function isRequired(array $col): bool
     {
         $notNull = !(bool)($col['nullable'] ?? true);
@@ -430,8 +430,8 @@ final class RowFactory
     }
 
     /**
-     * Doplň do $row všechny sloupce PRVNÍHO resolved unique key (Definitions ∪ Schema),
-     * který JE podmnožinou allowedColumns. Vrací seznam sloupců nebo null.
+     * Fill $row with all columns of the FIRST resolved unique key (Definitions ∪ Schema),
+     * that is a subset of allowedColumns. Returns the list of columns or null.
      */
     private static function ensureFirstResolvedUniqueFilled(string $table, array $colsByName, array &$row): ?array
     {
@@ -461,7 +461,7 @@ final class RowFactory
                 continue;
             }
 
-            // musí být subset allowed
+            // must be a subset of allowed
             $subset = true; $offender = null;
             foreach ($uk as $c) {
                 if (!isset($allowedSet[$c]) && !isset($allowedSetLc[strtolower($c)])) {
@@ -473,7 +473,7 @@ final class RowFactory
                 continue;
             }
 
-            // pokud UK obsahuje aspoň jeden FK sloupec, který ještě NENÍ v $row → přeskoč
+            // if the unique key contains an FK column not yet in $row -> skip it
             $hasUnfilledFk = false; $fkOff = null;
             foreach ($uk as $c) {
                 $lc = strtolower($c);
@@ -486,7 +486,7 @@ final class RowFactory
                 continue;
             }
 
-            // doplň chybějící ne-FK sloupce UK (s ohledem na casing v $row)
+            // fill missing non-FK unique key columns (respecting the casing stored in $row)
             $rowLc = array_change_key_case($row, CASE_LOWER);
             $filledNow = [];
             foreach ($uk as $c) {
@@ -506,8 +506,8 @@ final class RowFactory
     }
 
     /**
-     * Deterministická „rozumná“ hodnota dle typu (nikdy null).
-     * - Pro *_id vybírá správný typ (int/string/uuid).
+     * Deterministic reasonable value per type (never null).
+     * - For *_id chooses the appropriate type (int/string/uuid).
      */
     public static function dummyValue(array $c): mixed
     {
@@ -517,7 +517,7 @@ final class RowFactory
         $full   = strtolower(trim((string)($c['full_type'] ?? $type)));
         static $seq = 1;
 
-        // *_id / id – vždy ne-NULL a typově správné
+        // *_id / id - always non-null and type-safe
         if (preg_match('/(^id$|_id$)/i', $nameLc)) {
             if (str_contains($type, 'uuid')) {
                 $n = str_pad((string)$seq++, 12, '0', STR_PAD_LEFT);
@@ -548,7 +548,7 @@ final class RowFactory
         }
         if (preg_match('/\bblob\b/', $type)) { return random_bytes(16); }
 
-        // Heuristiky názvů
+        // Naming heuristics
         if ($name === 'currency') return 'USD';
         if ($name === 'iso2')     return 'US';
         if ($name === 'iso3')     return 'USA';
@@ -564,7 +564,7 @@ final class RowFactory
             return substr('t-'.$seq++, 0, max(1, $n));
         }
 
-        // hashe/tokény bez velikosti
+        // hashes/tokens without a declared size
         if (preg_match('/(hash|token|signature)$/', $nameLc)) {
             $target = match ($nameLc) {
                 'password_hash' => 60,
@@ -579,13 +579,13 @@ final class RowFactory
             return 'john.doe.'.$seq++.'@example.test';
         }
         if (preg_match('/(_ms|_sec|_count|_qty|_attempts|_number|_total|_amount)$/', $name)) {
-            return '1'; // DECIMAL/NUMERIC bezpečně jako string
+            return '1'; // DECIMAL/NUMERIC safely returned as string
         }
         if (preg_match('/^(status|state)$/', $name)) {
             return 'new';
         }
 
-        // Typové heuristiky
+        // Type-specific heuristics
         if (str_contains($type, 'json')) {
             return '{}';
         }
@@ -608,12 +608,12 @@ final class RowFactory
         return 'x'; // nikdy null
     }
 
-    /** Pokud je pro sloupec CHECK-enum a hodnota není povolená, vrať 1. povolenou. Jinak původní. */
+    /** If a column has a CHECK-enum and the value is not allowed, return the first allowed value; otherwise keep the original. */
     private static function coerceEnumIfNeeded(array $enumMap, string $col, mixed $val): mixed
     {
         $choices = self::enumChoicesFor($enumMap, $col);
         if ($choices) {
-            // porovnávej striktně jako string (PG vrací text)
+            // compare strictly as string (PG returns text)
             $allowed = array_map('strval', $choices);
             $asStr = is_scalar($val) ? (string)$val : '';
             if (!in_array($asStr, $allowed, true)) {
@@ -627,7 +627,7 @@ final class RowFactory
         return $map[$name] ?? $map[strtolower($name)] ?? null;
     }
     /**
-     * Volitelný helper: vytvoří vzorek a rovnou vloží do DB, vrátí PK.
+     * Optional helper: create a sample and insert it into the DB, returning the PK.
      * @return array{row:array, pkCol:string, pk:mixed}
      */
     public static function insertSample(string $table, array $overrides = []): array

@@ -1,0 +1,20 @@
+<?php
+declare(strict_types=1);
+
+use PHPUnit\Framework\TestCase;
+use BlackCat\Core\Database;
+
+final class UtcEnforcementTest extends TestCase
+{
+    public function test_session_time_zone_is_utc(): void
+    {
+        $db = Database::getInstance();
+        if ($db->isPg()) {
+            $tz = (string)$db->fetchOne("SELECT current_setting('TIMEZONE')");
+            $this->assertSame('UTC', strtoupper($tz));
+        } else {
+            $tz = (string)$db->fetchOne("SELECT @@session.time_zone");
+            $this->assertTrue($tz === '+00:00' || $tz === 'UTC' || $tz === 'SYSTEM');
+        }
+    }
+}

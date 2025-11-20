@@ -9,22 +9,22 @@ use BlackCat\Core\Database;
  * Usage:
  *   php tests/support/lock_row_repo.php "<RepoFqn>" <id> <seconds>
  *
- * Pomocný proces:
- *  - inicializuje DB z env (BC_DB, DSN atd.)
- *  - přes Repository::lockById($id) drží zámek <seconds> sekund
- *  - transakci pak ROLLBACK (nechceme měnit data)
+ * Helper process:
+ *  - initializes the DB from env (BC_DB, DSN, etc.)
+ *  - holds the lock via Repository::lockById($id) for <seconds> seconds
+ *  - rolls back the transaction afterward (no data changes)
  */
 
 require __DIR__ . '/../phpunit.bootstrap.php';
 require __DIR__ . '/../ci/db_guard.php';
 
-// --- Po bootstrapu: zkontroluj shodu ENV vs. skutečný driver + nastav PG timeouty ---
+// --- After bootstrap: verify ENV vs actual driver + configure PG timeouts ---
 $db  = Database::getInstance();
 $pdo = $db->getPdo();
 $driver = (string)$pdo->getAttribute(\PDO::ATTR_DRIVER_NAME); // 'mysql' | 'pgsql'
 $envRaw = strtolower((string)(getenv('BC_DB') ?: ''));
 
-// normalizace aliasů na kanonické hodnoty
+// normalize aliases to canonical values
 $envNorm = match ($envRaw) {
     'mysql', 'mariadb'                      => 'mysql',
     'pg', 'pgsql', 'postgres', 'postgresql' => 'pgsql',
@@ -57,7 +57,7 @@ if ($argc < 4) {
 $repoFqn = $argv[1];
 $id      = (int)$argv[2];
 $secs    = (int)$argv[3];
-// === DEBUG helpers (řízené BC_DEBUG) ===
+// === DEBUG helpers (controlled by BC_DEBUG) ===
 $isDebug = static function(): bool {
     $val = $_ENV['BC_DEBUG'] ?? getenv('BC_DEBUG') ?? '';
     return $val === '1' || strcasecmp((string)$val, 'true') === 0;
@@ -67,13 +67,13 @@ $dbg = static function(string $fmt, ...$args) use ($isDebug): void {
     error_log('[lock_row_repo] ' . vsprintf($fmt, $args));
 };
 if (!class_exists($repoFqn)) {
-    // pokus o autoload (Composer dev autoloader by měl být k dispozici)
+    // attempt autoload (Composer dev autoloader should be available)
     if (!class_exists($repoFqn)) {
         fwrite(STDERR, "Repository class not found: $repoFqn\n");
         exit(3);
     }
 }
-// Odvoď balík a Definitions z repo FQN: …\Packages\<Pkg>\Repository\...
+// Derive the package and Definitions from the repo FQN: ...\Packages\<Pkg>\Repository\...
 $pkg = null;
 if (preg_match('~\\\\Packages\\\\([^\\\\]+)\\\\Repository\\\\~', $repoFqn, $m)) {
     $pkg = $m[1];
@@ -90,12 +90,12 @@ if ($defsFqn && class_exists($defsFqn)) {
 
 if (!$pdo->inTransaction()) { $pdo->beginTransaction(); }
 $qi = fn($x) => $db->quoteIdent($x);
-// --- DEBUG: kde a jak běží locker ---
+// --- DEBUG: where and how the locker runs ---
 $driver = $db->driver();
 $server = $db->serverVersion() ?? '?';
 $idfp   = $db->id();
 
-// Best-effort diagnostika, nikdy nesmí shodit worker (MariaDB starší verze nemají některé proměnné)
+// Best-effort diagnostics; must never crash the worker (older MariaDB versions lack some variables)
 $dbName = 'n/a';
 try {
     $dbName = $driver === 'mysql'
@@ -110,7 +110,7 @@ if ($driver === 'mysql') {
         $iso = (string)$db->fetchOne('SELECT @@transaction_isolation');
     } catch (\Throwable $__) {
         try {
-            // MariaDB / starší MySQL
+            // MariaDB / older MySQL
             $iso = (string)$db->fetchOne('SELECT @@tx_isolation');
         } catch (\Throwable $___) {}
     }
@@ -140,14 +140,14 @@ if ($table && $verCol) {
     fwrite(STDERR, "[lock_row_repo] version before FOR UPDATE: {$table}.{$verCol}={$v0} (id={$id})\n");
 }
 
-// Pro jistotu: ať MySQL při timeoutu vrátí celý statement
+// Precaution: make MySQL return the full statement on timeout
 if ($db->isMysql()) {
     try { $db->exec('SET SESSION innodb_rollback_on_timeout = 1'); }
-    catch (\Throwable $_) { /* některé MySQL/MariaDB buildy mají read-only → OK ignorovat */ }
+    catch (\Throwable $_) { /* some MySQL/MariaDB builds treat it as read-only -> safe to ignore */ }
 }
 $dbg('BEGIN; repo=%s id=%d secs=%d', $repoFqn, $id, $secs);
 
-// Helper pro načtení verze (pokud existuje)
+// Helper to read the version (if available)
 $getVersion = static function() use ($db, $table, $verCol, $id, $pkCol, $qi) {
     if (!$table || !$verCol) return null;
     $sql = 'SELECT ' . $qi($verCol) . ' FROM ' . $qi($table) . ' WHERE ' . $qi($pkCol) . ' = :id';
@@ -167,7 +167,7 @@ if ($table && $verCol) {
 }
 
 if ($row) {
-    $dbg('locked row id=%d; sleeping %d s…', $id, $secs);
+    $dbg('locked row id=%d; sleeping %d s...', $id, $secs);
     $v = $getVersion();
     if ($v !== null) $dbg('version right after lock=%s', (string)$v);
 } else {
@@ -189,18 +189,18 @@ if (!$row) {
     exit(4);
 }
 
-// Drž zámek po dobu $secs
+// Hold the lock for $secs seconds
 $left = max(1, $secs);
 while ($left > 0) {
     sleep(1);
     $left--;
     if ($isDebug()) {
         $cur = $getVersion();
-        if ($cur !== null) $dbg('…holding lock, version=%s, %ds left', (string)$cur, $left);
+        if ($cur !== null) $dbg('...holding lock, version=%s, %ds left', (string)$cur, $left);
     }
 }
 $vend = $getVersion();
 if ($vend !== null) $dbg('releasing lock; version before ROLLBACK=%s', (string)$vend);
 $dbg('ROLLBACK; lock released');
-// Uklid — nechceme měnit stav
+// Cleanup - keep the state unchanged
 if ($pdo->inTransaction()) { $pdo->rollBack(); }
