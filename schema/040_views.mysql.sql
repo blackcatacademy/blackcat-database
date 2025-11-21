@@ -53,7 +53,7 @@ FROM audit_chain;
 
 -- === audit_chain_gaps ===
 -- Audit rows missing chain entries
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_audit_chain_gaps AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_audit_chain_gaps AS
 SELECT
   al.id AS audit_id,
   al.changed_at,
@@ -84,7 +84,7 @@ FROM audit_log;
 
 -- === audit_log_activity_daily ===
 -- Daily audit activity split by change type
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_audit_activity_daily AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_audit_activity_daily AS
 SELECT
   DATE(changed_at) AS day,
   COUNT(*) AS total,
@@ -166,7 +166,7 @@ FROM book_assets;
 
 -- === book_assets_encryption_coverage ===
 -- Encryption coverage per asset_type
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_book_assets_encryption_coverage AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_book_assets_encryption_coverage AS
 SELECT
   asset_type,
   COUNT(*) AS total,
@@ -218,7 +218,7 @@ FROM books;
 
 -- === books_catalog_health_summary ===
 -- High-level catalog health
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_catalog_health_summary AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_catalog_health_summary AS
 SELECT
   (SELECT COUNT(*) FROM authors WHERE deleted_at IS NULL) AS authors_live,
   (SELECT COUNT(*) FROM categories WHERE deleted_at IS NULL) AS categories_live,
@@ -319,7 +319,7 @@ FROM coupons;
 
 -- === coupons_effectiveness ===
 -- Redemptions and total discount per coupon
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_coupon_effectiveness AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_coupon_effectiveness AS
 SELECT
   c.id,
   c.code,
@@ -349,7 +349,7 @@ FROM crypto_algorithms;
 
 -- === crypto_algorithms_pq_readiness_summary ===
 -- One-row PQ readiness snapshot
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_pq_readiness_summary AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_pq_readiness_summary AS
 SELECT
   (SELECT COUNT(*) FROM crypto_algorithms WHERE class='kem' AND status='active' AND nist_level IS NOT NULL) AS active_pq_kems,
   (SELECT COUNT(*) FROM crypto_algorithms WHERE class='sig' AND status='active' AND nist_level IS NOT NULL) AS active_pq_sigs,
@@ -395,7 +395,7 @@ FROM crypto_keys;
 
 -- === crypto_keys_inventory ===
 -- Inventory of keys by type/status
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_crypto_keys_inventory AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_crypto_keys_inventory AS
 SELECT
   key_type,
   status,
@@ -406,7 +406,7 @@ ORDER BY key_type, status;
 
 -- === crypto_keys_latest ===
 -- Latest version per basename
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_crypto_keys_latest AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_crypto_keys_latest AS
 SELECT
   basename,
   id,
@@ -451,7 +451,7 @@ FROM data_retention_policies;
 
 -- === data_retention_policies_due ===
 -- Policies and when they become due (relative)
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_retention_due AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_retention_due AS
 -- NOTE: keep_for is stored as textual duration in MySQL, so due_from_now is emitted as NULL.
 SELECT
   id,
@@ -486,7 +486,7 @@ FROM deletion_jobs;
 
 -- === deletion_jobs_status ===
 -- Deletion jobs summary
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_deletion_jobs_status AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_deletion_jobs_status AS
 SELECT
   status,
   COUNT(*) AS jobs,
@@ -514,7 +514,7 @@ FROM device_fingerprints;
 
 -- === device_fingerprints_risk_recent ===
 -- Devices with elevated risk seen in last 30 days
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_device_risk_recent AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_device_risk_recent AS
 SELECT
   d.id,
   d.user_id,
@@ -561,7 +561,7 @@ FROM encrypted_fields;
 
 -- === encrypted_fields_without_binding ===
 -- Encrypted fields without explicit encryption_binding (for governance)
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_encrypted_fields_without_binding AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_encrypted_fields_without_binding AS
 SELECT
   e.id,
   e.entity_table,
@@ -635,7 +635,7 @@ FROM encryption_policy_bindings;
 
 -- === encryption_policy_bindings_current ===
 -- Current policy per (entity, field)
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_encryption_policy_bindings_current AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_encryption_policy_bindings_current AS
 SELECT
   entity_table,
   field_name,
@@ -699,7 +699,7 @@ FROM event_inbox;
 
 -- === event_inbox_metrics ===
 -- Aggregated metrics for [event_inbox]
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_event_inbox_metrics AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_event_inbox_metrics AS
 WITH base AS (
   SELECT
     source,
@@ -760,7 +760,7 @@ FROM event_outbox;
 
 -- === event_outbox_backlog_by_node ===
 -- Pending outbox backlog per producer node/channel
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_sync_backlog_by_node AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_sync_backlog_by_node AS
 SELECT
   COALESCE(producer_node, '(unknown)') AS producer_node,
   event_type,
@@ -773,7 +773,7 @@ ORDER BY pending DESC, failed DESC;
 
 -- === event_outbox_latency ===
 -- Processing latency (created -> processed) by type
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_event_outbox_latency AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_event_outbox_latency AS
 WITH latencies AS (
   SELECT
     event_type,
@@ -801,7 +801,7 @@ GROUP BY event_type;
 
 -- === event_outbox_metrics ===
 -- Aggregated metrics for [event_outbox]
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_event_outbox_metrics AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_event_outbox_metrics AS
 WITH base AS (
   SELECT
     event_type,
@@ -850,7 +850,7 @@ LEFT JOIN pcts p ON p.event_type = b.event_type;
 
 -- === event_outbox_throughput_hourly ===
 -- Hourly throughput for outbox/inbox
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_event_throughput_hourly AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_event_throughput_hourly AS
 SELECT
   hour_ts,
   SUM(outbox_cnt) AS outbox_cnt,
@@ -898,7 +898,7 @@ FROM global_id_registry;
 
 -- === global_id_registry_map ===
 -- Global→local id registry (legacy map alias)
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_global_id_map AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_global_id_map AS
 SELECT
   gid,
   guid,
@@ -1108,7 +1108,7 @@ FROM key_wrappers;
 
 -- === key_wrappers_layers ===
 -- Key wrappers with layer counts and PQC flag
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_key_wrappers_layers AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_key_wrappers_layers AS
 SELECT
   kw.id,
   kw.wrapper_uuid,
@@ -1138,7 +1138,7 @@ FROM kms_health_checks;
 
 -- === kms_health_checks_latest ===
 -- Latest health sample per provider/key
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_kms_health_latest AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_kms_health_latest AS
 WITH ranked AS (
   SELECT
     id,
@@ -1181,7 +1181,7 @@ FROM kms_keys;
 
 -- === kms_keys_status_by_provider ===
 -- KMS keys status per provider
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_kms_keys_status_by_provider AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_kms_keys_status_by_provider AS
 SELECT
   p.provider,
   p.name AS provider_name,
@@ -1223,7 +1223,7 @@ FROM kms_routing_policies;
 
 -- === kms_routing_policies_matrix ===
 -- Active KMS routing policies (ordered by priority)
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_kms_routing_matrix AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_kms_routing_matrix AS
 SELECT
   name,
   priority,
@@ -1254,7 +1254,7 @@ FROM login_attempts;
 
 -- === login_attempts_hotspots_ip ===
 -- Security: IPs with failed logins (last 24h)
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_login_hotspots_ip AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_login_hotspots_ip AS
 SELECT
   ip_hash,
   UPPER(HEX(ip_hash)) AS ip_hash_hex,
@@ -1268,7 +1268,7 @@ ORDER BY failed_24h DESC, last_attempt_at DESC;
 
 -- === login_attempts_hotspots_user ===
 -- Security: users with failed logins (last 24h)
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_login_hotspots_user AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_login_hotspots_user AS
 SELECT
   user_id,
   SUM(CASE WHEN attempted_at > NOW() - INTERVAL 24 HOUR THEN 1 ELSE 0 END)                         AS total_24h,
@@ -1309,7 +1309,7 @@ FROM merkle_roots;
 
 -- === merkle_roots_latest ===
 -- Latest Merkle roots per table
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_merkle_latest AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_merkle_latest AS
 WITH ranked AS (
   SELECT
     subject_table,
@@ -1410,7 +1410,7 @@ FROM notifications;
 
 -- === notifications_queue_metrics ===
 -- Queue metrics for [notifications]
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_notifications_queue_metrics AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_notifications_queue_metrics AS
 WITH base AS (
   SELECT
     channel,
@@ -1517,7 +1517,7 @@ FROM orders;
 
 -- === orders_funnel ===
 -- Global funnel of orders
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_orders_funnel AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_orders_funnel AS
 SELECT
   COUNT(*) AS orders_total,
   SUM(CASE WHEN status = 'pending'   THEN 1 ELSE 0 END) AS pending,
@@ -1534,7 +1534,7 @@ FROM orders;
 
 -- === orders_revenue_daily ===
 -- Daily revenue (orders) and counts; refunds reported separately
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_revenue_daily AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_revenue_daily AS
 SELECT
   DATE(created_at) AS day,
   SUM(CASE WHEN status IN ('paid','completed') THEN 1 ELSE 0 END) AS paid_orders,
@@ -1607,7 +1607,7 @@ FROM payments;
 
 -- === payments_anomalies ===
 -- Potential anomalies in payments
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_payments_anomalies AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_payments_anomalies AS
 SELECT
   p.*
 FROM payments p
@@ -1618,7 +1618,7 @@ WHERE
 
 -- === payments_status_summary ===
 -- Payment status summary by gateway
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_payments_status_summary AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_payments_status_summary AS
 SELECT
   gateway,
   status,
@@ -1644,7 +1644,7 @@ FROM peer_nodes;
 
 -- === peer_nodes_health ===
 -- Peer health with last lag samples
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_peer_health AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_peer_health AS
 WITH ranked AS (
   SELECT
     peer_id,
@@ -1724,7 +1724,7 @@ FROM pq_migration_jobs;
 
 -- === pq_migration_jobs_metrics ===
 -- PQ migration progress by status
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_pq_migration_jobs_metrics AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_pq_migration_jobs_metrics AS
 SELECT
   status,
   COUNT(*) AS jobs,
@@ -1748,7 +1748,7 @@ FROM privacy_requests;
 
 -- === privacy_requests_status ===
 -- Privacy requests status
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_privacy_requests_status AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_privacy_requests_status AS
 SELECT
   type,
   status,
@@ -1774,7 +1774,7 @@ FROM rate_limit_counters;
 
 -- === rate_limit_counters_usage ===
 -- Rate limit counters per subject/name (last hour window)
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_rate_limit_usage AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_rate_limit_usage AS
 SELECT
   subject_type,
   subject_id,
@@ -1828,7 +1828,7 @@ FROM rbac_repositories;
 
 -- === rbac_repositories_sync_status ===
 -- RBAC repository sync cursors (per peer)
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_rbac_sync_status AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_rbac_sync_status AS
 SELECT
   r.id AS repo_id,
   r.name AS repo_name,
@@ -1870,7 +1870,7 @@ FROM rbac_roles;
 
 -- === rbac_roles_coverage ===
 -- Role coverage: permissions per role (allow/deny)
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_rbac_roles_coverage AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_rbac_roles_coverage AS
 SELECT
   r.id AS role_id,
   r.slug,
@@ -1910,7 +1910,7 @@ FROM rbac_user_permissions;
 
 -- === rbac_user_permissions_conflicts ===
 -- Potential conflicts: same (user,perm,tenant,scope) both allowed and denied
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_rbac_conflicts AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_rbac_conflicts AS
 WITH allowed AS (
   SELECT user_id, permission_id, tenant_id, scope FROM rbac_user_permissions WHERE effect='allow'
   UNION
@@ -1943,7 +1943,7 @@ JOIN permissions p ON p.id = a.permission_id;
 
 -- === rbac_user_permissions_effective ===
 -- Effective permissions per user (Deny > Allow), including tenant/scope
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_rbac_effective_permissions AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_rbac_effective_permissions AS
 WITH allowed AS (
   SELECT ur.user_id, rp.permission_id, ur.tenant_id, ur.scope
   FROM rbac_user_roles ur
@@ -1998,7 +1998,7 @@ FROM rbac_user_roles;
 
 -- === rbac_user_roles_expiring_assignments ===
 -- Roles/permissions which will expire within 7 days
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_rbac_expiring_assignments AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_rbac_expiring_assignments AS
 SELECT
   'role' AS kind,
   ur.user_id,
@@ -2038,7 +2038,7 @@ FROM refunds;
 
 -- === refunds_by_day_and_gateway ===
 -- Refunds aggregated by day and gateway
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_refunds_by_day_and_gateway AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_refunds_by_day_and_gateway AS
 SELECT
   DATE(r.created_at) AS day,
   p.gateway,
@@ -2051,7 +2051,7 @@ ORDER BY day DESC, gateway;
 
 -- === refunds_daily ===
 -- Daily refunds amount
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_refunds_daily AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_refunds_daily AS
 SELECT
   DATE(r.created_at) AS day,
   SUM(r.amount) AS refunds_total,
@@ -2088,7 +2088,7 @@ FROM replication_lag_samples;
 
 -- === replication_lag_samples_latest ===
 -- Latest replication lag samples per peer
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_replication_lag_latest AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_replication_lag_latest AS
 SELECT
   ph.peer_id,
   ph.name,
@@ -2204,7 +2204,7 @@ FROM sessions;
 
 -- === sessions_active_by_user ===
 -- Active sessions per user
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_sessions_active_by_user AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_sessions_active_by_user AS
 SELECT
   user_id,
   COUNT(*) AS active_sessions,
@@ -2230,7 +2230,7 @@ FROM schema_registry;
 
 -- === schema_registry_versions_latest ===
 -- Latest version per system/component
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_schema_versions_latest AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_schema_versions_latest AS
 WITH ranked AS (
   SELECT
     system_name,
@@ -2322,7 +2322,7 @@ FROM slo_windows;
 
 -- === slo_windows_rollup ===
 -- SLO last computed status
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_slo_rollup AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_slo_rollup AS
 WITH ranked AS (
   SELECT
     w.id AS window_id,
@@ -2384,7 +2384,7 @@ FROM sync_batches;
 
 -- === sync_batches_progress ===
 -- Sync batch progress and success rate
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_sync_batch_progress AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_sync_batch_progress AS
 SELECT
   b.id,
   b.channel,
@@ -2413,7 +2413,7 @@ FROM sync_errors;
 
 -- === sync_errors_failures_recent ===
 -- Recent sync failures (24h)
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_sync_failures_recent AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_sync_failures_recent AS
 SELECT
   e.id,
   e.source,
@@ -2460,7 +2460,7 @@ FROM system_errors;
 
 -- === system_errors_daily ===
 -- System errors per day and level
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_system_errors_daily AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_system_errors_daily AS
 SELECT
   DATE(created_at) AS day,
   level,
@@ -2471,7 +2471,7 @@ ORDER BY day DESC, level;
 
 -- === system_errors_top_fingerprints ===
 -- Top fingerprints by total occurrences
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_system_errors_top_fingerprints AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_system_errors_top_fingerprints AS
 SELECT
   fingerprint,
   MAX(message) AS sample_message,
@@ -2504,7 +2504,7 @@ FROM system_jobs;
 
 -- === system_jobs_metrics ===
 -- Metrics for [system_jobs]
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_system_jobs_metrics AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_system_jobs_metrics AS
 SELECT
   job_type,
   status,
@@ -2530,7 +2530,7 @@ FROM tax_rates;
 
 -- === tax_rates_current ===
 -- Current (today) effective tax rates
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_tax_rates_current AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_tax_rates_current AS
 SELECT
   *
 FROM tax_rates t
@@ -2647,7 +2647,7 @@ FROM users;
 
 -- === users_rbac_access_summary ===
 -- Per-user summary: roles + effective permissions
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_rbac_user_access_summary AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_rbac_user_access_summary AS
 SELECT
   u.id AS user_id,
   COUNT(DISTINCT CASE
@@ -2704,7 +2704,7 @@ FROM webhook_outbox;
 
 -- === webhook_outbox_metrics ===
 -- Metrics for [webhook_outbox]
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_webhook_outbox_metrics AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_webhook_outbox_metrics AS
 SELECT
   status,
   COUNT(*) AS total,

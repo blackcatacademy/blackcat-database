@@ -36,6 +36,7 @@ namespace BlackCat\Database\Services;
 use BlackCat\Core\Database;
 use BlackCat\Core\Database\QueryCache;
 use BlackCat\Database\Contracts\ContractRepository as RepoContract;
+use BlackCat\Database\Services\GenericCrudRepositoryShape;
 use BlackCat\Database\Contracts\DatabaseIngressAdapterInterface;
 use BlackCat\Database\Crypto\IngressLocator;
 use BlackCat\Database\Telemetry\CoverageTelemetryReporter;
@@ -62,14 +63,20 @@ class GenericCrudService
 {
     use ServiceHelpers;
 
+    /** @phpstan-var RepoContract&GenericCrudRepositoryShape */
+    private RepoContract $repository;
+
     /** @var array<string,bool>|null map of whitelisted columns for update/upsert */
     private ?array $updatableColsWhitelist = null;
     protected ?DatabaseIngressAdapterInterface $ingressAdapter = null;
     protected ?string $ingressTable = null;
 
+    /**
+     * @param RepoContract&GenericCrudRepositoryShape $repository
+     */
     public function __construct(
         protected Database $db,
-        private object $repository,          // Duck-typed ContractRepository
+        RepoContract $repository,            // ContractRepository with optional extras
         private string $pkCol,               // e.g. 'id'
         private ?QueryCache $qcache = null,  // per-ID cache
         private ?string $cacheNs = null,     // e.g. 'table-users'
@@ -77,6 +84,7 @@ class GenericCrudService
         private ?string $versionCol = null,  // optimistic locking column (e.g. 'version')
         private int $retryAttempts = 3       // default retry budget for withRowLock()
     ) {
+        $this->repository = $repository;
         $this->assertRepositoryShape($this->repository);
         $this->retryAttempts = \max(1, $this->retryAttempts);
         if ($this->pkCol === '') {
@@ -178,9 +186,14 @@ class GenericCrudService
             if (\array_key_exists($pk, $row) && $row[$pk] !== null) {
                 $id = $row[$pk];
 
-                $exists = \method_exists($this->repository, 'exists')
-                    ? (bool)$this->repository->exists(\BlackCat\Database\Support\SqlIdentifier::q($this->db(), $pk) . ' = :id', [':id' => $id])
-                    : ($this->repository->findById($id) !== null);
+            $exists = \method_exists($this->repository, 'exists')
+                ? (function () use ($pk, $id): bool {
+                    $cond = \BlackCat\Database\Support\SqlIdentifier::q($this->db(), $pk) . ' = :id';
+                    /** @var non-empty-string $cond */
+                    $cond = $cond;
+                    return (bool)$this->repository->exists($cond, [':id' => $id]);
+                })()
+                : ($this->repository->findById($id) !== null);
 
                 if ($exists) {
                     $update = $row; unset($update[$pk]);
@@ -223,6 +236,11 @@ class GenericCrudService
                 $params[$p] = $v;
             }
             $cond = \implode(' AND ', $where);
+            if ($cond === '') {
+                $cond = '1=1';
+            }
+            /** @var non-empty-string $cond */
+            $cond = $cond;
 
             $exists = \method_exists($this->repository, 'exists')
                 ? (bool)$this->repository->exists($cond, $params)
@@ -304,7 +322,7 @@ class GenericCrudService
 
         // Fallback: lock row, compare version, then update with increment
         return (int)$this->withRowLock($id, function (?array $locked) use ($row, $expectedVersion, $id) {
-            if ($locked === null || !\array_key_exists($this->versionCol, $locked)) {
+            if ($this->versionCol === null || $locked === null || !\array_key_exists($this->versionCol, $locked)) {
                 throw new OptimisticLockException('Optimistic lock failed (row not found).');
             }
             $current = (int)$locked[$this->versionCol];
@@ -443,30 +461,17 @@ class GenericCrudService
 
         if (\method_exists($repo, 'def')) {
             try {
-                $resolver = Closure::bind(
-                    static function ($instance) {
-                        return \method_exists($instance, 'def') ? $instance->def() : null;
-                    },
-                    $repo,
-                    $repo
-                );
-            } catch (\Throwable) {
-                $resolver = null;
-            }
-
-            if ($resolver instanceof Closure) {
-                try {
-                    $fqn = $resolver($repo);
-                    if (\is_string($fqn) && $fqn !== '' && \class_exists($fqn) && \method_exists($fqn, 'table')) {
-                        /** @var mixed $table */
-                        $table = $fqn::table();
-                        if (\is_string($table) && $table !== '') {
-                            return $table;
-                        }
+                /** @var mixed $fqn */
+                $fqn = $repo->def();
+                if (\is_string($fqn) && $fqn !== '' && \class_exists($fqn) && \method_exists($fqn, 'table')) {
+                    /** @var mixed $table */
+                    $table = $fqn::table();
+                    if (\is_string($table) && $table !== '') {
+                        return $table;
                     }
-                } catch (\Throwable) {
-                    // ignore
                 }
+            } catch (\Throwable) {
+                // ignore
             }
         }
 
@@ -482,7 +487,6 @@ class GenericCrudService
 
         $table = $this->ingressTable ?? $this->detectRepositoryTable();
         try {
-            /** @phpstan-ignore-next-line */
             $repo->setIngressAdapter($this->ingressAdapter, $table);
         } catch (\Throwable) {
             // best-effort
@@ -599,6 +603,7 @@ class GenericCrudService
                             ON CONFLICT (k) DO UPDATE
                                SET expires_at = EXCLUDED.expires_at
                                ,   payload    = {$tbl}.payload"; // keep the original payload (first write wins)
+                    $this->db()->execute($sql, [':k'=>$key, ':ttl'=>$ttlSec, ':p'=>$payload]);
                 } else {
                     // MySQL/MariaDB – alias variant (MySQL ≥ 8.0.20) + fallback to VALUES() (MariaDB, older MySQL)
                     $params = [':k' => $key, ':ttl' => $ttlSec, ':p' => $payload];
@@ -623,7 +628,6 @@ class GenericCrudService
                         $this->db()->execute($sqlAlias, $params);
                     }
                 }
-                $this->db()->execute($sql, [':k'=>$key, ':ttl'=>$ttlSec, ':p'=>$payload]);
 
                 return $res;
             });
@@ -638,8 +642,9 @@ class GenericCrudService
         $key = $this->idKey($this->cacheNs, $this->idKeyFor($id));
         try { $this->qcache->delete($key); } catch (\Throwable) { /* best-effort */ }
         try {
-            if (\method_exists($this->qcache, 'cache') && $this->qcache->cache()) {
-                $this->qcache->cache()->delete($key);
+            $inner = $this->qcache->cache();
+            if ($inner !== null) {
+                $inner->delete($key);
             }
         } catch (\Throwable) {}
     }
@@ -660,7 +665,7 @@ class GenericCrudService
 
     // ----------------------- Internals -----------------------
 
-    private function assertRepositoryShape(object $r): void
+    private function assertRepositoryShape(RepoContract $r): void
     {
         foreach (['insert', 'updateById', 'deleteById', 'findById'] as $m) {
             if (!\method_exists($r, $m)) {
@@ -686,7 +691,8 @@ class GenericCrudService
             $norm = $id;
             // If associative, stabilize key order
             if (\array_keys($norm) !== \range(0, \count($norm) - 1)) { \ksort($norm); }
-            return 'ck:' . \hash('sha256', \json_encode($norm, \JSON_UNESCAPED_UNICODE|\JSON_UNESCAPED_SLASHES));
+            $encoded = \json_encode($norm, \JSON_UNESCAPED_UNICODE|\JSON_UNESCAPED_SLASHES) ?: '';
+            return 'ck:' . \hash('sha256', $encoded);
         }
         return (string)$id;
     }

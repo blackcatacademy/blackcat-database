@@ -154,7 +154,7 @@ final class OutboxRepository
                     WHERE acked_at IS NULL AND available_at <= CURRENT_TIMESTAMP
                     ORDER BY id ASC
                     LIMIT :__lim";
-            $rows = $this->db->fetchAll($sql, [':__lim' => $limit]) ?? [];
+            $rows = (array)$this->db->fetchAll($sql, [':__lim' => $limit]);
             return $rows;
         }
 
@@ -165,7 +165,7 @@ final class OutboxRepository
                 ORDER BY id ASC
                 FOR UPDATE SKIP LOCKED
                 LIMIT :__lim";
-        return $this->db->fetchAll($sql, [':__lim' => $limit]) ?? [];
+        return (array)$this->db->fetchAll($sql, [':__lim' => $limit]);
     }
 
     /** Marks a record as processed (ACK). */

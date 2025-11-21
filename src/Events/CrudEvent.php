@@ -39,13 +39,13 @@ namespace BlackCat\Database\Events;
  * @api
  *
  * Typing & static analysis helpers:
- * @phpstan-type Scalar int|float|string|bool
+ * @phpstan-type ScalarType int|float|string|bool
  * @phpstan-type Assoc array<string,mixed>
- * @phpstan-type Id int|string|array<string,Scalar|null>
+ * @phpstan-type Id int|string|array<string,ScalarType|null>
  *
- * @psalm-type Scalar = int|float|string|bool
+ * @psalm-type ScalarType = int|float|string|bool
  * @psalm-type Assoc = array<string,mixed>
- * @psalm-type Id = int|string|array<string,Scalar|null>
+ * @psalm-type Id = int|string|array<string,ScalarType|null>
  *
  * Design goals:
  * - Fully immutable (readonly) and self-validating constructor.
@@ -82,27 +82,40 @@ final class CrudEvent implements \JsonSerializable
      * @param Assoc|null       $after     best-effort snapshot (or null)
      * @param Assoc            $context   free-form metadata (tenant, corr, cache_ns, version_col, etc.)
      */
+    public readonly string $operation;
+    public readonly string $table;
+    public readonly int|string|array|null $id;
+    public readonly int $affected;
+    public readonly ?array $before;
+    public readonly ?array $after;
+    public readonly array $context;
+
     public function __construct(
-        public readonly string $operation,
-        public readonly string $table,
-        public readonly int|string|array|null $id,
-        public readonly int $affected = 1,
-        #[\SensitiveParameter] public readonly ?array $before = null,
-        #[\SensitiveParameter] public readonly ?array $after = null,
-        #[\SensitiveParameter] public readonly array $context = []
+        string $operation,
+        string $table,
+        int|string|array|null $id,
+        int $affected = 1,
+        ?array $before = null,
+        ?array $after = null,
+        array $context = []
     ) {
-        $op = \strtolower(\trim($this->operation));
-        if ($op === '' || !\in_array($op, self::ALLOWED_OPS, true)) {
-            throw new \InvalidArgumentException("CrudEvent: unsupported operation '{$this->operation}'");
+        $op = \strtolower(\trim($operation));
+        if (!\in_array($op, self::ALLOWED_OPS, true)) {
+            throw new \InvalidArgumentException("CrudEvent: unsupported operation '{$operation}'");
         }
-        if ($this->table === '') {
-            throw new \InvalidArgumentException('CrudEvent: table must be a non-empty string');
+        $table = \trim($table);
+        if ($table === '') {
+            throw new \InvalidArgumentException('CrudEvent: table must be non-empty');
         }
-        if ($this->affected < 0) {
-            throw new \InvalidArgumentException('CrudEvent: affected must be >= 0');
-        }
-        // Light sanity normalization
+        $affected = \max(0, $affected);
+
         $this->operation = $op;
+        $this->table     = $table;
+        $this->id        = $id;
+        $this->affected  = $affected;
+        $this->before    = $before;
+        $this->after     = $after;
+        $this->context   = $context;
     }
 
     /** @return Assoc */

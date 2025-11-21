@@ -54,7 +54,7 @@ class IdempotentCrudService extends EventfulCrudService
 {
     public function __construct(
         \BlackCat\Core\Database $db,
-        \BlackCat\Database\Contracts\ContractRepository $repo,
+        \BlackCat\Database\Contracts\ContractRepository&\BlackCat\Database\Services\GenericCrudRepositoryShape $repo,
         ?\BlackCat\Core\Database\QueryCache $qcache = null,
         ?\BlackCat\Database\Events\CrudEventDispatcher $dispatcher = null,
         ?\BlackCat\Database\Outbox\OutboxRepository $outbox = null,
@@ -66,6 +66,7 @@ class IdempotentCrudService extends EventfulCrudService
     }
 
     /** Stable, short, and "clean" idempotency key (prefix + db + sanitization + hash when too long). */
+    /** @return non-empty-string */
     private function buildIdemKey(string $scope, string $raw): string
     {
         $dbId = 'db';
@@ -81,7 +82,7 @@ class IdempotentCrudService extends EventfulCrudService
      * Run the action at most once for the given key. If a result already exists, return it.
      *
      * @template T
-     * @param non-empty-string $key
+     * @param string           $key
      * @param callable():T     $fn
      * @param positive-int     $ttlSeconds  how long to keep the result (hint for the store)
      * @param int              $waitForMs   how many ms to wait if the operation is running elsewhere
@@ -97,7 +98,9 @@ class IdempotentCrudService extends EventfulCrudService
         if ($key === '') {
             throw new \InvalidArgumentException('Idempotency key must be a non-empty string.');
         }
-        $ttlSeconds ??= $this->defaultTtlSec;
+        /** @var non-empty-string $key */
+        $key = $key;
+        $ttlSeconds = \max(1, $ttlSeconds ?? $this->defaultTtlSec);
         $waitForMs  ??= $this->defaultWaitMs;
 
         // Without a store -> just run through
@@ -168,8 +171,9 @@ class IdempotentCrudService extends EventfulCrudService
             }
             return $res;
         } catch (\Throwable $e) {
+            $reason = \trim((string)$e->getMessage()) ?: 'unknown';
             try {
-                $this->idem->fail($key, \substr($e->getMessage(), 0, 500));
+                $this->idem->fail($key, \substr($reason, 0, 500));
             } catch (\Throwable $e2) {
                 Telemetry::warn('IdempotencyStore::fail failed (ignored)', ['err' => $e2->getMessage()]);
             }
@@ -179,30 +183,72 @@ class IdempotentCrudService extends EventfulCrudService
 
     // ---------------- Convenience wrappers ----------------
 
-    /** @param array<string,mixed> $row */
+    /**
+     * @param array<string,mixed> $row
+     * @param non-empty-string $key
+     * @param positive-int|null $ttlSec
+     */
     public function createIdempotent(#[\SensitiveParameter] array $row, #[\SensitiveParameter] string $key, ?int $ttlSec = null): array
     {
+        $key = \trim($key);
+        if ($key === '') {
+            throw new \InvalidArgumentException('Idempotency key must be a non-empty string.');
+        }
+        /** @var non-empty-string $key */
+        $key = $key;
+        $ttlSec = $ttlSec !== null ? \max(1, $ttlSec) : null;
         return $this->withIdempotency($this->buildIdemKey('create', $key), fn() => $this->create($row), $ttlSec);
     }
 
     /**
      * @param int|string|array $id
      * @param array<string,mixed> $row
+     * @param non-empty-string $key
+     * @param positive-int|null $ttlSec
      */
     public function updateIdempotent(int|string|array $id, #[\SensitiveParameter] array $row, #[\SensitiveParameter] string $key, ?int $ttlSec = null): \BlackCat\Database\Support\OperationResult
     {
+        $key = \trim($key);
+        if ($key === '') {
+            throw new \InvalidArgumentException('Idempotency key must be a non-empty string.');
+        }
+        /** @var non-empty-string $key */
+        $key = $key;
+        $ttlSec = $ttlSec !== null ? \max(1, $ttlSec) : null;
         return $this->withIdempotency($this->buildIdemKey('update', $key), fn() => $this->update($id, $row), $ttlSec);
     }
 
-    /** @param array<string,mixed> $row */
+    /**
+     * @param array<string,mixed> $row
+     * @param non-empty-string $key
+     * @param positive-int|null $ttlSec
+     */
     public function createAndFetchIdempotent(#[\SensitiveParameter] array $row, #[\SensitiveParameter] string $key, ?int $ttlSec = null): ?array
     {
+        $key = \trim($key);
+        if ($key === '') {
+            throw new \InvalidArgumentException('Idempotency key must be a non-empty string.');
+        }
+        /** @var non-empty-string $key */
+        $key = $key;
+        $ttlSec = $ttlSec !== null ? \max(1, $ttlSec) : null;
         return $this->withIdempotency($this->buildIdemKey('create_fetch', $key), fn() => $this->createAndFetch($row, 0), $ttlSec);
     }
 
-    /** @param array<string,mixed> $row */
+    /**
+     * @param array<string,mixed> $row
+     * @param non-empty-string $key
+     * @param positive-int|null $ttlSec
+     */
     public function upsertIdempotent(#[\SensitiveParameter] array $row, #[\SensitiveParameter] string $key, ?int $ttlSec = null): void
     {
+        $key = \trim($key);
+        if ($key === '') {
+            throw new \InvalidArgumentException('Idempotency key must be a non-empty string.');
+        }
+        /** @var non-empty-string $key */
+        $key = $key;
+        $ttlSec = $ttlSec !== null ? \max(1, $ttlSec) : null;
         $this->withIdempotency($this->buildIdemKey('upsert', $key), function () use ($row) {
             $this->upsert($row);
             return ['ok' => true];
@@ -211,25 +257,52 @@ class IdempotentCrudService extends EventfulCrudService
 
     /**
      * @param int|string|array $id
+     * @param non-empty-string $key
+     * @param positive-int|null $ttlSec
      */
     public function deleteIdempotent(int|string|array $id, #[\SensitiveParameter] string $key, ?int $ttlSec = null): \BlackCat\Database\Support\OperationResult
     {
+        $key = \trim($key);
+        if ($key === '') {
+            throw new \InvalidArgumentException('Idempotency key must be a non-empty string.');
+        }
+        /** @var non-empty-string $key */
+        $key = $key;
+        $ttlSec = $ttlSec !== null ? \max(1, $ttlSec) : null;
         return $this->withIdempotency($this->buildIdemKey('delete', $key), fn() => $this->delete($id), $ttlSec);
     }
 
     /**
      * @param int|string|array $id
+     * @param non-empty-string $key
+     * @param positive-int|null $ttlSec
      */
     public function restoreIdempotent(int|string|array $id, #[\SensitiveParameter] string $key, ?int $ttlSec = null): \BlackCat\Database\Support\OperationResult
     {
+        $key = \trim($key);
+        if ($key === '') {
+            throw new \InvalidArgumentException('Idempotency key must be a non-empty string.');
+        }
+        /** @var non-empty-string $key */
+        $key = $key;
+        $ttlSec = $ttlSec !== null ? \max(1, $ttlSec) : null;
         return $this->withIdempotency($this->buildIdemKey('restore', $key), fn() => $this->restore($id), $ttlSec);
     }
 
     /**
      * @param int|string|array $id
+     * @param non-empty-string $key
+     * @param positive-int|null $ttlSec
      */
     public function touchIdempotent(int|string|array $id, #[\SensitiveParameter] string $key, ?int $ttlSec = null): \BlackCat\Database\Support\OperationResult
     {
+        $key = \trim($key);
+        if ($key === '') {
+            throw new \InvalidArgumentException('Idempotency key must be a non-empty string.');
+        }
+        /** @var non-empty-string $key */
+        $key = $key;
+        $ttlSec = $ttlSec !== null ? \max(1, $ttlSec) : null;
         return $this->withIdempotency($this->buildIdemKey('touch', $key), fn() => $this->touch($id), $ttlSec);
     }
 

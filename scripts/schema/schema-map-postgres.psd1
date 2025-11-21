@@ -908,7 +908,9 @@ CREATE TABLE IF NOT EXISTS inventory_reservations (
         'CREATE INDEX IF NOT EXISTS idx_res_book ON inventory_reservations (book_id)',
         'CREATE INDEX IF NOT EXISTS idx_res_order ON inventory_reservations (order_id)',
         'CREATE INDEX IF NOT EXISTS idx_res_status_until ON inventory_reservations (status, reserved_until)',
-        'CREATE INDEX IF NOT EXISTS idx_res_tenant_status_until ON inventory_reservations (tenant_id, status, reserved_until)'
+        'CREATE INDEX IF NOT EXISTS idx_res_tenant_status_until ON inventory_reservations (tenant_id, status, reserved_until)',
+        'CREATE INDEX IF NOT EXISTS idx_inventory_reservations_order ON inventory_reservations (order_id)',
+        'CREATE INDEX IF NOT EXISTS idx_res_book_status ON inventory_reservations (book_id, status)'
       )
       foreign_keys = @(
         'ALTER TABLE inventory_reservations ADD CONSTRAINT fk_res_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT',
@@ -968,7 +970,9 @@ CREATE TABLE IF NOT EXISTS cart_items (
       indexes = @(
         'CREATE INDEX IF NOT EXISTS idx_cart_items_cart_id ON cart_items (cart_id)',
         'CREATE UNIQUE INDEX IF NOT EXISTS ux_cart_items_tenant_norm ON cart_items (tenant_id, cart_id, book_id, COALESCE(sku, ''''))',
-        'CREATE INDEX IF NOT EXISTS idx_cart_items_tenant_cart ON cart_items (tenant_id, cart_id)'
+        'CREATE INDEX IF NOT EXISTS idx_cart_items_tenant_cart ON cart_items (tenant_id, cart_id)',
+        'CREATE UNIQUE INDEX IF NOT EXISTS ux_cart_items ON cart_items (tenant_id, cart_id, book_id, sku)',
+        'CREATE INDEX IF NOT EXISTS idx_cart_items_tenant_book ON cart_items (tenant_id, book_id)'
       )
       foreign_keys = @(
         'ALTER TABLE cart_items ADD CONSTRAINT fk_cart_items_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT',
@@ -1202,6 +1206,7 @@ CREATE TABLE IF NOT EXISTS payments (
         'CREATE INDEX IF NOT EXISTS idx_payments_order ON payments (order_id)',
         'CREATE INDEX IF NOT EXISTS idx_payments_provider_event ON payments (provider_event_id)',
         'CREATE INDEX IF NOT EXISTS idx_payments_created_at ON payments (created_at)',
+        'CREATE INDEX IF NOT EXISTS idx_payments_order_created ON payments (order_id, created_at)',
         'CREATE INDEX IF NOT EXISTS gin_payments_details     ON payments      USING GIN (details jsonb_path_ops)',
         'CREATE UNIQUE INDEX IF NOT EXISTS ux_payments_tenant_tx ON payments (tenant_id, transaction_id)',
         'CREATE INDEX IF NOT EXISTS idx_payments_tenant_order ON payments (tenant_id, order_id)',
@@ -1351,7 +1356,8 @@ CREATE TABLE IF NOT EXISTS coupons (
 '@
       indexes = @(
         'CREATE UNIQUE INDEX IF NOT EXISTS ux_coupons_tenant_code_ci ON coupons (tenant_id, code_ci)',
-        'CREATE INDEX IF NOT EXISTS idx_coupons_tenant_active ON coupons (tenant_id, is_active)'
+        'CREATE INDEX IF NOT EXISTS idx_coupons_tenant_active ON coupons (tenant_id, is_active)',
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_coupons_tenant_id ON coupons (tenant_id, id)'
       )
       foreign_keys = @(
         'ALTER TABLE coupons ADD CONSTRAINT fk_coupons_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT'
@@ -2863,7 +2869,8 @@ CREATE TABLE IF NOT EXISTS device_fingerprints (
 '@
       indexes = @(
         'CREATE INDEX IF NOT EXISTS idx_df_user ON device_fingerprints (user_id)',
-        'CREATE INDEX IF NOT EXISTS idx_df_last_seen ON device_fingerprints (last_seen)'
+        'CREATE INDEX IF NOT EXISTS idx_df_last_seen ON device_fingerprints (last_seen)',
+        'CREATE INDEX IF NOT EXISTS idx_df_user_last_seen ON device_fingerprints (user_id, last_seen)'
       )
       foreign_keys = @(
         'ALTER TABLE device_fingerprints ADD CONSTRAINT fk_df_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL'

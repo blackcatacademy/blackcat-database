@@ -211,12 +211,16 @@ final class Retry
         foreach (self::$customClassifiers as $custom) {
             try {
                 $res = $custom($e);
-                if (\is_array($res) && array_key_exists('transient', $res)) {
-                    return [
-                        'transient' => (bool)$res['transient'],
-                        'reason' => $res['reason'] ?? null,
-                    ];
+                if (!\is_array($res)) {
+                    continue;
                 }
+                if (!array_key_exists('transient', $res)) {
+                    continue;
+                }
+                return [
+                    'transient' => (bool)$res['transient'],
+                    'reason' => $res['reason'] ?? null,
+                ];
             } catch (\Throwable) {
                 // ignore faulty custom classifier
             }

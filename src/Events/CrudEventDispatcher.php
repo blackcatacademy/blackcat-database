@@ -47,8 +47,6 @@ namespace BlackCat\Database\Events;
  *
  * ## Static analysis
  * - API intentionally stays minimal; validation/serialization happens in `CrudEvent`.
- *
- * @template-covariant TEvent of CrudEvent
  */
 interface CrudEventDispatcher
 {
@@ -60,7 +58,6 @@ interface CrudEventDispatcher
      *  - shield callers from side effects of failures,
      *  - (recommended) add diagnostics/telemetry.
      *
-     * @param TEvent $event
      * @throws void
      */
     public function dispatch(#[\SensitiveParameter] CrudEvent $event): void;

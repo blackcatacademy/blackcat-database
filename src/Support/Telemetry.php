@@ -141,23 +141,23 @@ final class Telemetry
             'class' => (new \ReflectionClass($e))->getName(),
             'message' => $e->getMessage(),
         ];
-        $code = $e->getCode();
-        if (is_int($code) || is_string($code)) {
-            $fields['code'] = $code;
-        }
+        $fields['code'] = $e->getCode();
 
-        if ($e instanceof \PDOException && is_array($e->errorInfo ?? null)) {
-            $sqlState = $e->errorInfo[0] ?? null;
-            $driverCode = $e->errorInfo[1] ?? null;
-            $driverMsg = $e->errorInfo[2] ?? null;
-            if ($sqlState) {
-                $fields['sqlstate'] = (string)$sqlState;
-            }
-            if ($driverCode !== null) {
-                $fields['driver_code'] = (int)$driverCode;
-            }
-            if ($driverMsg) {
-                $fields['driver_message'] = (string)$driverMsg;
+        if ($e instanceof \PDOException) {
+            $ei = $e->errorInfo;
+            if (is_array($ei)) {
+                $sqlState = $ei[0] ?? null;
+                $driverCode = $ei[1] ?? null;
+                $driverMsg = $ei[2] ?? null;
+                if ($sqlState) {
+                    $fields['sqlstate'] = (string)$sqlState;
+                }
+                if ($driverCode !== null) {
+                    $fields['driver_code'] = (int)$driverCode;
+                }
+                if ($driverMsg) {
+                    $fields['driver_message'] = (string)$driverMsg;
+                }
             }
         }
 

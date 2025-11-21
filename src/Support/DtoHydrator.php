@@ -69,6 +69,7 @@ final class DtoHydrator
      * @param string[]                $dateCols
      * @param string[]                $binCols
      * @return T
+     * @phpstan-return T
      */
     public static function fromRow(
         string $dtoClass,
@@ -124,6 +125,7 @@ final class DtoHydrator
                     $rp->setValue($obj, $value);
                 }
             }
+            /** @var T $obj */
             return $obj;
         }
 
@@ -143,7 +145,9 @@ final class DtoHydrator
 
         // Safe attempt to create the instance; on failure try the "property" fallback (if possible)
         try {
-            return $rc->newInstanceArgs($ordered);
+            /** @var T $instance */
+            $instance = $rc->newInstanceArgs($ordered);
+            return $instance;
         } catch (\Throwable) {
             // Fallback only when no required parameters exist (in theory this branch should never run
             // because we already chose the path with required parameters deliberately)
@@ -157,6 +161,7 @@ final class DtoHydrator
                     }
                 }
             }
+            /** @var T $obj */
             return $obj;
         }
     }

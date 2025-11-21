@@ -173,28 +173,6 @@ final class Installer
         return $out;
     }
 
-    /** Rough extraction of table identifiers used in a VIEW (FROM/JOIN tokens). */
-    private function extractTablesFromViewSql(string $rawSql, string $dialect): array
-    {
-        $out = [];
-        $isPg = ($dialect === 'postgres');
-        $noComments = $this->stripSqlComments($rawSql);
-        $re = '~\b(?:FROM|JOIN(?:\s+LATERAL)?)\s+(?:ONLY\s+)?((?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z0-9_]+)(?:\.(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z0-9_]+))*)~i';
-        if (preg_match_all($re, $noComments, $m)) {
-            foreach ($m[1] as $ref) {
-                $parts = preg_split('~/~', $ref);
-                $last  = $parts[count($parts)-1] ?? $ref;
-                $name = str_replace(['`','"','[',']'], '', $last);
-                $name = strtolower(str_contains($name,'.') ? substr($name, strrpos($name,'.')+1) : $name);
-                // skip functions/json_table etc. (heuristic)
-                if ($name === '' || preg_match('~\(~', $ref)) { continue; }
-                if (str_starts_with($name, 'vw_')) { continue; }
-                $out[$name] = true;
-            }
-        }
-        return array_keys($out);
-    }
-
     /** Return path to <repo-root>/schema, ... */
     private function schemaDirBesideSrc(ModuleInterface $m): string
     {
@@ -243,17 +221,17 @@ final class Installer
         }
         // To remove DEFINER, set BC_STRIP_DEFINER=1
         if (getenv('BC_STRIP_DEFINER') === '1') {
-            $stmt = preg_replace('~\bDEFINER\s*=\s*(?:`[^`]+`@`[^`]+`|[^ \t]+)~i', '', $stmt);
-            $stmt = preg_replace('~\s{2,}~', ' ', $stmt) ?? $stmt;
+            $stmt = (string)(preg_replace('~\bDEFINER\s*=\s*(?:`[^`]+`@`[^`]+`|[^ \t]+)~i', '', $stmt) ?? $stmt);
+            $stmt = (string)(preg_replace('~\s{2,}~', ' ', $stmt) ?? $stmt);
         }
         // Optionally strip ALGORITHM and SQL SECURITY (cleaner diffs between environments)
         if (getenv('BC_STRIP_ALGORITHM') === '1') {
-            $stmt = preg_replace('~\bALGORITHM\s*=\s*\w+\s*~i', '', $stmt) ?? $stmt;
+            $stmt = (string)(preg_replace('~\bALGORITHM\s*=\s*\w+\s*~i', '', $stmt) ?? $stmt);
         }
         if (getenv('BC_STRIP_SQL_SECURITY') === '1') {
-            $stmt = preg_replace('~\bSQL\s+SECURITY\s+\w+\s*~i', '', $stmt) ?? $stmt;
+            $stmt = (string)(preg_replace('~\bSQL\s+SECURITY\s+\w+\s*~i', '', $stmt) ?? $stmt);
         }
-        return $stmt;
+        return (string)$stmt;
     }
 
     public function __construct(
@@ -331,7 +309,7 @@ final class Installer
                 WHERE SPECIFIC_SCHEMA = DATABASE()
                 AND SPECIFIC_NAME IN ('BIN_TO_UUID','UUID_TO_BIN')
                 GROUP BY SPECIFIC_NAME
-            ") ?? [];
+            ");
             $argc = [];
             foreach ($rows as $r) { $argc[strtoupper((string)$r['name'])] = (int)$r['argc']; }
             $ok = (isset($argc['BIN_TO_UUID']) && $argc['BIN_TO_UUID'] === 2)
@@ -389,7 +367,7 @@ final class Installer
                 FROM information_schema.VIEWS
                 WHERE TABLE_SCHEMA = DATABASE()
                 ORDER BY TABLE_NAME"
-            ) ?? [];
+            );
 
             foreach ($views as $v) {
                 $name = (string)$v['name'];
@@ -409,12 +387,12 @@ final class Installer
 
         if ($this->isMariaDb()) {
             try {
-                $rows = $this->db->fetchAll(
+                $rows = (array)$this->db->fetchAll(
                     "SELECT TABLE_NAME, ALGORITHM
                      FROM information_schema.VIEWS
                      WHERE TABLE_SCHEMA = DATABASE()
                      ORDER BY TABLE_NAME"
-                ) ?? [];
+                );
                 foreach ($rows as $r) {
                     error_log('[Installer][TRACE_VIEWS_ALG] ' . $r['TABLE_NAME'] . ' → ' . strtoupper((string)$r['ALGORITHM']));
                 }
@@ -432,7 +410,7 @@ final class Installer
                     FROM information_schema.views
                     WHERE table_schema = ANY (current_schemas(true))
                     ORDER BY table_schema, table_name"
-                ) ?? [];
+                );
                 foreach ($rows as $r) {
                     error_log('[Installer][TRACE_VIEWS_ALG] ' . $r['table_schema'] . '.' . $r['table_name'] . ' → N/A');
                 }
@@ -452,11 +430,10 @@ final class Installer
                   + ($objName ? ['object' => $objName] : []) + $meta;
 
         if (method_exists($this->db, 'execWithMeta')) {
-            \call_user_func([$this->db, 'execWithMeta'], $sql, [], $meta);
-            $this->emitSqlTelemetry('exec', $sql, [], $meta, $t0);
-            return;
+            $this->db->execWithMeta($sql, [], $meta);
+        } else {
+            $this->db->exec($sql);
         }
-        $this->db->exec($sql);
         $this->emitSqlTelemetry('exec', $sql, [], $meta, $t0);
     }
 
@@ -468,12 +445,11 @@ final class Installer
         $meta   = ['component' => 'installer', 'op' => strtolower($kind), 'seq' => $this->runSeq]
                   + ($objName ? ['object' => $objName] : []) + $meta;
 
-        if (method_exists($this->db, 'executeWithMeta')) {
-            \call_user_func([$this->db, 'executeWithMeta'], $sql, $params, $meta);
-            $this->emitSqlTelemetry('execute', $sql, $params, $meta, $t0);
-            return;
+        if (method_exists($this->db, 'execWithMeta')) {
+            $this->db->execWithMeta($sql, $params, $meta);
+        } else {
+            $this->db->execute($sql, $params);
         }
-        $this->db->execute($sql, $params);
         $this->emitSqlTelemetry('execute', $sql, $params, $meta, $t0);
     }
 
@@ -719,7 +695,7 @@ final class Installer
             throw new \RuntimeException("Module {$m->name()} does not support dialect {$this->dialect->value}");
         }
 
-        $reg = $this->qfetch("SELECT version,checksum FROM _schema_registry WHERE module_name=:n", [':n'=>$m->name()]) ?? [];
+        $reg = $this->qfetch("SELECT version,checksum FROM _schema_registry WHERE module_name=:n", [':n'=>$m->name()]);
         $current  = $reg['version']  ?? null;
         $prevChk  = $reg['checksum'] ?? null;
         $newChk   = $this->computeChecksum($m);
@@ -735,11 +711,10 @@ final class Installer
 
         if ($current === null || !$hasPrimaryTable) {
             $this->assertDependenciesInstalled($m);
-            if ($current === null) {
-                $this->dbg("install() begin for {$m->name()} (reason=" . ($current===null?'no-registry':'') . ")");
-            } else {
-                $this->dbg("install() begin for {$m->name()} (reason=missing-primary-table '{$primaryTable}')");
-            }
+            $reason = $current === null
+                ? 'no-registry'
+                : "missing-primary-table '{$primaryTable}'";
+            $this->dbg("install() begin for {$m->name()} (reason={$reason})");
             $m->install($this->db, $this->dialect);
             $this->dbg("install() done for {$m->name()}");
             $didWork = true;
@@ -813,8 +788,41 @@ final class Installer
     public function installOrUpgradeAll(array $modules): void
     {
         $this->ensureRegistry();
-        foreach ($this->toposort($modules) as $m) {
+        $ordered = $this->toposort($modules);
+        $origFeature = getenv('BC_INCLUDE_FEATURE_VIEWS');
+        // Disable feature views during the first pass to avoid dependency ordering issues
+        putenv('BC_INCLUDE_FEATURE_VIEWS=0');
+        foreach ($ordered as $m) {
             $this->installOrUpgrade($m);
+        }
+        if ($origFeature !== false) {
+            putenv("BC_INCLUDE_FEATURE_VIEWS={$origFeature}");
+        } else {
+            putenv('BC_INCLUDE_FEATURE_VIEWS');
+        }
+        // Second pass: when feature views are enabled, replay views after all tables exist
+        $includeFeatureViews = (getenv('BC_INCLUDE_FEATURE_VIEWS') === '1' || strtolower((string)getenv('BC_INCLUDE_FEATURE_VIEWS')) === 'true');
+        if ($includeFeatureViews) {
+            // Retryable pass: some feature views depend on other modules' views,
+            // so keep going and re-attempt the failed modules after the rest are replayed.
+            $pending = $ordered;
+            $lastErr = null;
+            for ($round = 1; $round <= 2 && $pending; $round++) {
+                $next = [];
+                foreach ($pending as $m) {
+                    try {
+                        $this->replayViewsScript($m);
+                    } catch (\Throwable $e) {
+                        $lastErr = $e;
+                        $next[]  = $m;
+                        $this->dbg('views-second-pass round ' . $round . ' failed for ' . $m->name() . ': ' . $e->getMessage());
+                    }
+                }
+                $pending = $next;
+            }
+            if ($pending && $lastErr !== null) {
+                throw $lastErr;
+            }
         }
     }
 
@@ -960,7 +968,7 @@ final class Installer
                                     'indexes: retry#' . $attempt
                                     . ' sleep=' . $sleepMs . 'ms'
                                     . ($code !== null ? ' code=' . $code : '')
-                                    . ' err=' . substr($e->getMessage() ?? '', 0, 200)
+                                    . ' err=' . substr($e->getMessage(), 0, 200)
                                     . ' head=' . $this->head($stmt)
                                 );
                             }
@@ -976,8 +984,8 @@ final class Installer
         $dir  = $this->schemaDirBesideSrc($m);
         $dial = $this->dialect->isMysql() ? 'mysql' : 'postgres';
         $targetView = strtolower((string)$m::contractView());
-        $filterByContract = $targetView !== '';
         $includeFeatureViews = (getenv('BC_INCLUDE_FEATURE_VIEWS') === '1' || strtolower((string)getenv('BC_INCLUDE_FEATURE_VIEWS')) === 'true');
+        $filterByContract = ($targetView !== '' && !$includeFeatureViews);
 
         if ($this->traceFiles) { $this->dbg("views: scanning in {$dir} (dialect={$dial})"); }
 
@@ -994,19 +1002,6 @@ final class Installer
             if (!$includeFeatureViews && stripos($raw, 'schema-views-feature-') !== false) {
                 $this->dlog('views: skip feature layer (BC_INCLUDE_FEATURE_VIEWS=0) for ' . basename($file));
                 continue;
-            }
-
-            // If feature view and dependencies (tables) are not yet present, skip gracefully
-            if ($includeFeatureViews && stripos($raw, 'schema-views-feature-') !== false) {
-                $tables = $this->extractTablesFromViewSql($raw, $dial);
-                $missingDeps = [];
-                foreach ($tables as $t) {
-                    if (!$this->tableExists($t)) { $missingDeps[] = $t; }
-                }
-                if ($missingDeps) {
-                    $this->dlog('views: skip feature view ' . basename($file) . ' missing tables [' . implode(',', $missingDeps) . ']');
-                    continue;
-                }
             }
 
             $sqlNoComments = $this->stripSqlComments($raw);
@@ -1026,7 +1021,7 @@ final class Installer
                     if (preg_match('~\bVIEW\s+((?:`?"?[A-Za-z0-9_]+`?"?\.)?`?"?[A-Za-z0-9_]+`?"?)\s+AS\b~i', $stmt, $mm)) {
                         $vraw  = $mm[1];
                         $vname = strtolower(str_replace(['`','"'],'',$vraw));
-                        $vbase = str_contains($vname,'.') ? substr($vname, strrpos($vname,'.')+1) : $vname;
+                        $vbase = str_contains($vname,'.') ? substr($vname, (int)strrpos($vname,'.')+1) : $vname;
                         if ($vbase !== $targetView) { $ignored++; continue; }
                     } else {
                         $ignored++; 
@@ -1042,13 +1037,26 @@ final class Installer
                 )) {
                     if (!$this->traceSql && $this->diagEnabled()) { $this->dbg("views: guarded " . $this->head($stmt)); }
                     $stmt = $this->normalizeCreateViewDirectives($stmt);
-                    $this->ddlGuard->applyCreateView($stmt, [
-                        'lockTimeoutSec'    => (int)(getenv('BC_VIEW_LOCK_TIMEOUT') ?: 10),
-                        'retries'           => (int)(getenv('BC_INSTALLER_VIEW_RETRIES') ?: 3),
-                        'fenceMs'           => (int)(getenv('BC_VIEW_FENCE_MS') ?: 600),
-                        'dropFirst'         => true,
-                        'normalizeOrReplace'=> true,
-                    ]);
+                    if ($stmt === '') { $ignored++; continue; }
+                    if ($this->dialect->isPg()) {
+                        // PostgreSQL: drop-and-create to avoid column rename errors on existing views
+                        $dropName = $targetView;
+                        if (!$dropName && preg_match('~\bVIEW\s+((?:`?"?[A-Za-z0-9_]+`?"?\.)?`?"?[A-Za-z0-9_]+`?"?)\s+AS\b~i', $stmt, $mm)) {
+                            $dropName = str_replace(['`','"'],'',$mm[1]);
+                        }
+                        if ($dropName) {
+                            try { $this->qexec('DROP VIEW IF EXISTS ' . $dropName); } catch (\Throwable) {}
+                        }
+                        $this->qexec($stmt);
+                    } else {
+                        $this->ddlGuard->applyCreateView($stmt, [
+                            'lockTimeoutSec'    => (int)(getenv('BC_VIEW_LOCK_TIMEOUT') ?: 10),
+                            'retries'           => (int)(getenv('BC_INSTALLER_VIEW_RETRIES') ?: 3),
+                            'fenceMs'           => (int)(getenv('BC_VIEW_FENCE_MS') ?: 600),
+                            'dropFirst'         => true,
+                            'normalizeOrReplace'=> true,
+                        ]);
+                    }
                     $execCount++;
                     continue;
                 }
@@ -1061,17 +1069,28 @@ final class Installer
                 if ($fb) {
                     $this->dbg("views: fallback-extractor executing " . count($fb) . " CREATE VIEW stmt(s)");
                     foreach ($fb as [$vname, $stmt]) {
-                        $vbase = strtolower(preg_replace('~^.*\.~','', str_replace(['`','"'],'',$vname)));
+                        $baseRaw = preg_replace('~^.*\.~','', str_replace(['`','"'],'',$vname));
+                        $vbase = strtolower(\is_string($baseRaw) ? $baseRaw : (string)$vname);
                         if ($filterByContract && $vbase !== $targetView) { $ignored++; continue; }
                         $stmt = $this->normalizeCreateViewDirectives($stmt);
+                        if ($stmt === '') { $ignored++; continue; }
                         if (!$this->traceSql && $this->diagEnabled()) { $this->dbg("views: guarded-fallback " . $this->head($stmt)); }
-                        $this->ddlGuard->applyCreateView($stmt, [
-                            'lockTimeoutSec'     => (int)(getenv('BC_VIEW_LOCK_TIMEOUT') ?: 10),
-                            'retries'            => (int)(getenv('BC_INSTALLER_VIEW_RETRIES') ?: 3),
-                            'fenceMs'            => (int)(getenv('BC_VIEW_FENCE_MS') ?: 600),
-                            'dropFirst'          => true,
-                            'normalizeOrReplace' => true,
-                        ]);
+                        if ($this->dialect->isPg()) {
+                            $dropName = $targetView;
+                            if (!$dropName && preg_match('~\bVIEW\s+((?:`?"?[A-Za-z0-9_]+`?"?\.)?`?"?[A-Za-z0-9_]+`?"?)\s+AS\b~i', $stmt, $mm)) {
+                                $dropName = str_replace(['`','"'],'',$mm[1]);
+                            }
+                            if ($dropName) { try { $this->qexec('DROP VIEW IF EXISTS ' . $dropName); } catch (\Throwable) {} }
+                            $this->qexec($stmt);
+                        } else {
+                            $this->ddlGuard->applyCreateView($stmt, [
+                                'lockTimeoutSec'     => (int)(getenv('BC_VIEW_LOCK_TIMEOUT') ?: 10),
+                                'retries'            => (int)(getenv('BC_INSTALLER_VIEW_RETRIES') ?: 3),
+                                'fenceMs'            => (int)(getenv('BC_VIEW_FENCE_MS') ?: 600),
+                                'dropFirst'          => true,
+                                'normalizeOrReplace' => true,
+                            ]);
+                        }
                         $execCount++;
                     }
                 } else {
@@ -1108,15 +1127,19 @@ final class Installer
                 if ($this->dialect->isMysql()) {
                     $ddl = (string)($this->showCreateView($name) ?? '');
                     $hash = $ddl !== '' ? substr(hash('sha256', $ddl), 0, 12) : 'null';
-                    $this->dlog("SHOW CREATE VIEW " . $name . " -> hash=" . $hash . " head=" . substr(preg_replace('~\\s+~',' ', $ddl), 0, 160));
+                    $head = substr((string)preg_replace('~\\s+~',' ', $ddl), 0, 160);
+                    $this->dlog("SHOW CREATE VIEW " . $name . " -> hash=" . $hash . " head=" . $head);
                 } else {
-                    $row = $this->qfetch("SELECT n.nspname AS s, c.relname AS n, pg_get_viewdef(c.oid, true) AS def
-                                              FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-                                              WHERE c.relkind='v' AND lower(c.relname)=lower(:v) AND n.nspname = ANY (current_schemas(true))",
-                                              [':v'=>$name]) ?? [];
+                    $row = $this->qfetch(
+                        "SELECT n.nspname AS s, c.relname AS n, pg_get_viewdef(c.oid, true) AS def
+                         FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+                         WHERE c.relkind='v' AND lower(c.relname)=lower(:v) AND n.nspname = ANY (current_schemas(true))",
+                        [':v'=>$name]
+                    );
                     $ddl = (string)($row['def'] ?? '');
                     $hash = $ddl !== '' ? substr(hash('sha256', $ddl), 0, 12) : 'null';
-                    $this->dlog("pg_get_viewdef " . $name . " -> hash=" . $hash . " head=" . substr(preg_replace('~\\s+~',' ', $ddl), 0, 160));
+                    $head = substr((string)preg_replace('~\\s+~',' ', $ddl), 0, 160);
+                    $this->dlog("pg_get_viewdef " . $name . " -> hash=" . $hash . " head=" . $head);
                 }
             } catch (\Throwable $e) {
                 $this->dlog("viewDef ERR " . $name . " -> " . $e->getMessage());
@@ -1131,11 +1154,7 @@ final class Installer
 
         $sql = 'SHOW CREATE VIEW ' . Ident::qi($this->db, $name);
         try {
-            if (method_exists($this->db, 'fetchRowWithMeta')) {
-                $row = $this->db->fetchRowWithMeta($sql, [], ['component' => 'installer', 'op' => 'show_create_view', 'view' => $name]) ?? [];
-            } else {
-                $row = $this->db->fetch($sql) ?? [];
-            }
+            $row = $this->db->fetchRowWithMeta($sql, [], ['component' => 'installer', 'op' => 'show_create_view', 'view' => $name]) ?? [];
             foreach (['Create View', 'Create View ', 'Create view', 1] as $k) {
                 if (array_key_exists((string)$k, $row)) {
                     return (string)$row[(string)$k];
@@ -1173,7 +1192,6 @@ final class Installer
 
             if ($this->isMariaDb()) {
                 $names = array_values(array_unique(array_map('strtolower', $onlyThese)));
-                if (!$names) return;
 
                 $placeholders = [];
                 $params = [];
@@ -1190,7 +1208,7 @@ final class Installer
                     AND LOWER(TABLE_NAME) IN (".implode(',', $placeholders).")
                     ORDER BY TABLE_NAME
                 ";
-                $rows = $this->qfetchAll($sql, $params) ?? [];
+                $rows = $this->qfetchAll($sql, $params);
                 foreach ($rows as $r) {
                     error_log('[Installer][TRACE_VIEWS_ALG] ' . $r['TABLE_NAME'] . ' -> ' . strtoupper((string)$r['ALGORITHM']));
                 }
@@ -1266,7 +1284,8 @@ final class Installer
             'files'   => $list,
         ];
 
-        return hash('sha256', json_encode($payload, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
+        $payloadJson = json_encode($payload, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE) ?: '';
+        return hash('sha256', $payloadJson);
     }
 
     /** Pull schema files only for the current dialect (supports . and _). */
@@ -1350,18 +1369,13 @@ final class Installer
         return $out;
     }
 
-    private function qfetch(string $sql, array $params = [], array $meta = []): ?array {
+    private function qfetch(string $sql, array $params = [], array $meta = []): array {
         $t0 = \microtime(true);
         if ($this->traceSql) { $this->logSql($sql, $params); }
         $kind = $this->classify($sql, $objName);
         $meta = ['component' => 'installer', 'op' => strtolower($kind) . ':fetch', 'seq' => $this->runSeq]
                 + ($objName ? ['object' => $objName] : []) + $meta;
-        $result = null;
-        if (method_exists($this->db, 'fetchWithMeta')) {
-            $result = \call_user_func([$this->db, 'fetchWithMeta'], $sql, $params, $meta);
-        } else {
-            $result = $this->db->fetch($sql, $params);
-        }
+        $result = $this->db->fetchRowWithMeta($sql, $params, $meta) ?? [];
         $this->emitSqlTelemetry('fetch', $sql, $params, $meta, $t0);
         return $result;
     }
@@ -1372,12 +1386,7 @@ final class Installer
         $kind = $this->classify($sql, $objName);
         $meta = ['component' => 'installer', 'op' => strtolower($kind) . ':fetchAll', 'seq' => $this->runSeq]
                 + ($objName ? ['object' => $objName] : []) + $meta;
-        $rows = [];
-        if (method_exists($this->db, 'fetchAllWithMeta')) {
-            $rows = (array)(\call_user_func([$this->db, 'fetchAllWithMeta'], $sql, $params, $meta) ?? []);
-        } else {
-            $rows = $this->db->fetchAll($sql, $params) ?? [];
-        }
+        $rows = (array)$this->db->fetchAllWithMeta($sql, $params, $meta);
         $this->emitSqlTelemetry('fetchAll', $sql, $params, $meta, $t0);
         return $rows;
     }
@@ -1388,12 +1397,7 @@ final class Installer
         $kind = $this->classify($sql, $objName);
         $meta = ['component' => 'installer', 'op' => strtolower($kind) . ':fetchOne', 'seq' => $this->runSeq]
                 + ($objName ? ['object' => $objName] : []) + $meta;
-        $value = null;
-        if (method_exists($this->db, 'fetchOneWithMeta')) {
-            $value = \call_user_func([$this->db, 'fetchOneWithMeta'], $sql, $params, $meta);
-        } else {
-            $value = $this->db->fetchOne($sql, $params);
-        }
+        $value = $this->db->fetchValueWithMeta($sql, $params, null, $meta);
         $this->emitSqlTelemetry('fetchOne', $sql, $params, $meta, $t0);
         return $value;
     }

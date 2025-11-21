@@ -53,12 +53,12 @@ use DateTimeZone;
  */
 final class Casts
 {
-    /** @var array<string,bool> */
+    /** @var array<string|int,bool> */
     private const TRUE_LUT = [
         '1'=>true, 'true'=>true, 't'=>true, 'yes'=>true, 'y'=>true, 'on'=>true, 'ok'=>true,
     ];
 
-    /** @var array<string,bool> */
+    /** @var array<string|int,bool> */
     private const FALSE_LUT = [
         '0'=>true, 'false'=>true, 'f'=>true, 'no'=>true, 'n'=>true, 'off'=>true,
     ];
@@ -210,8 +210,7 @@ final class Casts
         }
         if ($v instanceof DateTimeInterface) {
             // Preserve microseconds and time component
-            $dt = DateTimeImmutable::createFromInterface($v);
-            return $dt?->setTimezone($tz);
+            return DateTimeImmutable::createFromInterface($v)->setTimezone($tz);
         }
 
         // Numeric epoch (seconds or milliseconds)

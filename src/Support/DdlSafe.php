@@ -36,6 +36,7 @@ namespace BlackCat\Database\Support;
 use BlackCat\Core\Database;
 use BlackCat\Core\DatabaseException;
 use BlackCat\Database\SqlDialect;
+use BlackCat\Database\Support\DbVendor;
 
 /**
  * DdlSafe – idempotent DDL execution across PostgreSQL / MySQL / MariaDB.
@@ -59,6 +60,7 @@ final class DdlSafe
         if ($sqlTrim === '') {
             return;
         }
+        $sqlTrim = self::rewriteMariaFunctionalIndex($db, $d, $sqlTrim);
 
         $traceDdl = (getenv('BC_TRACE_DDL') === '1' || strtolower((string)getenv('BC_TRACE_DDL')) === 'true');
         if ($traceDdl) {
@@ -85,11 +87,18 @@ final class DdlSafe
 
             $sqlstate = ($prev instanceof \PDOException) ? (string)($prev->errorInfo[0] ?? '') : '';
             $code     = ($prev instanceof \PDOException) ? (int)  ($prev->errorInfo[1] ?? 0)  : 0;
+            $errInfo  = ($prev instanceof \PDOException && \is_array($prev->errorInfo)) ? json_encode($prev->errorInfo) : '';
+            $preview  = \substr($sqlTrim, 0, 400);
+            $len      = \strlen($sqlTrim);
 
             if (self::isTolerableError($d, $sqlstate, $code, $msgAll)) {
                 return; // silently tolerate – idempotent scenario
             }
             fwrite(STDERR, "[DDL][error] sqlstate={$sqlstate} code={$code} msg={$msgAll} sql=" . $sqlTrim . PHP_EOL);
+            if ($errInfo) {
+                fwrite(STDERR, "[DDL][errorInfo] " . $errInfo . PHP_EOL);
+            }
+            fwrite(STDERR, "[DDL][stmt] len={$len} preview=" . $preview . PHP_EOL);
             throw $e;
         }
     }
@@ -109,6 +118,43 @@ final class DdlSafe
             $s = \rtrim($s, ";\r\n\t ");
         }
         return $s;
+    }
+
+    /**
+     * MariaDB 10.4 does not support functional indexes. When we detect a CREATE INDEX
+     * using LOWER(col), synthesize a STORED generated column `<col>_ci` and rewrite the
+     * index to target that column instead. Best effort: if column already exists, the
+     * IF NOT EXISTS guard keeps this idempotent.
+     */
+    private static function rewriteMariaFunctionalIndex(Database $db, SqlDialect $d, string $sql): string
+    {
+        if (!$d->isMysql()) { return $sql; }
+        if (!DbVendor::isMaria($db)) { return $sql; }
+        [$maj, $min] = DbVendor::mysqlVersion($db);
+        // MariaDB 10.5+ supports functional indexes; only rewrite for 10.4 and below.
+        if ($maj > 10 || ($maj === 10 && $min >= 5)) { return $sql; }
+
+        // Match: CREATE [UNIQUE] INDEX idx ON table (tenant_id, (LOWER(name)))
+        $re = '~^\s*CREATE\s+(UNIQUE\s+)?INDEX\s+([`"]?[\w\-]+[`"]?)\s+ON\s+([`"]?[\w\-]+[`"]?)\s*\(\s*([`"]?tenant_id[`"]?)\s*,\s*\(\s*LOWER\(\s*([`"]?)([A-Za-z0-9_]+)\5\s*\)\s*\)\s*\)\s*$~i';
+        if (!\preg_match($re, $sql, $m)) { return $sql; }
+
+        $unique = $m[1] ? 'UNIQUE ' : '';
+        $indexName = \trim($m[2], '`"');
+        $table = \trim($m[3], '`"');
+        $col = $m[6];
+        $ciCol = $col . '_ci';
+
+        // Best-effort: add generated column for case-insensitive search.
+        try {
+            $db->exec(
+                "ALTER TABLE `{$table}` ADD COLUMN IF NOT EXISTS `{$ciCol}` VARCHAR(255) " .
+                "GENERATED ALWAYS AS (LOWER(`{$col}`)) STORED"
+            );
+        } catch (\Throwable) {
+            // keep going; index rewrite may still work if column pre-exists
+        }
+
+        return "CREATE {$unique}INDEX `{$indexName}` ON `{$table}` (`tenant_id`, `{$ciCol}`)";
     }
 
     /**

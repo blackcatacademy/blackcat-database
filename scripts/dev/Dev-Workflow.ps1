@@ -1536,6 +1536,97 @@ function Invoke-ComposerCommand {
   }
 }
 
+function Invoke-TestMatrix {
+  param(
+    [string]$Label = 'composer test'
+  )
+  $matrix = @(
+    @{ Name = 'mysql';    Service = 'app-mysql';    Env = @('BC_DB=mysql') },
+    @{ Name = 'postgres'; Service = 'app-postgres'; Env = @('BC_DB=pg')     },
+    @{ Name = 'mariadb';  Service = 'app-mariadb';  Env = @('BC_DB=mysql') }
+  )
+
+  # Ensure DB containers are running before tests
+  try {
+    Write-UiLog "[DB] ensuring mysql/postgres/mariadb are up..."
+    Invoke-Executable -FilePath 'docker' -Arguments @('compose','up','-d','mysql','postgres','mariadb') -DisplayName 'docker compose up -d mysql postgres mariadb'
+  } catch {
+    Add-Warning("Failed to start database containers: $($_.Exception.Message)")
+    return @("DB startup failed; skipping $Label")
+  }
+
+  # Reset databases to clean state
+  Write-UiLog "[DB] resetting databases (drop/create schemas)..."
+  try {
+    Invoke-Executable -FilePath 'docker' -Arguments @('compose','exec','-T','mysql','mysql','-uroot','-proot','-e','DROP DATABASE IF EXISTS test; CREATE DATABASE test;') -DisplayName 'reset mysql test DB'
+  } catch {
+    Add-Warning("MySQL reset failed: $($_.Exception.Message)")
+  }
+  try {
+    Invoke-Executable -FilePath 'docker' -Arguments @('compose','exec','-T','mariadb','mysql','-uroot','-proot','-e','DROP DATABASE IF EXISTS test; CREATE DATABASE test;') -DisplayName 'reset mariadb test DB'
+  } catch {
+    Add-Warning("MariaDB reset failed: $($_.Exception.Message)")
+  }
+  try {
+    $pgReset = "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public; DROP SCHEMA IF EXISTS bc_compat CASCADE;"
+    Invoke-Executable -FilePath 'docker' -Arguments @('compose','exec','-T','postgres','psql','-U','postgres','-d','test','-c',$pgReset) -DisplayName 'reset postgres test schema'
+  } catch {
+    Add-Warning("Postgres reset failed: $($_.Exception.Message)")
+  }
+
+  $results = @()
+  foreach ($entry in $matrix) {
+    $name = $entry.Name
+    Write-UiLog ("[DB] {0}: starting {1}..." -f $name, $Label)
+    $dockerArgs = @('compose','run','--rm')
+    foreach ($envVar in $entry.Env) { $dockerArgs += @('-e',$envVar) }
+    $dockerArgs += @($entry.Service,'composer','test')
+
+    $output = @()
+    $exit = 0
+    try {
+      $output = & docker @dockerArgs 2>&1
+      $exit = $LASTEXITCODE
+    } catch {
+      $output = @($_.Exception.Message)
+      $exit = 1
+    }
+    foreach ($line in $output) {
+      if ($line) { Write-UiLog ("[{0}] {1}" -f $name,$line) }
+    }
+
+    $modulesCount = $null
+    foreach ($line in $output) {
+      if ($line -match 'ALL GREEN \((\d+)\s+modules\)') {
+        $modulesCount = [int]$matches[1]
+        break
+      }
+    }
+    $failModules = @()
+    foreach ($line in $output) {
+      if ($line -match '^\[FAIL\]\[install\]\s+([^\:]+)') {
+        $failModules += $matches[1].Trim()
+      }
+    }
+    $failModules = @($failModules | Select-Object -Unique)
+
+    $success = ($exit -eq 0)
+    $summary = if ($success) {
+      $suffix = if ($modulesCount) { " ($modulesCount modules)" } else { '' }
+      ("{0} ✓ ALL GREEN{1}" -f $name,$suffix)
+    } else {
+      $failText = if ($failModules.Count -gt 0) { $failModules -join ', ' } else { 'test failures' }
+      ("{0} ✖ {1}" -f $name,$failText)
+    }
+    Write-UiLog ("[DB] {0}" -f $summary)
+    if (-not $success) {
+      $Warnings.Add(("DB tests failed for {0}: {1}" -f $name, ($failModules -join ', '))) | Out-Null
+    }
+    $results += $summary
+  }
+  return ,$results
+}
+
 function Protect-SubmoduleWorkingTrees {
   param([string]$RepoRoot)
 
@@ -1636,6 +1727,14 @@ $form.MaximizeBox = $false
 $form.BackColor = $Theme.FormBack
 $form.ForeColor = $Theme.Text
 $form.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Regular)
+try {
+  $iconPath = Join-Path $AssetsDir 'favicon.ico'
+  if (Test-Path -LiteralPath $iconPath) {
+    $form.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon($iconPath)
+  }
+} catch {
+  # keep default icon if load fails
+}
 if ($script:BackgroundImage) {
   $form.BackgroundImage = $null
 }
@@ -3179,6 +3278,7 @@ $phpstanCheck.AutoSize = $true
 $dockerInfraCheck = New-Object System.Windows.Forms.CheckBox
 $dockerInfraCheck.Text = 'Ensure docker databases are up (MySQL/Postgres/MariaDB)'
 $dockerInfraCheck.AutoSize = $true
+$dockerInfraCheck.Checked  = $true
 
 $dockerTestsCheck = New-Object System.Windows.Forms.CheckBox
 $dockerTestsCheck.Text = 'Run full test suite via docker compose'
@@ -3399,7 +3499,7 @@ $Steps = @(
     if ([string]::IsNullOrWhiteSpace($versionValue)) {
       throw "Version string required."
     }
-    $tablesInput = ($versionTablesBox.Text.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    $tablesInput = @($versionTablesBox.Text.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     $scriptPath = Join-Path $ScriptsRoot 'packages/Set-PackageVersion.ps1'
     if ($tablesInput.Count -eq 0) {
       & $scriptPath -All -Version $versionValue -MapPath $MapPg -PackagesDir $PackagesDir -Push:$pushCheck.Checked
@@ -3424,10 +3524,12 @@ $Steps = @(
     Invoke-ComposerCommand -Arguments @('dump-autoload','-o') -DisplayName 'composer dump-autoload -o'
   }),
   (New-Step "Composer Test" "Run tests/ci pipeline" {
-    Invoke-ComposerCommand -Arguments @('test') -DisplayName 'composer test'
+    Write-UiLog "Running DB test matrix (mysql, postgres, mariadb)..."
+    Invoke-TestMatrix | Out-Null
   }),
   (New-Step "Dockerized Test Suite" "docker compose run --rm app composer test" {
-    Invoke-Executable -FilePath 'docker' -Arguments @('compose','run','--rm','app','composer','test')
+    Write-UiLog "Running DB test matrix (docker compose)..."
+    Invoke-TestMatrix | Out-Null
   } { $dockerTestsCheck.Checked }),
   (New-Step "Test Packages Schema" "pwsh scripts/quality/Test-PackagesSchema.ps1" {
     & (Join-Path $QualityDir 'Test-PackagesSchema.ps1') -PackagesDir $PackagesDir
@@ -3548,6 +3650,13 @@ function Invoke-PackageCommit {
   $warningsText = if ($Warnings.Count) { "`n`nWarnings:`n - " + ($Warnings -join "`n - ") } else { '' }
   $finalMessage = $Message + $warningsText
   $committed = 0
+  $branchStamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+  $targetBranch = if ($env:BC_WORKFLOW_BRANCH -and -not [string]::IsNullOrWhiteSpace($env:BC_WORKFLOW_BRANCH)) { $env:BC_WORKFLOW_BRANCH } else { "regen-$branchStamp" }
+  $prMergeMode = if ($env:BC_PR_MERGE_MODE -and $env:BC_PR_MERGE_MODE.Trim()) { $env:BC_PR_MERGE_MODE.Trim().ToLower() } else { 'squash' }
+  $prReviewers = @()
+  if ($env:BC_PR_REVIEWERS) {
+    $prReviewers = @($env:BC_PR_REVIEWERS.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+  }
   foreach ($pkg in Get-ChildItem -LiteralPath $PackagesDir -Directory) {
     $schemaDir = Join-Path $pkg.FullName 'schema'
     if (-not (Test-Path -LiteralPath $schemaDir)) { continue }
@@ -3560,9 +3669,39 @@ function Invoke-PackageCommit {
     $pending = (& git -C $pkg.FullName status --porcelain)
     if (-not $pending) { continue }
     try {
+      $currentBranch = (& git -C $pkg.FullName rev-parse --abbrev-ref HEAD).Trim()
       Invoke-Executable -FilePath 'git' -Arguments @('commit','-m',$finalMessage) -WorkingDirectory $pkg.FullName -DisplayName "git commit ($($pkg.Name))"
       if ($Push) {
-        Invoke-Executable -FilePath 'git' -Arguments @('push') -WorkingDirectory $pkg.FullName -DisplayName "git push ($($pkg.Name))"
+        $pushBranch = $targetBranch
+        if ([string]::IsNullOrWhiteSpace($currentBranch) -or $currentBranch -eq 'HEAD' -or $currentBranch -eq 'main' -or $currentBranch -eq 'master') {
+          Invoke-Executable -FilePath 'git' -Arguments @('checkout','-B',$pushBranch) -WorkingDirectory $pkg.FullName -DisplayName "git checkout -B $pushBranch ($($pkg.Name))"
+        } else {
+          $pushBranch = $currentBranch
+        }
+        try {
+          Invoke-Executable -FilePath 'git' -Arguments @('push','-u','origin',$pushBranch) -WorkingDirectory $pkg.FullName -DisplayName "git push origin $pushBranch ($($pkg.Name))"
+          $ghCli = Get-Command gh -ErrorAction SilentlyContinue
+          if ($ghCli -and $pushBranch -ne 'main' -and $pushBranch -ne 'master') {
+            try {
+              $prArgs = @('pr','create','-B','main','-H',$pushBranch,'-t',$finalMessage,'-b',$finalMessage)
+              if ($prReviewers.Count -gt 0) {
+                $prArgs += @('--reviewer', ($prReviewers -join ','))
+              }
+              Invoke-Executable -FilePath 'gh' -Arguments $prArgs -WorkingDirectory $pkg.FullName -DisplayName "gh pr create ($($pkg.Name))" -IgnoreExitCodes @(1)
+              if ($prMergeMode -in @('squash','merge','rebase')) {
+                Invoke-Executable -FilePath 'gh' -Arguments @('pr','merge','--auto',"--$prMergeMode") -WorkingDirectory $pkg.FullName -DisplayName "gh pr merge ($($pkg.Name))" -IgnoreExitCodes @(1)
+              }
+            } catch {
+              Add-Warning("Package '$($pkg.Name)' PR creation failed (branch '$pushBranch'): $($_.Exception.Message)")
+            }
+          }
+        } catch {
+          Add-Warning("Package '$($pkg.Name)' push failed (branch '$pushBranch'): $($_.Exception.Message)")
+        } finally {
+          if ($currentBranch -and $currentBranch -ne 'HEAD' -and $currentBranch -ne $pushBranch) {
+            try { Invoke-Executable -FilePath 'git' -Arguments @('checkout',$currentBranch) -WorkingDirectory $pkg.FullName -DisplayName "git checkout $currentBranch ($($pkg.Name))" } catch { }
+          }
+        }
       }
       $committed++
     } catch {
@@ -3580,6 +3719,11 @@ function Invoke-UmbrellaCommit {
     Write-UiLog "No umbrella changes to commit."
     return
   }
+  $prMergeMode = if ($env:BC_PR_MERGE_MODE -and $env:BC_PR_MERGE_MODE.Trim()) { $env:BC_PR_MERGE_MODE.Trim().ToLower() } else { 'squash' }
+  $prReviewers = @()
+  if ($env:BC_PR_REVIEWERS) {
+    $prReviewers = @($env:BC_PR_REVIEWERS.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+  }
   $warningsText = if ($Warnings.Count) { "`n`nWarnings:`n - " + ($Warnings -join "`n - ") } else { '' }
   $finalMessage = $Message + $warningsText
   try {
@@ -3589,6 +3733,22 @@ function Invoke-UmbrellaCommit {
     if ($Push) {
       Write-UiLog "Pushing umbrella repo..."
       git push | Out-Null
+      $currentBranch = (git rev-parse --abbrev-ref HEAD).Trim()
+      $ghCli = Get-Command gh -ErrorAction SilentlyContinue
+      if ($ghCli -and $currentBranch -and $currentBranch -ne 'main' -and $currentBranch -ne 'master') {
+        try {
+          $prArgs = @('pr','create','-B','main','-H',$currentBranch,'-t',$finalMessage,'-b',$finalMessage)
+          if ($prReviewers.Count -gt 0) {
+            $prArgs += @('--reviewer', ($prReviewers -join ','))
+          }
+          Invoke-Executable -FilePath 'gh' -Arguments $prArgs -WorkingDirectory $RepoRoot -DisplayName "gh pr create (umbrella)" -IgnoreExitCodes @(1)
+          if ($prMergeMode -in @('squash','merge','rebase')) {
+            Invoke-Executable -FilePath 'gh' -Arguments @('pr','merge','--auto',"--$prMergeMode") -WorkingDirectory $RepoRoot -DisplayName "gh pr merge (umbrella)" -IgnoreExitCodes @(1)
+          }
+        } catch {
+          Add-Warning("Umbrella PR creation failed (branch '$currentBranch'): $($_.Exception.Message)")
+        }
+      }
     }
     Write-UiLog "Umbrella commit complete."
   } catch {
@@ -3604,6 +3764,16 @@ $startButton.Add_Click({
 
   $mode = if ($radioAuto.Checked) { 'Auto' } elseif ($radioSemi.Checked) { 'Semi' } else { 'Manual' }
   Write-UiLog "Starting workflow in $mode mode."
+
+  # If DB-dependent steps are selected, force-enable the DB startup step.
+  $dbStep       = $Steps | Where-Object { $_.Name -eq 'Docker Databases Up' } | Select-Object -First 1
+  $dbDependents = @('Composer Test','Dockerized Test Suite')
+  $dbNeeded     = ($Steps | Where-Object { $dbDependents -contains $_.Name -and $_.Item.Checked }).Count -gt 0
+  if ($dbNeeded -and $dbStep -and $dbStep.Item -and -not $dbStep.Item.Checked) {
+    $dbStep.Item.Checked = $true
+    $dockerInfraCheck.Checked = $true
+    Write-UiLog "DB-dependent steps selected -> enabling 'Docker Databases Up'."
+  }
 
   $abort = $false
   foreach ($step in $Steps) {

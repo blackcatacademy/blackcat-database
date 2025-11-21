@@ -60,7 +60,7 @@ final class Psr14CrudEventDispatcher implements CrudEventDispatcher
         if (\method_exists($psr14Dispatcher, 'dispatch') && \is_callable([$psr14Dispatcher, 'dispatch'])) {
             /** @var \Closure(object): object $fn */
             $fn = static function (object $event) use ($psr14Dispatcher) {
-                /** @phpstan-ignore-next-line ignore PSR return type; not used */
+                // PSR-14 mandates object dispatch; concrete return type is ignored on purpose.
                 return $psr14Dispatcher->dispatch($event);
             };
             $this->invoke = $fn;

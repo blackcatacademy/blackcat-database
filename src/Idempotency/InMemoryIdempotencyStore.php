@@ -145,13 +145,50 @@ final class InMemoryIdempotencyStore implements IdempotencyStore
 
     // ---------------- Internal helpers ----------------
 
-    /** @return Record */
+    /**
+     * @phpstan-return array{
+     *  status: 'in_progress'|'success'|'failed',
+     *  result?: array<string,mixed>|null,
+     *  reason?: non-empty-string|null,
+     *  startedAt?: int,
+     *  completedAt?: int
+     * }
+     */
     private function publicView(array $rec): array
     {
         // Do not expose internal expiresAt
         $out = $rec;
         unset($out['expiresAt']);
+
+        // normalize optional keys to satisfy the declared shape
+        $out['status']      = $this->normalizeStatus((string)($out['status'] ?? self::STATUS_IN_PROGRESS));
+        $out['result'] = \is_array($out['result'] ?? null) ? $out['result'] : null;
+
+        if (\array_key_exists('reason', $out)) {
+            $out['reason'] = $out['reason'] === null ? null : (string)$out['reason'];
+        }
+        if (isset($out['startedAt'])) {
+            $out['startedAt'] = (int)$out['startedAt'];
+        } else {
+            unset($out['startedAt']);
+        }
+        if (isset($out['completedAt'])) {
+            $out['completedAt'] = (int)$out['completedAt'];
+        } else {
+            unset($out['completedAt']);
+        }
+
         return $out;
+    }
+
+    /**
+     * @return 'in_progress'|'success'|'failed'
+     */
+    private function normalizeStatus(string $status): string
+    {
+        return \in_array($status, [self::STATUS_IN_PROGRESS, self::STATUS_SUCCESS, self::STATUS_FAILED], true)
+            ? $status
+            : self::STATUS_IN_PROGRESS;
     }
 
     private function gcExpiredKey(string $key): void
@@ -160,7 +197,7 @@ final class InMemoryIdempotencyStore implements IdempotencyStore
         if ($rec === null) {
             return;
         }
-        if (($rec['status'] ?? null) === self::STATUS_IN_PROGRESS) {
+        if ($rec['status'] === self::STATUS_IN_PROGRESS) {
             $exp = $rec['expiresAt'] ?? null;
             if (\is_int($exp) && $exp <= $this->now()) {
                 unset($this->data[$key]); // lock/attempt expired

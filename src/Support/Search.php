@@ -123,6 +123,7 @@ final class Search
      *   maxLen?: int               // limit needle length (planner guard)
      * }
      * @return array{expr:string, params:array<string,mixed>, param:mixed}
+     * @phpstan-return array{expr:string, params:array<string,mixed>, param:mixed}
      */
     public static function build(string $dialect, string $column, string $needle, bool $ci = true, array $opts = []): array
     {
@@ -206,6 +207,7 @@ final class Search
      * @param bool   $ci
      * @param array  $opts             same options as build()
      * @return array{expr:string, params:array<string,mixed>, param:mixed}
+     * @phpstan-return array{expr:string, params:array<string,mixed>, param:mixed}
      */
     public static function buildAny(string $dialect, array $columns, string $needle, bool $ci = true, array $opts = []): array
     {
@@ -249,10 +251,6 @@ final class Search
             } else {
                 $exprs[] = "{$c} LIKE {$ph}{$esc}";
             }
-        }
-
-        if (!$exprs) {
-            return ['expr' => '(1=0)', 'params' => [], 'param' => null];
         }
 
         return [
@@ -327,6 +325,7 @@ final class Search
      * Tautology/contradiction result for empty queries.
      * TRUE variant is useful for optional filters.
      */
+    /** @phpstan-return array{expr:string, params:array<string,mixed>, param:mixed} */
     private static function emptyResult(bool $tautology): array
     {
         return [

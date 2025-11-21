@@ -130,9 +130,14 @@ final class SqlDirectoryRunner
 
             foreach (SqlSplitter::split($sql, $d) as $stmt) {
                 $stmt = trim($stmt);
-                if ($stmt === '') {
+                if ($stmt === '') { 
                     continue;
                 }
+                // Skip pure-comment fragments (PDO::exec would throw a generic error on '-- ...' alone).
+                $stmtWithoutComments = \trim((string)\preg_replace('~(?m)^\\s*--.*$~', '', $stmt));
+                if ($stmtWithoutComments === '') { continue; }
+                // Strip leading orphan comment lines to avoid generic HY000 on PostgreSQL
+                $stmt = $stmtWithoutComments;
                 // DdlSafe::exec() is idempotent/tolerant of common duplicates
                 DdlSafe::exec($db, $d, $stmt);
             }

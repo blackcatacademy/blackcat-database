@@ -82,11 +82,11 @@ final class KeysetPaginator
         int $limit
     ): array {
         // --- Input normalization ---
-        $dir = \strtolower($order['dir'] ?? 'desc');
+        $dir = \strtolower((string)$order['dir']);
         $dir = $dir === 'asc' ? 'ASC' : 'DESC';
 
-        $col     = (string)$order['col'];
-        $pk      = (string)$order['pk'];
+        $col       = (string)$order['col'];
+        $pk        = (string)$order['pk'];
         $nullsLast = (bool)($order['nullsLast'] ?? false);
 
         // Quoted identifiers: "t"."col" and "t"."pk" (without relying on dotted quotes)
@@ -175,7 +175,7 @@ final class KeysetPaginator
 
         // --- Final SQL ---
         $viewEsc = SqlIdentifier::qi($db, $viewName);
-        $selectCols = 't.*' . ($extraSelect ? ', ' . \implode(', ', $extraSelect) : '');
+        $selectCols = 't.*, ' . \implode(', ', $extraSelect);
         $sql = "SELECT {$selectCols} FROM {$viewEsc} t"
              . $joins
              . "WHERE {$baseWhere}{$seekSql} "
@@ -184,15 +184,15 @@ final class KeysetPaginator
 
         // --- Execution and cursor ---
         $rows = \method_exists($db, 'fetchAllWithMeta')
-            ? ($db->fetchAllWithMeta($sql, $params, ['component'=>'keyset','op'=>'page','view'=>$viewName]) ?? [])
-            : ($db->fetchAll($sql, $params) ?? []);
+            ? (array)$db->fetchAllWithMeta($sql, $params, ['component'=>'keyset','op'=>'page','view'=>$viewName])
+            : (array)$db->fetchAll($sql, $params);
         $next = null;
 
         if ($rows) {
             $last = $rows[\count($rows) - 1] ?? null;
             if ($last !== null) {
-                $colVal = $last[$cursorColAlias] ?? $last[$order['col']] ?? null;
-                $pkVal  = $last[$cursorPkAlias]  ?? $last[$order['pk']]  ?? null;
+                $colVal = $last[$cursorColAlias] ?? $last[$col] ?? null;
+                $pkVal  = $last[$cursorPkAlias]  ?? $last[$pk]  ?? null;
                 $next = [
                     'colValue' => $colVal,
                     'pkValue'  => $pkVal,

@@ -83,7 +83,7 @@ final class OutboxConsumer
 
             foreach ($rows as $row) {
                 /** @var array{id:int|string, payload:string|null, routing_key?:string|null} $row */
-                $id = (int)($row['id'] ?? 0);
+                $id = (int)$row['id'];
                 try {
                     $payload = $this->decodeJson((string)($row['payload'] ?? ''));
                     $event = $this->toCrudEvent($payload, (string)($row['routing_key'] ?? 'outbox'));

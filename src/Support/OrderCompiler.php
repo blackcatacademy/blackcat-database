@@ -92,14 +92,14 @@ final class OrderCompiler
         $hasPk = false;
 
         foreach ($items as $it) {
-            $exprRaw = (string)($it['expr'] ?? '');
+            $exprRaw = (string)$it['expr'];
             if ($exprRaw === '') {
                 continue;
             }
 
             $expr  = self::maybePrefix($exprRaw, $alias);
-            $dir   = self::normDir($it['dir'] ?? 'ASC');
-            $nulls = self::normNulls($it['nulls'] ?? 'AUTO');
+            $dir   = self::normDir($it['dir']);
+            $nulls = self::normNulls($it['nulls']);
 
             if ($tiePk && self::exprEquals($exprRaw, $tiePk, $alias)) {
                 $hasPk = true;
@@ -254,10 +254,6 @@ final class OrderCompiler
     {
         [$ea, $ec] = self::splitAliasAndCol($expr);
         [$pa, $pc] = self::splitAliasAndCol($pk);
-
-        if ($pc === null) {
-            $pc = $pk; // PK provided only as a name
-        }
 
         $ecn = self::normIdent($ec);
         $pcn = self::normIdent($pc);

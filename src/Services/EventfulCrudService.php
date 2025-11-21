@@ -36,6 +36,7 @@ namespace BlackCat\Database\Services;
 use BlackCat\Core\Database;
 use BlackCat\Core\Database\QueryCache;
 use BlackCat\Database\Contracts\ContractRepository as RepoContract;
+use BlackCat\Database\Services\GenericCrudRepositoryShape;
 use BlackCat\Database\Events\CrudEvent;
 use BlackCat\Database\Events\CrudEventDispatcher;
 use BlackCat\Database\Events\NullCrudEventDispatcher;
@@ -72,7 +73,7 @@ class EventfulCrudService extends GenericCrudService
 
     public function __construct(
         Database $db,
-        RepoContract $repo,
+        RepoContract&GenericCrudRepositoryShape $repo,
         ?QueryCache $qcache = null,
         ?CrudEventDispatcher $dispatcher = null,
         ?OutboxRepository $outbox = null
@@ -89,7 +90,7 @@ class EventfulCrudService extends GenericCrudService
             cacheNs: $cacheNs,
             versionCol: $versionCol
         );
-        $this->dispatcher = $dispatcher ?? new NullCrudEventDispatcher();
+        $this->dispatcher = $dispatcher ?? NullCrudEventDispatcher::instance();
         $this->outbox = $outbox;
         if ($this->outbox && \method_exists($this->outbox, 'setIngressAdapter')) {
             try {
@@ -354,10 +355,12 @@ class EventfulCrudService extends GenericCrudService
             context:   $context
         );
 
-        // 1) Best-effort dispatch (dispatcher is designed not to throw)
+        // 1) Best-effort dispatch (dispatcher is expected not to throw)
         // TODO(crypto-integrations): Attach manifest coverage hashes/context IDs to $event
         // so downstream consumers can verify the mutation passed through the crypto adapter.
-        try { $this->dispatcher?->dispatch($event); } catch (\Throwable) { /* swallow */ }
+        if ($this->dispatcher) {
+            $this->dispatcher->dispatch($event);
+        }
 
         // 2) Optional outbox mirror (best-effort; must not block the write path)
         if ($this->outbox) {

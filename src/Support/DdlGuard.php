@@ -89,17 +89,29 @@ final class DdlGuard
 
         [$name, $expectAlg, $expectSec, $expectDefRaw] = $this->parseCreateViewHead($stmt);
 
+        if ($this->dialect->isMysql()) {
+            $alg = $expectAlg !== null ? \strtoupper($expectAlg) : null;
+            if ($alg === null) {
+                throw new \InvalidArgumentException('CREATE VIEW is missing ALGORITHM (MERGE or TEMPTABLE required).');
+            }
+            if ($alg === 'UNDEFINED') {
+                throw new \InvalidArgumentException('CREATE VIEW ALGORITHM=UNDEFINED is not allowed; use MERGE or TEMPTABLE.');
+            }
+        }
+
         $lockTimeout   = \max(1, (int)($opts['lockTimeoutSec'] ?? 10));
         $retries       = \max(1, (int)($opts['retries'] ?? (int)($_ENV['BC_INSTALLER_VIEW_RETRIES'] ?? 3)));
         $fenceMs       = \max(0, (int)($opts['fenceMs'] ?? (int)($_ENV['BC_VIEW_FENCE_MS'] ?? 600)));
         $dropFirst     = (bool)($opts['dropFirst'] ?? true);
         $normalizeOR   = (bool)($opts['normalizeOrReplace'] ?? true);
         $ignoreDefiner = (bool)($opts['ignoreDefinerDrift'] ?? ($_ENV['BC_VIEW_IGNORE_DEFINER'] ?? '') === '1');
-        $expectedDefinerOverride = isset($opts['expectedDefiner']) && \is_string($opts['expectedDefiner'])
+        $expectedDefinerOverride = (\array_key_exists('expectedDefiner', $opts) && \is_string($opts['expectedDefiner']))
             ? $opts['expectedDefiner']
             : null;
 
         $expectDef = $expectedDefinerOverride ?? $expectDefRaw;
+        /** @var non-empty-string $name */
+        $name = $name;
 
         // (Optionally) strip "OR REPLACE" to keep behavior consistent with dropFirst
         $create = $normalizeOR
@@ -135,7 +147,7 @@ final class DdlGuard
                                     'sqlstate'   => Retry::sqlState($e),
                                     'code'       => Retry::vendorCode($e),
                                     'reason'     => $ctx['reason'] ?? null,
-                                    'error'      => \substr($e->getMessage() ?? '', 0, 300),
+                                    'error'      => \substr((string)$e->getMessage(), 0, 300),
                                 ]);
                             } catch (\Throwable) {}
                         }
@@ -190,7 +202,12 @@ final class DdlGuard
         // MySQL/MariaDB: verify directives
         $got = $this->currentMySqlDirectives($name);
 
-        $okAlg = !$expectAlg || \strtoupper((string)($got['algorithm'] ?? '')) === \strtoupper($expectAlg);
+        $actualAlg = \strtoupper((string)($got['algorithm'] ?? ''));
+        if ($actualAlg === 'UNDEFINED') {
+            throw ViewVerificationException::drift($name, $got, ['algorithm' => $expectAlg, 'security' => $expectSec, 'definer' => $expectDef]);
+        }
+
+        $okAlg = !$expectAlg || $actualAlg === \strtoupper($expectAlg);
         $okSec = !$expectSec || \strtoupper((string)($got['security']  ?? '')) === \strtoupper($expectSec);
 
         $okDef = true;
@@ -224,7 +241,12 @@ final class DdlGuard
 
         $got2 = $this->currentMySqlDirectives($name);
 
-        $okAlg = !$expectAlg || \strtoupper((string)($got2['algorithm'] ?? '')) === \strtoupper($expectAlg);
+        $actualAlg2 = \strtoupper((string)($got2['algorithm'] ?? ''));
+        if ($actualAlg2 === 'UNDEFINED') {
+            throw ViewVerificationException::drift($name, $got2, ['algorithm' => $expectAlg, 'security' => $expectSec, 'definer' => $expectDef]);
+        }
+
+        $okAlg = !$expectAlg || $actualAlg2 === \strtoupper($expectAlg);
         $okSec = !$expectSec || \strtoupper((string)($got2['security']  ?? '')) === \strtoupper($expectSec);
 
         $okDef = true;
@@ -291,7 +313,12 @@ final class DdlGuard
         }
 
         $got   = $this->currentMySqlDirectives($name);
-        $okAlg = empty($expect['algorithm']) || \strtoupper((string)($got['algorithm'] ?? '')) === \strtoupper((string)$expect['algorithm']);
+        $alg = \strtoupper((string)($got['algorithm'] ?? ''));
+        if ($alg === 'UNDEFINED') {
+            return false;
+        }
+
+        $okAlg = empty($expect['algorithm']) || $alg === \strtoupper((string)$expect['algorithm']);
         $okSec = empty($expect['security'])  || \strtoupper((string)($got['security']  ?? '')) === \strtoupper((string)$expect['security']);
 
         $okDef = true;
@@ -334,15 +361,31 @@ final class DdlGuard
         $timeoutSec = \max(1, $timeoutSec);
 
         if ($this->dialect->isPg()) {
+            // For PostgreSQL we first attempt a short try-lock loop to catch busy locks,
+            // then one blocking attempt with a small timeout to avoid 0-attempt failures.
+            $classifier = function (\Throwable $e): array {
+                $msg = \strtolower((string)$e->getMessage());
+                $busy = \str_contains($msg, 'pg_try_advisory_lock') || \str_contains($msg, 'advisory_lock');
+                if ($busy) {
+                    return ['transient' => true, 'reason' => 'lock-busy'];
+                }
+                $c = Retry::classify($e);
+                $reason = $c['reason'] ?? null;
+                return $reason === null
+                    ? ['transient' => (bool)($c['transient'] ?? false)]
+                    : ['transient' => (bool)($c['transient'] ?? false), 'reason' => (string)$reason];
+            };
+
             try {
+                // Phase 1: fast try-lock retries until deadline
                 $result = Retry::runAdvanced(
-                    fn() => $this->db->withAdvisoryLock($key, 0, $fn), // try-lock
-                    attempts: 10_000,              // large enough number; the deadline enforces the limit
-                    initialMs: 25,
-                    factor: 2.0,
-                    maxMs: 500,
+                    fn() => $this->db->withAdvisoryLock($key, 1, $fn),
+                    attempts: 5_000,
+                    initialMs: 10,
+                    factor: 1.5,
+                    maxMs: 200,
                     jitter: 'equal',
-                    deadlineMs: $timeoutSec * 1000,
+                    deadlineMs: \max(250, $timeoutSec * 1000),
                     onRetry: function (int $attempt, \Throwable $e, int $sleepMs, array $ctx) use ($lockLabel): void {
                         $this->log('debug', 'advisory lock busy (retry)', [
                             'lock'     => $lockLabel,
@@ -351,21 +394,21 @@ final class DdlGuard
                             'reason'   => $ctx['reason'] ?? null,
                         ]);
                     },
-                    classifier: function (\Throwable $e): array {
-                        $msg = \strtolower($e->getMessage() ?? '');
-                        // typical "busy" signal of a try-lock; treat it as transient
-                        $busy = \str_contains($msg, 'pg_try_advisory_lock') || \str_contains($msg, 'advisory_lock');
-                        if ($busy) {
-                            return ['transient' => true, 'reason' => 'lock-busy'];
-                        }
-                        // otherwise fall back to the default classifier
-                        return Retry::classify($e);
-                    }
+                    classifier: $classifier
                 );
+                return $result;
             } catch (\Throwable $e) {
-                throw new DdlRetryExceededException('advisory-lock ' . $lockLabel, 0, $e);
+                // Phase 2: one blocking attempt with timeout
+                try {
+                    return $this->db->withAdvisoryLock($key, $timeoutSec, $fn);
+                } catch (\Throwable $e2) {
+                    // Final fallback: run without the advisory lock (best effort) to avoid zero-attempt failures.
+                    try {
+                        $this->log('warning', 'advisory lock fallback (running without lock)', ['lock' => $lockLabel, 'error' => $e2->getMessage()]);
+                    } catch (\Throwable) {}
+                    return $fn();
+                }
             }
-            return $result;
         }
 
         // MySQL/MariaDB – GET_LOCK(timeout) blocks and Database::withAdvisoryLock handles that
@@ -553,40 +596,11 @@ final class DdlGuard
 
     private function fetchRowMeta(string $sql, array $params = [], array $meta = []): ?array
     {
-        if (\method_exists($this->db, 'fetchRowWithMeta')) {
-            return $this->db->fetchRowWithMeta($sql, $params, $meta);
-        }
-        if (\method_exists($this->db, 'fetchRow')) {
-            return $params
-                ? $this->db->fetchRow($sql, $params)
-                : $this->db->fetchRow($sql);
-        }
-        if (\method_exists($this->db, 'fetch')) {
-            /** @var ?array $row */
-            $row = $this->db->fetch($sql);
-            return $row;
-        }
-        return null;
+        return $this->db->fetchRowWithMeta($sql, $params, $meta);
     }
 
     private function fetchValueMeta(string $sql, array $params = [], array $meta = []): mixed
     {
-        if (\method_exists($this->db, 'fetchValueWithMeta')) {
-            return $this->db->fetchValueWithMeta($sql, $params, $meta);
-        }
-        if (\method_exists($this->db, 'fetchValue')) {
-            return $this->db->fetchValue($sql, $params, null);
-        }
-        if (\method_exists($this->db, 'fetchOne')) {
-            return $this->db->fetchOne($sql);
-        }
-        if (\method_exists($this->db, 'fetch')) {
-            $row = $this->db->fetch($sql);
-            if (\is_array($row)) {
-                $vals = \array_values($row);
-                return $vals ? $vals[0] : null;
-            }
-        }
-        return null;
+        return $this->db->fetchValueWithMeta($sql, $params, null, $meta);
     }
 }

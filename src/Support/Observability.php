@@ -149,7 +149,7 @@ final class Observability
             'class'    => \get_debug_type($e),
             'sqlstate' => $sqlstate,
             'code'     => $code,
-            'message'  => self::clip(self::singleLine($e->getMessage() ?? ''), 200),
+            'message'  => self::clip(self::singleLine((string)$e->getMessage()), 200),
         ];
     }
 
@@ -160,8 +160,12 @@ final class Observability
      */
     public static function shouldSample(array $meta): bool
     {
-        $rate = $meta['sample'] ?? \getenv('BC_OBS_SAMPLE') ?? 1.0;
-        $rate = \max(0.0, \min(1.0, (float)$rate));
+        $rateSource = $meta['sample'] ?? null;
+        if ($rateSource === null || $rateSource === '') {
+            $env = \getenv('BC_OBS_SAMPLE');
+            $rateSource = ($env === false || $env === '') ? 1.0 : $env;
+        }
+        $rate = \max(0.0, \min(1.0, (float)$rateSource));
         if ($rate <= 0.0) return false;
         if ($rate >= 1.0) return true;
 
@@ -413,7 +417,7 @@ final class Observability
     public static function endSpan(?object $span, array $attrs = []): void
     {
         try {
-            if (!$span) {
+            if (!$span || !\method_exists($span, 'setAttribute') || !\method_exists($span, 'end')) {
                 return;
             }
             foreach ($attrs as $k => $v) {

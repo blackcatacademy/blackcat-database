@@ -140,7 +140,7 @@ final class SchemaIntrospector
                        AND LOWER(TABLE_NAME) = LOWER(:t)
                      ORDER BY INDEX_NAME";
             $params = [':t' => $name] + ($schema ? [':s' => $schema] : []);
-            $rows = $db->fetchAll($sql, $params) ?? [];
+            $rows = (array)$db->fetchAll($sql, $params);
             return array_values(array_map(static fn($r) => (string)$r['idx'], $rows));
         }
 
@@ -151,7 +151,7 @@ final class SchemaIntrospector
                    AND LOWER(tablename) = LOWER(:t)
                  ORDER BY indexname";
         $params = [':t' => $name] + ($schema ? [':s' => $schema] : []);
-        $rows = $db->fetchAll($sql, $params) ?? [];
+        $rows = (array)$db->fetchAll($sql, $params);
         return array_values(array_map(static fn($r) => (string)$r['idx'], $rows));
     }
 
@@ -169,7 +169,7 @@ final class SchemaIntrospector
                        AND tc.CONSTRAINT_TYPE = 'FOREIGN KEY'
                      ORDER BY tc.CONSTRAINT_NAME";
             $params = [':t' => $name] + ($schema ? [':s' => $schema] : []);
-            $rows = $db->fetchAll($sql, $params) ?? [];
+            $rows = (array)$db->fetchAll($sql, $params);
             return array_values(array_map(static fn($r) => (string)$r['cn'], $rows));
         }
 
@@ -183,7 +183,7 @@ final class SchemaIntrospector
                    AND constraint_type = 'FOREIGN KEY'
                  ORDER BY constraint_name";
         $params = [':t' => $name] + ($schema ? [':s' => $schema] : []);
-        $rows = $db->fetchAll($sql, $params) ?? [];
+        $rows = (array)$db->fetchAll($sql, $params);
         return array_values(array_map(static fn($r) => (string)$r['cn'], $rows));
     }
 
@@ -203,7 +203,7 @@ final class SchemaIntrospector
                        AND LOWER(TABLE_NAME) = LOWER(:t)
                      ORDER BY ORDINAL_POSITION";
             $params = [':t' => $name] + ($schema ? [':s' => $schema] : []);
-            $rows = $db->fetchAll($sql, $params) ?? [];
+            $rows = (array)$db->fetchAll($sql, $params);
             return array_values(array_map(static fn($r) => (string)$r['col'], $rows));
         }
 
@@ -215,7 +215,7 @@ final class SchemaIntrospector
                    AND LOWER(table_name) = LOWER(:t)
                  ORDER BY ordinal_position";
         $params = [':t' => $name] + ($schema ? [':s' => $schema] : []);
-        $rows = $db->fetchAll($sql, $params) ?? [];
+        $rows = (array)$db->fetchAll($sql, $params);
         return array_values(array_map(static fn($r) => (string)$r['col'], $rows));
     }
 

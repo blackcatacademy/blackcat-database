@@ -10,6 +10,7 @@ use BlackCat\Database\Support\Telemetry;
 final class CoverageTelemetryReporter
 {
     private static bool $registered = false;
+    /** @var callable|null */
     private static $exporter = null;
 
     public static function register(): void
@@ -42,7 +43,7 @@ final class CoverageTelemetryReporter
             'op'    => $operation,
         ]);
         CryptoCoverageCache::record($table, $operation, $columns);
-        if (self::$exporter) {
+        if (\is_callable(self::$exporter)) {
             try {
                 (self::$exporter)($table, $operation, $columns);
             } catch (\Throwable) {

@@ -159,10 +159,14 @@ class Criteria
         return $this;
     }
 
-    /** @param non-empty-string $dialect 'mysql'|'postgres'|'mariadb' */
+    /** @param string $dialect 'mysql'|'postgres'|'mariadb' */
     public function setDialect(string $dialect): self
     {
-        $d = \strtolower(\trim($dialect));
+        $dRaw = \trim($dialect);
+        if ($dRaw === '') {
+            throw new \InvalidArgumentException('Dialect must not be empty.');
+        }
+        $d = \strtolower($dRaw);
         $this->dialect = ($d === 'mariadb') ? 'mysql' : (($d === 'postgres') ? 'postgres' : 'mysql');
         return $this;
     }
@@ -199,9 +203,11 @@ class Criteria
         if (!\in_array($jsonCol, $this->filterable(), true)) return $this;
         $dial = $this->dialect;
         $r = \BlackCat\Database\Support\JsonFilters::contains($dial, $jsonCol, $subset);
+        /** @var array{expr:string,params?:array<string,mixed>,param?:mixed} $r */
         // Prefer the shape with 'params'; otherwise keep the original behavior (BC).
-        if (isset($r['params']) && \is_array($r['params'])) {
-            return $this->whereRaw($r['expr'], $r['params']);
+        $params = $r['params'] ?? null;
+        if (\is_array($params)) {
+            return $this->whereRaw($r['expr'], $params);
         }
         $needleKey = $this->uniqueParam(':json_contains_');
         return $this->whereRaw($r['expr'], [$needleKey => $r['param'] ?? $subset]);
@@ -213,11 +219,9 @@ class Criteria
         if (!\in_array($jsonCol, $this->filterable(), true)) return $this;
         $dial = $this->dialect;
         $r = \BlackCat\Database\Support\JsonFilters::getText($dial, $jsonCol, $path);
+        /** @var array{expr:string,params?:array<string,mixed>,param?:mixed} $r */
         // 'expr' typically already contains the path; simply append the comparison value:
-        $params = [];
-        if (isset($r['params']) && \is_array($r['params'])) {
-            $params = $r['params'];
-        }
+        $params = \is_array($r['params'] ?? null) ? $r['params'] : [];
         $kVal  = $this->uniqueParam(':json_text_');
         $params[$kVal] = $equals;
         return $this->whereRaw('('.$r['expr'].' = '.$kVal.')', $params);
@@ -539,7 +543,7 @@ class Criteria
         } elseif ($this->sort) {
             $parts = [];
             foreach ($this->sort as $s) {
-                [$c,$d,$nl] = [$s['col'], \strtoupper($s['dir'] ?? 'ASC'), (bool)$s['nullsLast']];
+                [$c,$d,$nl] = [$s['col'], \strtoupper((string)$s['dir']), (bool)$s['nullsLast']];
                 if (!isset($allowedSort[$c])) { continue; }
                 $parts[] = $this->buildOrderPiece($c, $d, $nl, $viewMode);
             }

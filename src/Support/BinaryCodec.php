@@ -92,9 +92,6 @@ final class BinaryCodec
 
         // String
         if (\is_string($v)) {
-            if ($v === '') {
-                return null;
-            }
             return self::decodeString($v);
         }
 
@@ -102,6 +99,9 @@ final class BinaryCodec
         return null;
     }
 
+    /**
+     * @param string $s
+     */
     private static function decodeString(string $s): ?string
     {
         $s = \trim($s);
@@ -110,7 +110,12 @@ final class BinaryCodec
         }
 
         // 1) PostgreSQL bytea (hex format): "\xDEADBEEF" or "\\xDEADBEEF" (escaped from JSON/PDO)
-        if (\str_starts_with($s, '\\x') || \str_starts_with($s, '\x')) {
+        if (\str_starts_with($s, '\\\\x')) {
+            $hex = \substr($s, 3); // skip "\\x"
+            $hex = \preg_replace('~\s+~', '', $hex) ?? $hex; // remove potential spaces
+            return self::isHex($hex) ? (\hex2bin($hex) ?: null) : $s;
+        }
+        if (\str_starts_with($s, '\\x')) {
             $hex = \ltrim(\ltrim($s, '\\'), 'x');
             $hex = \preg_replace('~\s+~', '', $hex) ?? $hex; // remove potential spaces
             return self::isHex($hex) ? (\hex2bin($hex) ?: null) : $s;
@@ -219,7 +224,7 @@ final class BinaryCodec
             if ($i + 3 < $len) {
                 $oct = \substr($s, $i + 1, 3);
                 if (\preg_match('~^[0-7]{3}$~', $oct) === 1) {
-                    $out .= \chr(\octdec($oct));
+                    $out .= \chr((int)\octdec($oct));
                     $i += 3;
                     continue;
                 }

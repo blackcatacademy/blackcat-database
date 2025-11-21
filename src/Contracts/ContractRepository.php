@@ -44,10 +44,10 @@ namespace BlackCat\Database\Contracts;
  * @template-contravariant TCriteria of object
  * @template TRow of array<string,mixed> = array<string,mixed>
  *
- * @phpstan-type Scalar int|float|string|bool
- * @phpstan-type Id int|string|array<string,Scalar|null>|list<Scalar|null>
+ * @phpstan-type ScalarType int|float|string|bool
+ * @phpstan-type Id int|string|array<string,ScalarType|null>|list<ScalarType|null>
  * @phpstan-type AssocRow array<string,mixed>
- * @phpstan-type Params array<string,Scalar|null>
+ * @phpstan-type Params array<string,ScalarType|null>
  * @phpstan-type PageResult array{
  *   items: list<AssocRow>,
  *   total: int,
@@ -55,16 +55,25 @@ namespace BlackCat\Database\Contracts;
  *   perPage: int
  * }
  *
- * @psalm-type Scalar = int|float|string|bool
- * @psalm-type Id = int|string|array<string,Scalar|null>|list<Scalar|null>
+ * @psalm-type ScalarType = int|float|string|bool
+ * @psalm-type Id = int|string|array<string,ScalarType|null>|list<ScalarType|null>
  * @psalm-type AssocRow = array<string,mixed>
- * @psalm-type Params = array<string,Scalar|null>
+ * @psalm-type Params = array<string,ScalarType|null>
  * @psalm-type PageResult = array{
  *   items: list<AssocRow>,
  *   total: int,
  *   page: int,
  *   perPage: int
  * }
+ *
+ * Optional capabilities (may be implemented by concrete repositories):
+ * @method void upsertByKeys(array $row, array $keys, array $updateColumns = [])
+ * @method int  updateByKeys(array $keys, array $row)
+ * @method list<AssocRow> findByIds(array $ids, array $opts = [])
+ * @method int  updateByIdOptimistic(int|string|array $id, array $row, int $expectedVersion)
+ * @method int  updateByIdExpr(int|string|array $id, array $expr)
+ * @method void setIngressAdapter(?object $adapter = null, ?string $table = null)
+ * @method string table()
  */
 interface ContractRepository
 {

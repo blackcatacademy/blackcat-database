@@ -1289,7 +1289,7 @@ CREATE TABLE IF NOT EXISTS coupons (
       indexes = @(
         'CREATE UNIQUE INDEX ux_coupons_tenant_code_ci ON coupons (tenant_id, code_ci)',
         'CREATE INDEX idx_coupons_tenant_active ON coupons (tenant_id, is_active)',
-        'CREATE INDEX idx_coupons_tenant_id ON coupons (tenant_id, id)'
+        'CREATE UNIQUE INDEX idx_coupons_tenant_id ON coupons (tenant_id, id)'
       )
       foreign_keys = @(
         'ALTER TABLE coupons ADD CONSTRAINT fk_coupons_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT'

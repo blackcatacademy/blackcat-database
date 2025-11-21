@@ -1191,14 +1191,14 @@ SELECT
   crypto_suite,
   wrap_version,
   status,
-  (status = ''active'')  AS is_active,
-  (status = ''rotated'') AS is_rotated,
+  (status = 'active')  AS is_active,
+  (status = 'rotated') AS is_rotated,
   created_at,
   rotated_at,
   dek_wrap1,
   dek_wrap2,
-  UPPER(encode(dek_wrap1,''hex'')) AS dek_wrap1_hex,
-  UPPER(encode(dek_wrap2,''hex'')) AS dek_wrap2_hex
+  UPPER(encode(dek_wrap1,'hex')) AS dek_wrap1_hex,
+  UPPER(encode(dek_wrap2,'hex')) AS dek_wrap2_hex
 FROM key_wrappers;
 '@
     }
@@ -1236,8 +1236,8 @@ SELECT
   processed_at,
   producer_node,
   created_at,
-  (status = ''pending'') AS is_pending,
-  (status = ''pending'' AND (next_attempt_at IS NULL OR next_attempt_at <= now())) AS is_due
+  (status = 'pending') AS is_pending,
+  (status = 'pending' AND (next_attempt_at IS NULL OR next_attempt_at <= now())) AS is_due
 FROM event_outbox;
 '@
     }
@@ -1257,7 +1257,7 @@ SELECT
   last_error,
   received_at,
   processed_at,
-  (status = ''failed'') AS is_failed
+  (status = 'failed') AS is_failed
 FROM event_inbox;
 '@
     }
@@ -1297,8 +1297,8 @@ SELECT
   attempts,
   last_error,
   created_at,
-  (status = ''done'')     AS is_done,
-  (status = ''running'')  AS is_running
+  (status = 'done')     AS is_done,
+  (status = 'running')  AS is_running
 FROM rewrap_jobs;
 '@
     }
@@ -1313,9 +1313,9 @@ SELECT
   audit_id,
   chain_name,
   prev_hash,
-  UPPER(encode(prev_hash,''hex'')) AS prev_hash_hex,
+  UPPER(encode(prev_hash,'hex')) AS prev_hash_hex,
   hash,
-  UPPER(encode(hash,''hex''))      AS hash_hex,
+  UPPER(encode(hash,'hex'))      AS hash_hex,
   created_at
 FROM audit_chain;
 '@
@@ -1368,8 +1368,8 @@ SELECT
   created_at,
   kem_ciphertext,
   encap_pubkey,
-  UPPER(encode(kem_ciphertext,''hex'')) AS kem_ciphertext_hex,
-  UPPER(encode(encap_pubkey,''hex''))   AS encap_pubkey_hex
+  UPPER(encode(kem_ciphertext,'hex')) AS kem_ciphertext_hex,
+  UPPER(encode(encap_pubkey,'hex'))   AS encap_pubkey_hex
 FROM key_wrapper_layers;
 '@
     }
@@ -1384,9 +1384,9 @@ SELECT
   algo_id,
   name,
   public_key,
-  UPPER(encode(public_key,''hex''))     AS public_key_hex,
+  UPPER(encode(public_key,'hex'))     AS public_key_hex,
   private_key_enc,
-  UPPER(encode(private_key_enc,''hex'')) AS private_key_enc_hex,
+  UPPER(encode(private_key_enc,'hex')) AS private_key_enc_hex,
   kms_key_id,
   origin,
   status,
@@ -1413,9 +1413,9 @@ SELECT
   algo_id,
   signing_key_id,
   signature,
-  UPPER(encode(signature,''hex''))    AS signature_hex,
+  UPPER(encode(signature,'hex'))    AS signature_hex,
   payload_hash,
-  UPPER(encode(payload_hash,''hex'')) AS payload_hash_hex,
+  UPPER(encode(payload_hash,'hex')) AS payload_hash_hex,
   hash_algo_id,
   created_at
 FROM signatures;
@@ -1472,8 +1472,8 @@ SELECT
   error,
   created_by,
   created_at,
-  (status = ''done'')    AS is_done,
-  (status = ''running'') AS is_running
+  (status = 'done')    AS is_done,
+  (status = 'running') AS is_running
 FROM pq_migration_jobs;
 '@
     }
@@ -1498,7 +1498,7 @@ SELECT
   expires_at,
   created_at,
   updated_at,
-  (status = ''active'' AND (expires_at IS NULL OR expires_at > now())) AS is_active
+  (status = 'active' AND (expires_at IS NULL OR expires_at > now())) AS is_active
 FROM api_keys;
 '@
     }
@@ -1510,15 +1510,15 @@ CREATE OR REPLACE VIEW vw_event_outbox_metrics AS
 SELECT
   event_type,
   COUNT(*)                                AS total,
-  COUNT(*) FILTER (WHERE status=''pending'') AS pending,
-  COUNT(*) FILTER (WHERE status=''sent'')    AS sent,
-  COUNT(*) FILTER (WHERE status=''failed'')  AS failed,
+  COUNT(*) FILTER (WHERE status='pending') AS pending,
+  COUNT(*) FILTER (WHERE status='sent')    AS sent,
+  COUNT(*) FILTER (WHERE status='failed')  AS failed,
   AVG(EXTRACT(EPOCH FROM (now() - created_at)))                                   AS avg_created_lag_sec,
   PERCENTILE_DISC(0.50) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (now()-created_at))) AS p50_created_lag_sec,
   PERCENTILE_DISC(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (now()-created_at))) AS p95_created_lag_sec,
   AVG(attempts)                           AS avg_attempts,
   MAX(attempts)                           AS max_attempts,
-  COUNT(*) FILTER (WHERE status IN (''pending'',''failed'') AND (next_attempt_at IS NULL OR next_attempt_at <= now())) AS due_now
+  COUNT(*) FILTER (WHERE status IN ('pending','failed') AND (next_attempt_at IS NULL OR next_attempt_at <= now())) AS due_now
 FROM event_outbox
 GROUP BY event_type;
 '@
@@ -1548,9 +1548,9 @@ CREATE OR REPLACE VIEW vw_event_inbox_metrics AS
 SELECT
   source,
   COUNT(*)                                AS total,
-  COUNT(*) FILTER (WHERE status=''pending'')   AS pending,
-  COUNT(*) FILTER (WHERE status=''processed'') AS processed,
-  COUNT(*) FILTER (WHERE status=''failed'')    AS failed,
+  COUNT(*) FILTER (WHERE status='pending')   AS pending,
+  COUNT(*) FILTER (WHERE status='processed') AS processed,
+  COUNT(*) FILTER (WHERE status='failed')    AS failed,
   AVG(attempts)                           AS avg_attempts,
   PERCENTILE_DISC(0.95) WITHIN GROUP (ORDER BY attempts) AS p95_attempts
 FROM event_inbox
@@ -1563,11 +1563,11 @@ GROUP BY source;
 -- Hourly throughput for outbox/inbox
 CREATE OR REPLACE VIEW vw_event_throughput_hourly AS
 WITH o AS (
-  SELECT date_trunc(''hour'', created_at) AS ts, COUNT(*) AS outbox_cnt
+  SELECT date_trunc('hour', created_at) AS ts, COUNT(*) AS outbox_cnt
   FROM event_outbox GROUP BY 1
 ),
 i AS (
-  SELECT date_trunc(''hour'', received_at) AS ts, COUNT(*) AS inbox_cnt
+  SELECT date_trunc('hour', received_at) AS ts, COUNT(*) AS inbox_cnt
   FROM event_inbox GROUP BY 1
 )
 SELECT
@@ -1587,7 +1587,7 @@ SELECT
   channel,
   status,
   COUNT(*) AS total,
-  COUNT(*) FILTER (WHERE status IN (''pending'',''processing'') AND (next_attempt_at IS NULL OR next_attempt_at <= now())) AS due_now,
+  COUNT(*) FILTER (WHERE status IN ('pending','processing') AND (next_attempt_at IS NULL OR next_attempt_at <= now())) AS due_now,
   PERCENTILE_DISC(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (now() - COALESCE(last_attempt_at, created_at)))) AS p95_age_sec
 FROM notifications
 GROUP BY channel, status
@@ -1602,7 +1602,7 @@ CREATE OR REPLACE VIEW vw_webhook_outbox_metrics AS
 SELECT
   status,
   COUNT(*) AS total,
-  COUNT(*) FILTER (WHERE status=''pending'' AND (next_attempt_at IS NULL OR next_attempt_at <= now())) AS due_now
+  COUNT(*) FILTER (WHERE status='pending' AND (next_attempt_at IS NULL OR next_attempt_at <= now())) AS due_now
 FROM webhook_outbox
 GROUP BY status;
 '@
@@ -1616,9 +1616,9 @@ SELECT
   job_type,
   status,
   COUNT(*) AS total,
-  COUNT(*) FILTER (WHERE status=''pending'' AND (scheduled_at IS NULL OR scheduled_at <= now())) AS due_now,
-  COUNT(*) FILTER (WHERE status=''processing'') AS processing,
-  COUNT(*) FILTER (WHERE status=''failed'')     AS failed
+  COUNT(*) FILTER (WHERE status='pending' AND (scheduled_at IS NULL OR scheduled_at <= now())) AS due_now,
+  COUNT(*) FILTER (WHERE status='processing') AS processing,
+  COUNT(*) FILTER (WHERE status='failed')     AS failed
 FROM system_jobs
 GROUP BY job_type, status
 ORDER BY job_type, status;
@@ -1631,13 +1631,13 @@ ORDER BY job_type, status;
 CREATE OR REPLACE VIEW vw_login_hotspots_ip AS
 SELECT
   ip_hash,
-  UPPER(encode(ip_hash,''hex'')) AS ip_hash_hex,
-  COUNT(*) FILTER (WHERE attempted_at > now() - interval ''24 hours'')                         AS total_24h,
-  COUNT(*) FILTER (WHERE success = false AND attempted_at > now() - interval ''24 hours'')     AS failed_24h,
+  UPPER(encode(ip_hash,'hex')) AS ip_hash_hex,
+  COUNT(*) FILTER (WHERE attempted_at > now() - interval '24 hours')                         AS total_24h,
+  COUNT(*) FILTER (WHERE success = false AND attempted_at > now() - interval '24 hours')     AS failed_24h,
   MAX(attempted_at) AS last_attempt_at
 FROM login_attempts
 GROUP BY ip_hash
-HAVING COUNT(*) FILTER (WHERE success = false AND attempted_at > now() - interval ''24 hours'') > 0
+HAVING COUNT(*) FILTER (WHERE success = false AND attempted_at > now() - interval '24 hours') > 0
 ORDER BY failed_24h DESC, last_attempt_at DESC;
 '@
     }
@@ -1648,13 +1648,13 @@ ORDER BY failed_24h DESC, last_attempt_at DESC;
 CREATE OR REPLACE VIEW vw_login_hotspots_user AS
 SELECT
   user_id,
-  COUNT(*) FILTER (WHERE attempted_at > now() - interval ''24 hours'')                         AS total_24h,
-  COUNT(*) FILTER (WHERE success = false AND attempted_at > now() - interval ''24 hours'')     AS failed_24h,
+  COUNT(*) FILTER (WHERE attempted_at > now() - interval '24 hours')                         AS total_24h,
+  COUNT(*) FILTER (WHERE success = false AND attempted_at > now() - interval '24 hours')     AS failed_24h,
   MAX(attempted_at) AS last_attempt_at
 FROM login_attempts
 WHERE user_id IS NOT NULL
 GROUP BY user_id
-HAVING COUNT(*) FILTER (WHERE success = false AND attempted_at > now() - interval ''24 hours'') > 0
+HAVING COUNT(*) FILTER (WHERE success = false AND attempted_at > now() - interval '24 hours') > 0
 ORDER BY failed_24h DESC, last_attempt_at DESC;
 '@
     }
@@ -1683,7 +1683,7 @@ SELECT
   gateway,
   status,
   COUNT(*) AS total,
-  SUM(amount) FILTER (WHERE status IN (''authorized'',''paid'',''partially_refunded'',''refunded'')) AS sum_amount
+  SUM(amount) FILTER (WHERE status IN ('authorized','paid','partially_refunded','refunded')) AS sum_amount
 FROM payments
 GROUP BY gateway, status
 ORDER BY gateway, status;
@@ -1695,11 +1695,11 @@ ORDER BY gateway, status;
 -- Daily revenue (orders) and counts; refunds reported separately
 CREATE OR REPLACE VIEW vw_revenue_daily AS
 SELECT
-  date_trunc(''day'', created_at) AS day,
-  COUNT(*) FILTER (WHERE status IN (''paid'',''completed'')) AS paid_orders,
-  SUM(total) FILTER (WHERE status IN (''paid'',''completed'')) AS revenue_gross,
-  COUNT(*) FILTER (WHERE status IN (''failed'',''cancelled'')) AS lost_orders,
-  SUM(total) FILTER (WHERE status IN (''failed'',''cancelled'')) AS lost_total
+  date_trunc('day', created_at) AS day,
+  COUNT(*) FILTER (WHERE status IN ('paid','completed')) AS paid_orders,
+  SUM(total) FILTER (WHERE status IN ('paid','completed')) AS revenue_gross,
+  COUNT(*) FILTER (WHERE status IN ('failed','cancelled')) AS lost_orders,
+  SUM(total) FILTER (WHERE status IN ('failed','cancelled')) AS lost_total
 FROM orders
 GROUP BY 1
 ORDER BY day DESC;
@@ -1711,7 +1711,7 @@ ORDER BY day DESC;
 -- Daily refunds amount
 CREATE OR REPLACE VIEW vw_refunds_daily AS
 SELECT
-  date_trunc(''day'', r.created_at) AS day,
+  date_trunc('day', r.created_at) AS day,
   SUM(r.amount) AS refunds_total,
   COUNT(*)      AS refunds_count
 FROM refunds r
@@ -1726,13 +1726,13 @@ ORDER BY day DESC;
 CREATE OR REPLACE VIEW vw_orders_funnel AS
 SELECT
   COUNT(*)                               AS orders_total,
-  COUNT(*) FILTER (WHERE status=''pending'')   AS pending,
-  COUNT(*) FILTER (WHERE status=''paid'')      AS paid,
-  COUNT(*) FILTER (WHERE status=''completed'') AS completed,
-  COUNT(*) FILTER (WHERE status=''failed'')    AS failed,
-  COUNT(*) FILTER (WHERE status=''cancelled'') AS cancelled,
-  COUNT(*) FILTER (WHERE status=''refunded'')  AS refunded,
-  ROUND(100.0 * COUNT(*) FILTER (WHERE status IN (''paid'',''completed'')) / GREATEST(COUNT(*),1), 2) AS payment_conversion_pct
+  COUNT(*) FILTER (WHERE status='pending')   AS pending,
+  COUNT(*) FILTER (WHERE status='paid')      AS paid,
+  COUNT(*) FILTER (WHERE status='completed') AS completed,
+  COUNT(*) FILTER (WHERE status='failed')    AS failed,
+  COUNT(*) FILTER (WHERE status='cancelled') AS cancelled,
+  COUNT(*) FILTER (WHERE status='refunded')  AS refunded,
+  ROUND(100.0 * COUNT(*) FILTER (WHERE status IN ('paid','completed')) / GREATEST(COUNT(*),1), 2) AS payment_conversion_pct
 FROM orders;
 '@
     }
@@ -1785,9 +1785,9 @@ SELECT
   p.provider,
   p.name        AS provider_name,
   COUNT(k.id)   AS total,
-  COUNT(k.id) FILTER (WHERE k.status=''active'')    AS active,
-  COUNT(k.id) FILTER (WHERE k.status=''retired'')   AS retired,
-  COUNT(k.id) FILTER (WHERE k.status=''disabled'')  AS disabled
+  COUNT(k.id) FILTER (WHERE k.status='active')    AS active,
+  COUNT(k.id) FILTER (WHERE k.status='retired')   AS retired,
+  COUNT(k.id) FILTER (WHERE k.status='disabled')  AS disabled
 FROM kms_keys k
 JOIN kms_providers p ON p.id = k.provider_id
 GROUP BY p.provider, p.name
@@ -1816,11 +1816,11 @@ ORDER BY al.changed_at DESC;
 -- Daily audit activity split by change type
 CREATE OR REPLACE VIEW vw_audit_activity_daily AS
 SELECT
-  date_trunc(''day'', changed_at) AS day,
+  date_trunc('day', changed_at) AS day,
   COUNT(*) AS total,
-  COUNT(*) FILTER (WHERE change_type=''INSERT'') AS inserts,
-  COUNT(*) FILTER (WHERE change_type=''UPDATE'') AS updates,
-  COUNT(*) FILTER (WHERE change_type=''DELETE'') AS deletes
+  COUNT(*) FILTER (WHERE change_type='INSERT') AS inserts,
+  COUNT(*) FILTER (WHERE change_type='UPDATE') AS updates,
+  COUNT(*) FILTER (WHERE change_type='DELETE') AS deletes
 FROM audit_log
 GROUP BY 1
 ORDER BY day DESC;
@@ -1878,7 +1878,7 @@ ORDER BY status;
 -- System errors per day and level
 CREATE OR REPLACE VIEW vw_system_errors_daily AS
 SELECT
-  date_trunc(''day'', created_at) AS day,
+  date_trunc('day', created_at) AS day,
   level,
   COUNT(*) AS count
 FROM system_errors
@@ -1913,9 +1913,9 @@ SELECT
   p.*
 FROM payments p
 WHERE
-  (status IN (''paid'',''authorized'') AND amount < 0)
-  OR (status = ''paid'' AND (transaction_id IS NULL OR transaction_id = ''''))
-  OR (status = ''failed'' AND amount > 0);
+  (status IN ('paid','authorized') AND amount < 0)
+  OR (status = 'paid' AND (transaction_id IS NULL OR transaction_id = ''))
+  OR (status = 'failed' AND amount > 0);
 '@
     }
 
@@ -1924,7 +1924,7 @@ WHERE
 -- Refunds aggregated by day and gateway
 CREATE OR REPLACE VIEW vw_refunds_by_day_and_gateway AS
 SELECT
-  date_trunc(''day'', r.created_at) AS day,
+  date_trunc('day', r.created_at) AS day,
   p.gateway,
   SUM(r.amount) AS refunds_total,
   COUNT(*)      AS refunds_count
@@ -1982,22 +1982,22 @@ CREATE OR REPLACE VIEW vw_rbac_effective_permissions AS
 WITH allowed AS (
   SELECT ur.user_id, rp.permission_id, ur.tenant_id, ur.scope
   FROM rbac_user_roles ur
-  JOIN rbac_role_permissions rp ON rp.role_id = ur.role_id AND rp.effect = ''allow''
-  WHERE ur.status = ''active'' AND (ur.expires_at IS NULL OR ur.expires_at > now())
+  JOIN rbac_role_permissions rp ON rp.role_id = ur.role_id AND rp.effect = 'allow'
+  WHERE ur.status = 'active' AND (ur.expires_at IS NULL OR ur.expires_at > now())
   UNION
   SELECT up.user_id, up.permission_id, up.tenant_id, up.scope
   FROM rbac_user_permissions up
-  WHERE up.effect = ''allow'' AND (up.expires_at IS NULL OR up.expires_at > now())
+  WHERE up.effect = 'allow' AND (up.expires_at IS NULL OR up.expires_at > now())
 ),
 denied AS (
   SELECT ur.user_id, rp.permission_id, ur.tenant_id, ur.scope
   FROM rbac_user_roles ur
-  JOIN rbac_role_permissions rp ON rp.role_id = ur.role_id AND rp.effect = ''deny''
-  WHERE ur.status = ''active'' AND (ur.expires_at IS NULL OR ur.expires_at > now())
+  JOIN rbac_role_permissions rp ON rp.role_id = ur.role_id AND rp.effect = 'deny'
+  WHERE ur.status = 'active' AND (ur.expires_at IS NULL OR ur.expires_at > now())
   UNION
   SELECT up.user_id, up.permission_id, up.tenant_id, up.scope
   FROM rbac_user_permissions up
-  WHERE up.effect = ''deny'' AND (up.expires_at IS NULL OR up.expires_at > now())
+  WHERE up.effect = 'deny' AND (up.expires_at IS NULL OR up.expires_at > now())
 )
 SELECT
   a.user_id,
@@ -2012,7 +2012,7 @@ WHERE NOT EXISTS (
   WHERE d.user_id = a.user_id
     AND d.permission_id = a.permission_id
     AND COALESCE(d.tenant_id, -1) = COALESCE(a.tenant_id, -1)
-    AND COALESCE(d.scope, '') = COALESCE(a.scope, '')
+    AND COALESCE(d.scope, ') = COALESCE(a.scope, ')
 );
 '@
     }
@@ -2025,8 +2025,8 @@ SELECT
   r.id AS role_id,
   r.slug,
   r.name,
-  COUNT(*) FILTER (WHERE rp.effect = ''allow'') AS allows,
-  COUNT(*) FILTER (WHERE rp.effect = ''deny'')  AS denies,
+  COUNT(*) FILTER (WHERE rp.effect = 'allow') AS allows,
+  COUNT(*) FILTER (WHERE rp.effect = 'deny')  AS denies,
   COUNT(*) AS total_rules
 FROM rbac_roles r
 LEFT JOIN rbac_role_permissions rp ON rp.role_id = r.id
@@ -2112,27 +2112,27 @@ ORDER BY COALESCE(kms_key_id,-1), COALESCE(provider_id,-1), checked_at DESC;
 -- Potential conflicts: same (user,perm,tenant,scope) both allowed and denied
 CREATE OR REPLACE VIEW vw_rbac_conflicts AS
 WITH a AS (
-  SELECT user_id, permission_id, tenant_id, scope FROM rbac_user_permissions WHERE effect=''allow''
+  SELECT user_id, permission_id, tenant_id, scope FROM rbac_user_permissions WHERE effect='allow'
   UNION
   SELECT ur.user_id, rp.permission_id, ur.tenant_id, ur.scope
   FROM rbac_user_roles ur
-  JOIN rbac_role_permissions rp ON rp.role_id = ur.role_id AND rp.effect=''allow''
-  WHERE ur.status=''active'' AND (ur.expires_at IS NULL OR ur.expires_at > now())
+  JOIN rbac_role_permissions rp ON rp.role_id = ur.role_id AND rp.effect='allow'
+  WHERE ur.status='active' AND (ur.expires_at IS NULL OR ur.expires_at > now())
 ),
 d AS (
-  SELECT user_id, permission_id, tenant_id, scope FROM rbac_user_permissions WHERE effect=''deny''
+  SELECT user_id, permission_id, tenant_id, scope FROM rbac_user_permissions WHERE effect='deny'
   UNION
   SELECT ur.user_id, rp.permission_id, ur.tenant_id, ur.scope
   FROM rbac_user_roles ur
-  JOIN rbac_role_permissions rp ON rp.role_id = ur.role_id AND rp.effect=''deny''
-  WHERE ur.status=''active'' AND (ur.expires_at IS NULL OR ur.expires_at > now())
+  JOIN rbac_role_permissions rp ON rp.role_id = ur.role_id AND rp.effect='deny'
+  WHERE ur.status='active' AND (ur.expires_at IS NULL OR ur.expires_at > now())
 )
 SELECT DISTINCT
   a.user_id, a.permission_id, p.name AS permission_name, a.tenant_id, a.scope
 FROM a
 JOIN d ON d.user_id=a.user_id AND d.permission_id=a.permission_id
       AND COALESCE(d.tenant_id,-1)=COALESCE(a.tenant_id,-1)
-      AND COALESCE(d.scope,'')=COALESCE(a.scope,'')
+      AND COALESCE(d.scope,')=COALESCE(a.scope,')
 JOIN permissions p ON p.id=a.permission_id;
 '@
     }
@@ -2142,22 +2142,22 @@ JOIN permissions p ON p.id=a.permission_id;
 -- Roles/permissions which will expire within 7 days
 CREATE OR REPLACE VIEW vw_rbac_expiring_assignments AS
 SELECT
-  ''role'' AS kind,
+  'role' AS kind,
   ur.user_id,
   ur.role_id::bigint AS id,
   ur.tenant_id, ur.scope,
   ur.expires_at
 FROM rbac_user_roles ur
-WHERE ur.expires_at IS NOT NULL AND ur.expires_at <= now() + interval ''7 days''
+WHERE ur.expires_at IS NOT NULL AND ur.expires_at <= now() + interval '7 days'
 UNION ALL
 SELECT
-  ''permission'' AS kind,
+  'permission' AS kind,
   up.user_id,
   up.permission_id::bigint AS id,
   up.tenant_id, up.scope,
   up.expires_at
 FROM rbac_user_permissions up
-WHERE up.expires_at IS NOT NULL AND up.expires_at <= now() + interval ''7 days'';
+WHERE up.expires_at IS NOT NULL AND up.expires_at <= now() + interval '7 days';
 '@
     }
 
@@ -2177,8 +2177,8 @@ SELECT
   p.location,
   p.status,
   p.last_seen,
-  COALESCE(MAX(CASE WHEN l.metric=''apply_lag_ms'' THEN l.value END),0)    AS apply_lag_ms,
-  COALESCE(MAX(CASE WHEN l.metric=''transport_lag_ms'' THEN l.value END),0) AS transport_lag_ms,
+  COALESCE(MAX(CASE WHEN l.metric='apply_lag_ms' THEN l.value END),0)    AS apply_lag_ms,
+  COALESCE(MAX(CASE WHEN l.metric='transport_lag_ms' THEN l.value END),0) AS transport_lag_ms,
   MAX(l.captured_at) AS lag_sampled_at
 FROM peer_nodes p
 LEFT JOIN last_lag l ON l.peer_id = p.id
@@ -2192,13 +2192,13 @@ ORDER BY p.status, p.name;
 -- Pending outbox backlog per producer node/channel
 CREATE OR REPLACE VIEW vw_sync_backlog_by_node AS
 SELECT
-  COALESCE(producer_node, ''(unknown)'') AS producer_node,
+  COALESCE(producer_node, '(unknown)') AS producer_node,
   event_type,
-  COUNT(*) FILTER (WHERE status=''pending'') AS pending,
-  COUNT(*) FILTER (WHERE status=''failed'')  AS failed,
+  COUNT(*) FILTER (WHERE status='pending') AS pending,
+  COUNT(*) FILTER (WHERE status='failed')  AS failed,
   COUNT(*) AS total
 FROM event_outbox
-GROUP BY COALESCE(producer_node, ''(unknown)''), event_type
+GROUP BY COALESCE(producer_node, '(unknown)'), event_type
 ORDER BY pending DESC NULLS LAST, failed DESC;
 '@
     }
@@ -2235,7 +2235,7 @@ SELECT
   e.error,
   e.created_at
 FROM sync_errors e
-WHERE e.created_at > now() - interval ''24 hours''
+WHERE e.created_at > now() - interval '24 hours'
 ORDER BY e.created_at DESC;
 '@
     }
@@ -2402,7 +2402,7 @@ SELECT
   MIN(window_start) AS first_window,
   MAX(window_start) AS last_window
 FROM rate_limit_counters
-WHERE window_start > now() - interval ''1 hour''
+WHERE window_start > now() - interval '1 hour'
 GROUP BY subject_type, subject_id, name
 ORDER BY total_count DESC;
 '@
@@ -2418,9 +2418,9 @@ SELECT
   d.risk_score,
   d.first_seen,
   d.last_seen,
-  UPPER(encode(d.fingerprint_hash,''hex'')) AS fingerprint_hash_hex
+  UPPER(encode(d.fingerprint_hash,'hex')) AS fingerprint_hash_hex
 FROM device_fingerprints d
-WHERE d.last_seen > now() - interval ''30 days''
+WHERE d.last_seen > now() - interval '30 days'
   AND d.risk_score IS NOT NULL
 ORDER BY d.risk_score DESC, d.last_seen DESC;
 '@
@@ -2435,7 +2435,7 @@ SELECT DISTINCT ON (subject_table)
   period_start,
   period_end,
   leaf_count,
-  UPPER(encode(root_hash,''hex'')) AS root_hash_hex,
+  UPPER(encode(root_hash,'hex')) AS root_hash_hex,
   created_at
 FROM merkle_roots
 ORDER BY subject_table, created_at DESC;

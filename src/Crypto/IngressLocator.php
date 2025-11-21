@@ -16,10 +16,13 @@ final class IngressLocator
 {
     private static bool $bootAttempted = false;
     private static ?DatabaseIngressAdapterInterface $adapter = null;
-    private static ?callable $coverageReporter = null;
-    private static ?callable $telemetryCallback = null;
+    /** @var callable|null */
+    private static $coverageReporter = null;
+    /** @var callable|null */
+    private static $telemetryCallback = null;
     private static ?string $mapPathOverride = null;
     private static ?string $keysDirOverride = null;
+    /** @var callable|null */
     private static $gatewayFactory = null;
 
     public static function adapter(): ?DatabaseIngressAdapterInterface
@@ -72,7 +75,7 @@ final class IngressLocator
         }
 
         $keysDir = self::$keysDirOverride ?? (getenv('BLACKCAT_KEYS_DIR') ?: getenv('APP_KEYS_DIR'));
-        if ($keysDir === false || $keysDir === null || $keysDir === '') {
+        if (empty($keysDir)) {
             return;
         }
 
@@ -130,13 +133,17 @@ final class IngressLocator
 
     private static function wrapTelemetry(callable $reporter): callable
     {
-        if (self::$telemetryCallback === null) {
+        $cb = self::$telemetryCallback;
+        if (!\is_callable($cb)) {
             return $reporter;
         }
         return function (string $table, string $operation, array $columns) use ($reporter) {
             try {
                 $reporter($table, $operation, $columns);
-                (self::$telemetryCallback)($table, $operation, $columns);
+                $cb = self::$telemetryCallback;
+                if (\is_callable($cb)) {
+                    $cb($table, $operation, $columns);
+                }
             } catch (\Throwable) {
             }
         };
@@ -174,7 +181,7 @@ final class IngressLocator
             }
         }, true, true);
     }
-}
+
     private static function resolveGateway(): \BlackCat\DatabaseCrypto\Gateway\DatabaseGatewayInterface
     {
         if (self::$gatewayFactory) {
@@ -199,3 +206,4 @@ final class IngressLocator
             }
         };
     }
+}

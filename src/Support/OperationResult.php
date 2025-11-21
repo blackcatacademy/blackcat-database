@@ -98,7 +98,7 @@ final class OperationResult implements \JsonSerializable
     /** Safe wrapper around throwables (prevents leaking sensitive info). */
     public static function fromThrowable(\Throwable $e, ?string $corr = null, array $meta = [], ?string $code = null, ?int $http = 500): self
     {
-        $msg = self::cleanMsg($e->getMessage() ?? '', 300);
+        $msg = self::cleanMsg((string)$e->getMessage(), 300);
         $m   = $meta + ['class' => (new \ReflectionClass($e))->getName()];
         $normCode = self::cleanCode($code) ?? 'internal';
         $httpResolved = $http ?? (self::DEFAULT_HTTP_FOR_CODE[$normCode] ?? 500);

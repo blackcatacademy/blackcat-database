@@ -141,7 +141,7 @@ final class JsonCodec
     }
 
     /**
-     * @return non-empty-string|null
+     * @return string|null
      */
     public static function encode(mixed $v): ?string
     {

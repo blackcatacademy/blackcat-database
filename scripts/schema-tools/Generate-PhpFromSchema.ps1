@@ -708,13 +708,40 @@ function Assert-ReferencedViews {
     if ($FailHard) { throw $msg } else { Write-Error $msg }
   }
 }
+
+function Assert-ViewAlgorithms {
+  param(
+    [Parameter(Mandatory)][hashtable]$ViewsMap,
+    [Parameter(Mandatory)][string]$Path
+  )
+  if (-not $ViewsMap -or -not $ViewsMap.Views) { return }
+  foreach ($kv in $ViewsMap.Views.GetEnumerator()) {
+    $name = [string]$kv.Key
+    $ddl  = ''
+    if ($kv.Value -and $kv.Value.PSObject -and $kv.Value.PSObject.Properties['create']) {
+      $ddl = [string]$kv.Value.create
+    }
+    if (-not $ddl) { continue }
+
+    if ($ddl -notmatch '(?i)ALGORITHM\s*=\s*([A-Z]+)') {
+      throw "View '$name' in '$Path' is missing ALGORITHM=MERGE|TEMPTABLE."
+    }
+    $alg = $Matches[1].ToUpperInvariant()
+    if ($alg -ne 'MERGE' -and $alg -ne 'TEMPTABLE') {
+      throw "View '$name' in '$Path' uses unsupported ALGORITHM='$alg' (expected MERGE or TEMPTABLE)."
+    }
+  }
+}
+
 function Import-SchemaMap([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path)) { throw "Schema map not found at '$Path'." }
   Import-PowerShellDataFile -Path $Path
 }
 function Import-ViewsMap([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path)) { throw "Views map not found at '$Path'." }
-  Import-PowerShellDataFile -Path $Path
+  $data = Import-PowerShellDataFile -Path $Path
+  Assert-ViewAlgorithms -ViewsMap $data -Path $Path
+  $data
 }
 
 function Get-Templates([string]$Root) {
@@ -1548,10 +1575,11 @@ if ($PSBoundParameters.ContainsKey('FailOnViewDrift')) {
 
 $includeFeatureViews = $true
 
-$enableViewDependencies = $false
+# Enable view-derived dependencies by default; allow opt-out via BC_VIEW_DEPENDENCIES=0/false
+$enableViewDependencies = $true
 $envViewDeps = [System.Environment]::GetEnvironmentVariable('BC_VIEW_DEPENDENCIES')
-if ($envViewDeps -and ($envViewDeps -eq '1' -or $envViewDeps.ToLowerInvariant() -eq 'true')) {
-  $enableViewDependencies = $true
+if ($envViewDeps -and ($envViewDeps -eq '0' -or $envViewDeps.ToLowerInvariant() -eq 'false')) {
+  $enableViewDependencies = $false
 }
 
 if ($includeFeatureViews) {

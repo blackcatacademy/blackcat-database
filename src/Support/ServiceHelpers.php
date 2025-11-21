@@ -89,7 +89,6 @@ trait ServiceHelpers
 
     protected function qcache(): ?QueryCache
     {
-        /** @var mixed $qc */
         if (\property_exists($this, 'qcache') && $this->qcache instanceof QueryCache) {
             return $this->qcache;
         }
@@ -104,7 +103,6 @@ trait ServiceHelpers
 
     protected function logger(): ?LoggerInterface
     {
-        /** @var mixed $logger */
         if (\property_exists($this, 'logger') && $this->logger instanceof LoggerInterface) {
             return $this->logger;
         }
@@ -219,9 +217,16 @@ trait ServiceHelpers
                         }
                     },
                     classifier: function (\Throwable $e): array {
-                        $msg = \strtolower($e->getMessage() ?? '');
+                        $msg = \strtolower((string)$e->getMessage());
                         $busy = \str_contains($msg, 'advisory') || \str_contains($msg, 'pg_try_advisory_lock');
-                        return $busy ? ['transient'=>true,'reason'=>'lock-busy'] : Retry::classify($e);
+                        if ($busy) {
+                            return ['transient'=>true,'reason'=>'lock-busy'];
+                        }
+                        $c = Retry::classify($e);
+                        $reason = $c['reason'] ?? null;
+                        return $reason === null
+                            ? ['transient' => (bool)($c['transient'] ?? false)]
+                            : ['transient' => (bool)($c['transient'] ?? false), 'reason' => (string)$reason];
                     }
                 );
             } catch (\Throwable $e) {
@@ -353,7 +358,8 @@ trait ServiceHelpers
                 : $pkIdent;
         }
 
-        return $this->db()->paginateKeyset(
+        /** @var array{0:array<int,array<string,mixed>>,1:array{colValue:mixed,pkValue:mixed}|null} $res */
+        $res = $this->db()->paginateKeyset(
             $sqlBase,
             $params,
             $pkIdent,
@@ -363,6 +369,7 @@ trait ServiceHelpers
             $direction,
             $inclusive
         );
+        return $res;
     }
 
     /** ---------- Explain ---------- */
@@ -431,7 +438,7 @@ trait ServiceHelpers
         $dbId = 'db';
         try {
             $db = $this->db();
-            if ($db && \method_exists($db, 'id')) {
+            if (\method_exists($db, 'id')) {
                 $dbId = (string)$db->id();
             }
         } catch (\Throwable) {

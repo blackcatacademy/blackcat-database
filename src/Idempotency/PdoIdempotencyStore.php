@@ -58,7 +58,16 @@ final class PdoIdempotencyStore implements IdempotencyStore
 {
     public function __construct(private Database $db) {}
 
-    /** {@inheritDoc} */
+    /**
+     * {@inheritDoc}
+     * @phpstan-return array{
+     *   status: 'in_progress'|'success'|'failed',
+     *   result?: array<string,mixed>|null,
+     *   reason?: non-empty-string|null,
+     *   startedAt?: int,
+     *   completedAt?: int
+     * }|null
+     */
     public function get(#[\SensitiveParameter] string $key): ?array
     {
         $tbl = $this->tbl();
@@ -67,6 +76,7 @@ final class PdoIdempotencyStore implements IdempotencyStore
         if (!$row) {
             return null;
         }
+        /** @phpstan-var 'in_progress'|'success'|'failed' $status */
         $status = $this->normalizeStatus((string)($row['status'] ?? ''));
         $json   = $row['result_json'] ?? null;
 
@@ -79,10 +89,12 @@ final class PdoIdempotencyStore implements IdempotencyStore
             $result = \json_decode((string)$json, true) ?: null;
         }
 
-        return [
+        $out = [
             'status' => $status,
             'result' => $result,
         ];
+        // optional keys (reason/startedAt/completedAt) are omitted when unknown
+        return $out;
     }
 
     /**
@@ -174,6 +186,9 @@ final class PdoIdempotencyStore implements IdempotencyStore
         return $json;
     }
 
+    /**
+     * @return 'in_progress'|'success'|'failed'
+     */
     private function normalizeStatus(string $s): string
     {
         $s = \strtolower(\trim($s));

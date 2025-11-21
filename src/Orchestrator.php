@@ -169,7 +169,7 @@ final class Orchestrator
         $this->withInstallerLock($db, $lockName, (int)($_ENV['BC_ORCH_LOCK_TIMEOUT_SEC'] ?? 30), function () use ($db, $registry, $meta) {
             // PostgreSQL: transactional DDL; MySQL/MariaDB: execute without a transaction
             if ($db->isPg()) {
-                $db->txWithMeta(function(Database $db) use ($registry, $meta) {
+                $db->txWithMeta(function(Database $db) use ($registry) {
                     $db->withStatementTimeout(60_000, function() use ($registry) {
                         $inst = new Installer($this->db(), $this->dialect());
                         $registry->installOrUpgradeAll($inst);
@@ -278,11 +278,7 @@ final class Orchestrator
                     'lock' => $lockName, 'attempt' => $attempt, 'sleep_ms' => $sleepMs
                 ]);
             },
-            classifier: function (\Throwable $e): array {
-                $msg = strtolower($e->getMessage() ?? '');
-                $busy = str_contains($msg, 'pg_try_advisory_lock') || str_contains($msg, 'advisory_lock');
-                return $busy ? ['transient'=>true,'reason'=>'lock-busy'] : Retry::classify($e);
-            }
+            classifier: [$this, 'classifyLockError']
         );
     }
 
@@ -295,5 +291,23 @@ final class Orchestrator
             $x = substr($x, 0, 40) . '|' . substr(hash('sha256', $x), 0, 12);
         }
         return $x;
+    }
+
+    /**
+     * @return array{transient: bool, reason?: string}
+     * @phpstan-return array{transient: bool, reason?: string}
+     */
+    private function classifyLockError(\Throwable $e): array
+    {
+        $msg = strtolower((string)$e->getMessage());
+        $busy = str_contains($msg, 'pg_try_advisory_lock') || str_contains($msg, 'advisory_lock');
+        if ($busy) {
+            return ['transient'=>true,'reason'=>'lock-busy'];
+        }
+        $classified = Retry::classify($e);
+        $reason = $classified['reason'] ?? null;
+        return $reason === null
+            ? ['transient' => (bool)($classified['transient'] ?? false)]
+            : ['transient' => (bool)($classified['transient'] ?? false), 'reason' => (string)$reason];
     }
 }

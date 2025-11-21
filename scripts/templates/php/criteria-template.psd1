@@ -35,7 +35,7 @@ use BlackCat\Core\Database;
 final class Criteria extends BaseCriteria
 {
     /** Hard clamp perPage to [1..maxPerPage] for this repo. */
-    protected function perPage(): int
+    public function perPage(): int
     {
         $pp = (int) parent::perPage();
         $pp = max(1, $pp);

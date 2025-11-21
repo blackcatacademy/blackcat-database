@@ -54,8 +54,8 @@ namespace BlackCat\Database\Idempotency;
  *   status: Status,
  *   result?: Result|null,
  *   reason?: non-empty-string|null,
- *   startedAt?: int,        // unix time (s)
- *   completedAt?: int       // unix time (s)
+ *   startedAt?: int,
+ *   completedAt?: int
  * }
  *
  * @psalm-type Status = 'in_progress'|'success'|'failed'
@@ -79,6 +79,7 @@ interface IdempotencyStore
      *
      * @param non-empty-string $key
      * @return Record|null
+     * @phpstan-return Record|null
      */
     public function get(#[\SensitiveParameter] string $key): ?array;
 

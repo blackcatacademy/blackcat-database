@@ -46,8 +46,11 @@ use BlackCat\Core\Database;
  */
 abstract class AbstractTableModule implements ModuleInterface
 {
+    /** @return non-empty-string */
     abstract protected function tableName(): string;
+    /** @return non-empty-string */
     abstract protected static function contractViewName(): string;
+    /** @return non-empty-string */
     abstract protected function moduleVersion(): string;
 
     /** Directory containing this module's SQL scripts (default: "<subclass-dir>/schema"). */
@@ -63,7 +66,9 @@ abstract class AbstractTableModule implements ModuleInterface
     protected function moduleDependencies(): array { return []; }
 
     public function name(): string { return 'table-' . $this->tableName(); }
+    /** @return non-empty-string */
     public function table(): string { return $this->tableName(); }
+    /** @return non-empty-string */
     public function version(): string { return $this->moduleVersion(); }
 
     /** @return string[] */
@@ -71,6 +76,7 @@ abstract class AbstractTableModule implements ModuleInterface
     /** @return string[] */
     public function dependencies(): array { return $this->moduleDependencies(); }
 
+    /** @return non-empty-string */
     public static function contractView(): string
     {
         // Avoid calling subclass constructors with deps; construct w/o ctor.

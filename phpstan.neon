@@ -10,6 +10,9 @@ parameters:
       - tests
   bootstrapFiles:
     - phpstan.bootstrap.php
+  stubFiles:
+    - phpstan/stubs/blackcat-core.stub.php
+    - phpstan/stubs/generic-crud-repo.stub.php
   tmpDir: var/phpstan
   reportUnmatchedIgnoredErrors: true
   tipsOfTheDay: false

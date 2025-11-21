@@ -5,7 +5,7 @@
     key_wrappers_layers = @{
       create = @'
 -- Key wrappers with layer counts and PQC flag
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_key_wrappers_layers AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_key_wrappers_layers AS
 SELECT
   kw.id,
   kw.wrapper_uuid,
@@ -25,7 +25,7 @@ ORDER BY kw.id DESC;
     crypto_algorithms_pq_readiness_summary = @{
       create = @'
 -- One-row PQ readiness snapshot
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_pq_readiness_summary AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_pq_readiness_summary AS
 SELECT
   (SELECT COUNT(*) FROM crypto_algorithms WHERE class='kem' AND status='active' AND nist_level IS NOT NULL) AS active_pq_kems,
   (SELECT COUNT(*) FROM crypto_algorithms WHERE class='sig' AND status='active' AND nist_level IS NOT NULL) AS active_pq_sigs,
@@ -44,7 +44,7 @@ SELECT
     books_catalog_health_summary = @{
       create = @'
 -- High-level catalog health
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_catalog_health_summary AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_catalog_health_summary AS
 SELECT
   (SELECT COUNT(*) FROM authors WHERE deleted_at IS NULL) AS authors_live,
   (SELECT COUNT(*) FROM categories WHERE deleted_at IS NULL) AS categories_live,
@@ -60,7 +60,7 @@ SELECT
     coupons_effectiveness = @{
       create = @'
 -- Redemptions and total discount per coupon
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_coupon_effectiveness AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_coupon_effectiveness AS
 SELECT
   c.id,
   c.code,
@@ -79,7 +79,7 @@ ORDER BY redemptions DESC;
     users_rbac_access_summary = @{
       create = @'
 -- Per-user summary: roles + effective permissions
-CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_rbac_user_access_summary AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW vw_rbac_user_access_summary AS
 SELECT
   u.id AS user_id,
   COUNT(DISTINCT CASE
