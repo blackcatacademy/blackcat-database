@@ -58,7 +58,7 @@ jobs:
 
       - name: Evaluate SLO (p95)
         id: slo
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');
@@ -81,7 +81,7 @@ jobs:
 
       - name: Label PR if bench regression
         if: steps.slo.outputs.verdict == 'fail'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const {owner, repo} = context.repo;
@@ -91,7 +91,7 @@ jobs:
 
       - name: Remove bench:regression label if recovered
         if: steps.slo.outputs.verdict != 'fail'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const {owner, repo} = context.repo;
@@ -108,7 +108,7 @@ jobs:
             bench/plots/**
 
       - name: Comment PR with bench results
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');
