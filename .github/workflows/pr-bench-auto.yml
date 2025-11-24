@@ -100,7 +100,7 @@ jobs:
             catch (e) { core.info('No bench:regression to remove'); }
 
       - name: Upload bench artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: bench-${{ github.sha }}
           path: |
