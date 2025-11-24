@@ -23,7 +23,7 @@ jobs:
       - name: Run matrix
         run: php scripts/dbops/TlsMatrix.php --dsn "$DB_DSN" --user "$DB_USER" --pass "$DB_PASS" --out tls | tee tls/result.log
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: tls-matrix-${{ github.sha }}
           path: tls/**

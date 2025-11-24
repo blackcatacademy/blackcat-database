@@ -33,7 +33,7 @@ jobs:
           pip install matplotlib
           python3 scripts/bench/PerfDigest-Plot.py --in perf/digest.json --outdir perf
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: pg-perf-${{ github.run_id }}
           path: perf/**
