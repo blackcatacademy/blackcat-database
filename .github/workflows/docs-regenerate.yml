@@ -15,7 +15,7 @@ jobs:
     steps:
       - name: Extract PR head ref
         id: pr
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const {owner, repo} = context.repo;
@@ -135,7 +135,7 @@ jobs:
             scripts/**
 
       - name: Comment PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           HAS_DOC_CHANGES: ${{ steps.diff.outputs.has_changes }}
         with:

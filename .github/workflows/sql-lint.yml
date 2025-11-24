@@ -17,7 +17,7 @@ jobs:
         run: bash ./scripts/quality/SqlLint-Diff.sh
       - name: Comment PR with lint summary
         if: always()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');
@@ -43,7 +43,7 @@ jobs:
             }
       - name: Label PR on lint fail
         if: failure()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const {owner, repo} = context.repo;
@@ -51,7 +51,7 @@ jobs:
             try { await github.rest.issues.addLabels({owner, repo, issue_number, labels: ['lint:sql-fail']}); } catch(e) {}
       - name: Remove lint label on pass
         if: success()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const {owner, repo} = context.repo;
