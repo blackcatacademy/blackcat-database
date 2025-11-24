@@ -18,7 +18,7 @@ jobs:
       DB_PASS: ${{ secrets.DB_PASS }}
       SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK || '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Setup PHP & Python
         uses: actions/setup-python@v5
         with: { python-version: '3.x' }

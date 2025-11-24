@@ -18,7 +18,7 @@ jobs:
       DB_USER: ${{ secrets.DB_USER }}
       DB_PASS: ${{ secrets.DB_PASS }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install PG tools
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
       - name: Run PG backup-restore
@@ -46,7 +46,7 @@ jobs:
       DB_USER: ${{ secrets.DB_USER }}
       DB_PASS: ${{ secrets.DB_PASS }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install MySQL client
         run: sudo apt-get update && sudo apt-get install -y mysql-client
       - name: Run MySQL backup-restore
