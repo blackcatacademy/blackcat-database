@@ -122,7 +122,7 @@ jobs:
 
       - name: Commit updated docs
         if: steps.diff.outputs.has_changes == 'true'
-        uses: stefanzweifel/git-auto-commit-action@v5
+        uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: "docs: regenerate (CI)"
           commit_user_name: "blackcat-bot"
