@@ -105,17 +105,22 @@ final class UpsertBuilder
         }
 
         // ---------------- MySQL / MariaDB ----------------
-        $pkAlias = '_new';
-        $isMaria = DbVendor::isMaria($db);
+        $isMaria  = DbVendor::isMaria($db);
+        $ver      = $db->serverVersion();
+        $useAlias = !$isMaria && $ver !== null && \version_compare($ver, '8.0.20', '>=');
+        $alias    = '_new';
 
         $set = [];
         foreach ($updateCols as $c) {
             if (!\array_key_exists($c, $row)) {
                 continue;
             }
-            $qc  = self::q($db, $c);
-            $rhs = $isMaria ? "VALUES({$qc})" : "{$pkAlias}.{$qc}"; // VALUES() is deprecated/removed in MySQL
-            $set[] = "{$qc} = {$rhs}";
+            $qc = self::q($db, $c);
+            if ($useAlias) {
+                $set[] = "{$qc} = {$alias}.{$qc}";
+            } else {
+                $set[] = "{$qc} = VALUES({$qc})";
+            }
         }
         if ($updatedAt && !\in_array($updatedAt, $updateCols, true)) {
             $set[] = self::q($db, $updatedAt) . ' = CURRENT_TIMESTAMP(6)';
@@ -127,13 +132,9 @@ final class UpsertBuilder
             $set[] = "{$qf} = {$qf}";
         }
 
-        $prefix = $isMaria
-            ? "INSERT INTO {$tbl}"
-            : "INSERT INTO {$tbl} AS {$pkAlias}";
-
         $sql = self::sqlJoin([
-            "{$prefix} ({$colSql})",
-            "VALUES ({$phSql})",
+            "INSERT INTO {$tbl} ({$colSql})",
+            "VALUES ({$phSql})" . ($useAlias ? " AS {$alias}" : ''),
             "ON DUPLICATE KEY UPDATE " . \implode(', ', $set),
         ]);
 

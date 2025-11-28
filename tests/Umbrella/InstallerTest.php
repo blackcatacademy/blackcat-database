@@ -12,6 +12,13 @@ use BlackCat\Database\Tests\Util\DbUtil;
 
 final class InstallerTest extends TestCase
 {
+    public static function setUpBeforeClass(): void
+    {
+        DbUtil::wipeDatabase();
+        $db = DbUtil::db();
+        $db->configureCircuit(1000000, 1);
+    }
+
     public function test_registry_created_and_upsert(): void
     {
         $ins = new Installer(DbUtil::db(), DbUtil::dialect());

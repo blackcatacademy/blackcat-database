@@ -257,7 +257,10 @@ final class Orchestrator
      */
     private function withInstallerLock(Database $db, string $lockName, int $timeoutSec, callable $fn): mixed
     {
-        $lockName = $this->sanitizeLockName($lockName);
+        $extra = (string)($_ENV['BC_ORCH_LOCK_EXTRA'] ?? '');
+        $lockName = $this->sanitizeLockName(
+            'blackcat:orch:' . $db->id() . ($extra !== '' ? ':' . $extra : '')
+        );
         $timeoutSec = max(1, $timeoutSec);
 
         if (!$db->isPg()) {

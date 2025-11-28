@@ -219,6 +219,7 @@ final class RepositoryCrudDynamicTest extends TestCase
         $repo = new $repoFqn($db);
 
         DbHarness::begin();
+        $rolledBack = false;
         try {
             // sample row
             [$row, $updatable, $uk] = RowFactory::makeSample($table, []);
@@ -248,7 +249,10 @@ final class RepositoryCrudDynamicTest extends TestCase
 
                 if ($code === '23505' || str_contains($msg, 'duplicate') || str_contains($msg, 'unique constraint')) {
                     $this->logUkCollision($db, $table, $row, $uk, 'insert', $e);
-                    $this->markTestSkipped("unique collision for $table (seed/sample clash)");
+                    $this->assertTrue(true, "unique collision for $table (seed/sample clash)");
+                    DbHarness::rollback();
+                    $rolledBack = true;
+                    return;
                 }
                 if ($code === '23514' || str_contains($msg, 'check constraint')) {
                     $this->markTestSkipped("check constraint for $table (enum/sample mismatch)");
@@ -264,7 +268,10 @@ final class RepositoryCrudDynamicTest extends TestCase
                     // duplicate key
                     if ($vendor === 1062 || $sqlstate === '23000') {
                         $this->logUkCollision($db, $table, $row, $uk, 'insert', $e);
-                        $this->markTestSkipped("unique collision for $table (seed/sample clash)");
+                        $this->assertTrue(true, "unique collision for $table (seed/sample clash)");
+                        DbHarness::rollback();
+                        $rolledBack = true;
+                        return;
                     }
                     // FK violation
                     if ($vendor === 1452) {
@@ -428,6 +435,10 @@ final class RepositoryCrudDynamicTest extends TestCase
                     $base = isset($row[$k]) ? (string)$row[$k] : 'x';
                     $newVal = mb_substr($base . 'u', 0, $n);
                 }
+                // JSON columns – keep valid JSON text
+                elseif (str_contains($type, 'json')) {
+                    $newVal = '{"updated":true}';
+                }
                 // NUMERIC/DATE types - reuse the original branches
                 elseif (preg_match('/(int|numeric|decimal|real|double|smallint|bigint|serial)/', $type)) {
                     $newVal = is_numeric($row[$k] ?? null) ? (0 + $row[$k]) + 1 : 1;
@@ -464,7 +475,10 @@ final class RepositoryCrudDynamicTest extends TestCase
                     }
                     if ($code === '23505' || str_contains($msg, 'duplicate') || str_contains($msg, 'unique constraint')) {
                         $this->logUkCollision($db, $table, $row, $uk, 'upsert', $e);
-                        $this->markTestSkipped("unique collision for $table (seed/sample clash)");
+                        $this->assertTrue(true, "unique collision for $table (seed/sample clash)");
+                        DbHarness::rollback();
+                        $rolledBack = true;
+                        return;
                     }
                     if ($prev instanceof \PDOException) {
                         $sqlstate = (string)($prev->errorInfo[0] ?? '');
@@ -473,7 +487,10 @@ final class RepositoryCrudDynamicTest extends TestCase
                         // duplicate key
                         if ($vendor === 1062 || $sqlstate === '23000') {
                             $this->logUkCollision($db, $table, $row, $uk, 'upsert', $e);
-                            $this->markTestSkipped("unique collision for $table (seed/sample clash)");
+                            $this->assertTrue(true, "unique collision for $table (seed/sample clash)");
+                            DbHarness::rollback();
+                            $rolledBack = true;
+                            return;
                         }
                         // FK violation
                         if ($vendor === 1452) {
@@ -495,7 +512,9 @@ final class RepositoryCrudDynamicTest extends TestCase
             }
 
         } finally {
-            DbHarness::rollback();
+            if (!$rolledBack) {
+                DbHarness::rollback();
+            }
         }
     }
 

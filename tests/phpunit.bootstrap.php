@@ -62,6 +62,17 @@ if (Database::isInitialized()) {
         throw new RuntimeException("bootstrap: Driver mismatch: BC_DB='{$which}', PDO='{$drv}'.");
     }
 
+    // Keep circuit-breaker relaxed for test suites to avoid cascading skips.
+    $db->configureCircuit(1000000, 1);
+    (function(Database $db) {
+        $setter = \Closure::bind(
+            function(string $prop, $val): void { if (property_exists($this, $prop)) { $this->{$prop} = $val; } },
+            $db,
+            Database::class
+        );
+        foreach (['cbFails'=>0,'cbOpenUntil'=>null] as $k=>$v) { $setter($k, $v); }
+    })($db);
+
     // session tuning without re-init
     if ($which === 'pg') {
         $db->exec("SET TIME ZONE 'UTC'");
@@ -78,6 +89,8 @@ if (Database::isInitialized()) {
     /**
      * 3) Initial init based on the resolved backend
      */
+    $fakeReplicaAllowed = (getenv('BC_FAKE_REPLICA') ?: '1') !== '0';
+
     if ($which === 'mysql') {
         $dsn  = getenv('MYSQL_DSN')
             ?: getenv('MARIADB_DSN')
@@ -91,6 +104,24 @@ if (Database::isInitialized()) {
             ?: getenv('MARIADB_PASS')
             ?: 'root';
 
+        // Provide a synthetic replica (same DSN) when none is configured to allow replica-sensitive tests to run.
+        if ($fakeReplicaAllowed && !getenv('BC_REPLICA_DSN')) {
+            putenv("BC_REPLICA_DSN={$dsn}");
+            putenv("BC_REPLICA_USER={$user}");
+            putenv("BC_REPLICA_PASS={$pass}");
+        }
+
+        $replicaCfg = null;
+        if ($fakeReplicaAllowed && (getenv('BC_REPLICA_DSN') ?: '') !== '') {
+            $replicaCfg = [
+                'dsn' => getenv('BC_REPLICA_DSN'),
+                'user'=> getenv('BC_REPLICA_USER') ?: $user,
+                'pass'=> getenv('BC_REPLICA_PASS') ?: $pass,
+                'options' => [],
+                'init_commands' => [],
+            ];
+        }
+
         Database::init([
             'dsn'    => $dsn,
             'user'   => $user,
@@ -98,7 +129,20 @@ if (Database::isInitialized()) {
             'init_commands' => [
                 "SET time_zone = '+00:00'",
             ],
+            'replica' => $replicaCfg,
+            'replicaStickMs' => 200,
         ]);
+
+        $db = Database::getInstance();
+        $db->configureCircuit(1000000, 1);
+        (function(Database $db) {
+            $setter = \Closure::bind(
+                function(string $prop, $val): void { if (property_exists($this, $prop)) { $this->{$prop} = $val; } },
+                $db,
+                Database::class
+            );
+            foreach (['cbFails'=>0,'cbOpenUntil'=>null] as $k=>$v) { $setter($k, $v); }
+        })($db);
 
         $pdo = Database::getInstance()->getPdo();
         $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
@@ -114,6 +158,22 @@ if (Database::isInitialized()) {
         $user = getenv('PG_USER') ?: 'postgres';
         $pass = getenv('PG_PASS') ?: 'postgres';
 
+        if ($fakeReplicaAllowed && !getenv('BC_REPLICA_DSN')) {
+            putenv("BC_REPLICA_DSN={$dsn}");
+            putenv("BC_REPLICA_USER={$user}");
+            putenv("BC_REPLICA_PASS={$pass}");
+        }
+        $replicaCfg = null;
+        if ($fakeReplicaAllowed && (getenv('BC_REPLICA_DSN') ?: '') !== '') {
+            $replicaCfg = [
+                'dsn' => getenv('BC_REPLICA_DSN'),
+                'user'=> getenv('BC_REPLICA_USER') ?: $user,
+                'pass'=> getenv('BC_REPLICA_PASS') ?: $pass,
+                'options' => [],
+                'init_commands' => [],
+            ];
+        }
+
         Database::init([
             'dsn'    => $dsn,
             'user'   => $user,
@@ -123,9 +183,20 @@ if (Database::isInitialized()) {
                 "SET client_encoding TO 'UTF8'",
                 // adjust search_path later after the optional bc_compat install
             ],
+            'replica' => $replicaCfg,
+            'replicaStickMs' => 200,
         ]);
 
         $db = Database::getInstance();
+        $db->configureCircuit(1000000, 1);
+        (function(Database $db) {
+            $setter = \Closure::bind(
+                function(string $prop, $val): void { if (property_exists($this, $prop)) { $this->{$prop} = $val; } },
+                $db,
+                Database::class
+            );
+            foreach (['cbFails'=>0,'cbOpenUntil'=>null] as $k=>$v) { $setter($k, $v); }
+        })($db);
         // set timeouts/search_path immediately after connecting (helps parallel runs)
         $db->exec("SET lock_timeout TO '5s'");
         $db->exec("SET statement_timeout TO '30s'");

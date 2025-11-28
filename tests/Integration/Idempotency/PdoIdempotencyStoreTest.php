@@ -4,7 +4,6 @@ declare(strict_types=1);
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Idempotency\PdoIdempotencyStore;
 use BlackCat\Core\Database;
-use DateInterval;
 
 final class PdoIdempotencyStoreTest extends TestCase
 {
@@ -50,6 +49,7 @@ final class PdoIdempotencyStoreTest extends TestCase
         $this->assertSame('success', $rec['status']);
         $this->assertSame(['ok' => true], $rec['result']);
 
+        $this->assertTrue($store->begin('op-2'));
         $store->fail('op-2', 'boom');
         $rec2 = $store->get('op-2');
         $this->assertSame('failed', $rec2['status']);

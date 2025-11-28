@@ -912,14 +912,17 @@ CREATE TABLE IF NOT EXISTS cart_items (
   currency CHAR(3) NOT NULL,
   meta JSON NULL,
   PRIMARY KEY (id),
+  UNIQUE KEY ux_cart_items (tenant_id, cart_id, book_id, sku),
   INDEX idx_cart_items_cart_id (cart_id),
   CONSTRAINT chk_cart_currency CHECK (currency REGEXP '^[A-Z]{3}$'),
   CONSTRAINT chk_cart_qty CHECK (quantity > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
 '@
       indexes = @(
-        'CREATE UNIQUE INDEX ux_cart_items ON cart_items (tenant_id, cart_id, book_id, sku)',
-        'CREATE INDEX idx_cart_items_tenant_book ON cart_items (tenant_id, book_id)'
+        'CREATE INDEX idx_cart_items_cart_id ON cart_items (cart_id)',
+        'CREATE INDEX idx_cart_items_tenant_cart ON cart_items (tenant_id, cart_id)',
+        'CREATE INDEX idx_cart_items_tenant_book ON cart_items (tenant_id, book_id)',
+        'CREATE UNIQUE INDEX ux_cart_items_tenant_norm ON cart_items (tenant_id, cart_id, book_id, (COALESCE(sku, '''')))'
       )
       foreign_keys = @(
         'ALTER TABLE cart_items ADD CONSTRAINT fk_cart_items_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT',

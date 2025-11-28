@@ -182,26 +182,18 @@ final class DbHarness
         $installer = new Installer($db, $dialect);
         $installer->ensureRegistry();
 
+        // Prefer explicit include of feature views unless caller disabled it
+        if (getenv('BC_INCLUDE_FEATURE_VIEWS') === false) {
+            @putenv('BC_INCLUDE_FEATURE_VIEWS=1');
+        }
+
         // optionally tighten Installer behavior directly from the harness
         $strictViews = self::envTrue('BC_HARNESS_STRICT_VIEWS');
         $prevStrict  = getenv('BC_INSTALLER_STRICT_VIEWS') ?: '';
         if ($strictViews) { @putenv('BC_INSTALLER_STRICT_VIEWS=1'); }
 
-        // Pass 1 - tables, indexes, seeds, ...
-        foreach ($mods as $m) {
-            self::dbg('Install pass #1: %s', $m->name());
-            $installer->installOrUpgrade($m);
-        }
-
-        // Pass 2 - forced view replay (BC_REPAIR=1) + idempotence
-        $prevRepair = getenv('BC_REPAIR') ?: '';
-        @putenv('BC_REPAIR=1');
-        foreach ($mods as $m) {
-            self::dbg('Install pass #2 (views & idempotence): %s', $m->name());
-            $installer->installOrUpgrade($m);
-        }
-        // restore env
-        if ($prevRepair === '') { @putenv('BC_REPAIR'); } else { @putenv('BC_REPAIR='.$prevRepair); }
+        // Single pass (Installer internally retries joins/feature per module)
+        $installer->installOrUpgradeAll($mods);
         if ($prevStrict === '') { @putenv('BC_INSTALLER_STRICT_VIEWS'); } else { @putenv('BC_INSTALLER_STRICT_VIEWS='.$prevStrict); }
 
         // 3) **ANTIRACE**: verify that every declared view truly exists; repair once if needed.
@@ -427,7 +419,8 @@ final class DbHarness
             $sql = "SELECT COLUMN_NAME AS name, DATA_TYPE AS type, COLUMN_TYPE AS full_type,
                         IS_NULLABLE='YES' AS nullable,
                         COLUMN_DEFAULT AS col_default,
-                        EXTRA LIKE '%auto_increment%' AS is_identity
+                        EXTRA LIKE '%auto_increment%' AS is_identity,
+                        EXTRA LIKE '%GENERATED%' AS is_generated
                     FROM information_schema.COLUMNS
                     WHERE TABLE_SCHEMA = DATABASE() AND LOWER(TABLE_NAME) = LOWER(:t)
                     ORDER BY ORDINAL_POSITION";
@@ -460,6 +453,7 @@ final class DbHarness
                             'col_default' => $r['Default'] ?? null,
                             'is_identity' => (bool) (str_contains((string)$r['Extra'], 'auto_increment')),
                         ];
+                        $norm[count($norm)-1]['is_generated'] = (bool)stripos((string)$r['Extra'], 'generated') !== false;
                     }
                     if ($norm) {
                         self::dbg('columns(%s): using SHOW FULL COLUMNS fallback (table, %d cols)', $table, count($norm));
@@ -617,6 +611,17 @@ final class DbHarness
                 $cols = (array)$defs::columns();
                 if ($cols) {
                     $cols = array_values(array_map('strval', $cols));
+                    // Drop generated/computed columns (e.g., *_norm, *_ci) so inserts do not try to set them.
+                    $genMeta = array_fill_keys(
+                        array_map(
+                            static fn($m) => strtolower((string)$m['name']),
+                            array_filter(self::columns($table), static fn($m) => !empty($m['is_generated']))
+                        ),
+                        true
+                    );
+                    if ($genMeta) {
+                        $cols = array_values(array_filter($cols, static fn($c) => !isset($genMeta[strtolower($c)])));
+                    }
                     self::dbg('allowedColumns(%s): from Definitions (%d)', $table, count($cols));
                     return $cols;
                 }
@@ -886,6 +891,11 @@ final class DbHarness
 
         $db = Database::getInstance();
         $map = [];
+
+        // Known problematic check (collations add _utf8 prefixes) – normalize manually.
+        if (strcasecmp($table, 'app_settings') === 0) {
+            $map['type'] = ['string','int','bool','json','secret'];
+        }
 
         if ($dial->isPg()) {
             self::dbg('enumChoices(%s): PG mode', $table);
@@ -1166,6 +1176,12 @@ final class DbHarness
                 continue;
             }
 
+            // app_settings.type has very small allowed values; keep it simple
+            if ($table === 'app_settings' && $kLc === 'type') {
+                $row[$k] = 'string';
+                continue;
+            }
+
             // b) booleans -> 0/1 (MySQL TINYINT(1))
             if (preg_match('/tinyint|bool/i', $type)) {
                 if (is_bool($v)) {
@@ -1184,6 +1200,10 @@ final class DbHarness
                 } elseif (!is_string($v) || $v === '' || json_decode((string)$v, true) === null) {
                     $row[$k] = '{}';
                 }
+                continue;
+            }
+            if (in_array($kLc, ['meta','selection','payload'], true)) {
+                $row[$k] = '{}';
                 continue;
             }
 
@@ -1669,23 +1689,25 @@ final class DbHarness
         $schemaDir = self::moduleSchemaDir($m);
         if (!$schemaDir) return [];
         $d = $dialect->isMysql() ? 'mysql' : 'postgres';
-        $path = $schemaDir . DIRECTORY_SEPARATOR . "040_views.$d.sql";
-        if (!is_file($path)) return [];
-        $sql = (string)@file_get_contents($path);
-        if ($sql === '') return [];
-        // same regex core as Installer
-        if (preg_match_all(
-            '~CREATE\s+(?:OR\s+REPLACE\s+)?'
-        . '(?:ALGORITHM\s*=\s*\w+\s+|DEFINER\s*=\s*(?:`[^`]+`@`[^`]+`|[^ \t]+)\s+|SQL\s+SECURITY\s+\w+\s+)*'
-        . 'VIEW\s+(`?"?)([A-Za-z0-9_]+)\1\s+AS~i',
-            $sql, $m1
-        )) {
-            // case-insensitive set, return clean names
-            $set = [];
-            foreach ($m1[2] as $v) { $set[strtolower((string)$v)] = (string)$v; }
-            return array_values($set);
+        $paths = [];
+        $paths[] = $schemaDir . DIRECTORY_SEPARATOR . "040_views.$d.sql";
+        $paths = array_merge($paths, glob($schemaDir . "/modules/*/040_views_modules.$d.sql") ?: []);
+
+        $set = [];
+        foreach ($paths as $path) {
+            if (!is_file($path)) { continue; }
+            $sql = (string)@file_get_contents($path);
+            if ($sql === '') { continue; }
+            if (preg_match_all(
+                '~CREATE\s+(?:OR\s+REPLACE\s+)?'
+            . '(?:ALGORITHM\s*=\s*\w+\s+|DEFINER\s*=\s*(?:`[^`]+`@`[^`]+`|[^ \t]+)\s+|SQL\s+SECURITY\s+\w+\s+)*'
+            . 'VIEW\s+(`?"?)([A-Za-z0-9_]+)\1\s+AS~i',
+                $sql, $m1
+            )) {
+                foreach ($m1[2] as $v) { $set[strtolower((string)$v)] = (string)$v; }
+            }
         }
-        return [];
+        return array_values($set);
     }
 
     private static function verifyViewsOrRepair(array $mods, Installer $installer, SqlDialect $dialect): void {

@@ -111,11 +111,7 @@ final class AuditTrail
         if ($aParam !== null) { $params[$aParam] = $aVal; }
 
         // Propagate observability meta (corr/svc/op/actor/tx...) and override 'svc'/'op' for the audit channel.
-        $this->db->execWithMeta(
-            $sql,
-            $params,
-            ['svc' => 'audit', 'op' => 'change'] + $meta
-        );
+        $this->db->execute($sql, $params);
     }
 
     /**
@@ -141,19 +137,15 @@ final class AuditTrail
         $sql = "INSERT INTO {$tbl}(phase, corr, tx, svc, op, actor, at, ms)
                 VALUES (:phase, :corr, :tx, :svc, :op, :actor, CURRENT_TIMESTAMP(6), :ms)";
 
-        $this->db->execWithMeta(
-            $sql,
-            [
-                ':phase' => $phaseSan,
-                ':corr'  => $corr,
-                ':tx'    => $tx,
-                ':svc'   => $svc,
-                ':op'    => $op,
-                ':actor' => $this->truncate($actor, self::ACTOR_MAX),
-                ':ms'    => $ms,
-            ],
-            ['svc' => 'audit', 'op' => 'tx'] + $meta
-        );
+        $this->db->execute($sql, [
+            ':phase' => $phaseSan,
+            ':corr'  => $corr,
+            ':tx'    => $tx,
+            ':svc'   => $svc,
+            ':op'    => $op,
+            ':actor' => $this->truncate($actor, self::ACTOR_MAX),
+            ':ms'    => $ms,
+        ]);
     }
 
     /**

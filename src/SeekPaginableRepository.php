@@ -43,19 +43,15 @@ namespace BlackCat\Database\Contracts;
  * - Implementations should NULL-handle deterministically (e.g., NULLS LAST)
  *   and must whitelist `order.col` and `order.pk` to avoid SQL injection.
  *
- * @phpstan-type SeekOrder array{col:non-empty-string, dir:'asc'|'desc', pk:non-empty-string}
- * @phpstan-type SeekCursor array{colValue:mixed, pkValue:mixed}
- * @phpstan-type SeekResult array{0:array<int, array<string,mixed>>, 1:SeekCursor|null}
- *
  * @template TCriteria of object
  */
 interface SeekPaginableRepository
 {
     /**
      * @param TCriteria $criteria  Criteria object from the package layer.
-     * @param SeekOrder $order     Primary sort column + direction + PK tie-breaker.
-     * @param SeekCursor|null $cursor  Exclusive cursor; pass null for the first page.
-     * @return SeekResult
+     * @param array{col:non-empty-string, dir:'asc'|'desc', pk:non-empty-string} $order     Primary sort column + direction + PK tie-breaker.
+     * @param array{colValue:mixed, pkValue:mixed}|null $cursor  Exclusive cursor; pass null for the first page.
+     * @return array{0:array<int, array<string,mixed>>, 1:array{colValue:mixed, pkValue:mixed}|null}
      */
     public function paginateBySeek(object $criteria, array $order, ?array $cursor, int $limit): array;
 }

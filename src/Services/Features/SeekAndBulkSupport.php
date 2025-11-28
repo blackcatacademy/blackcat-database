@@ -126,8 +126,16 @@ trait SeekAndBulkSupport
     public function tryWithRowLock(mixed $id, callable $fn): mixed
     {
         if (\method_exists($this, 'withRowLock')) {
-            /** @var callable $fn */
-            return $this->withRowLock($id, $fn, 'skip_locked');
+            try {
+                /** @var callable $fn */
+                return $this->withRowLock($id, $fn, 'skip_locked');
+            } catch (\PDOException | \RuntimeException $e) {
+                $msg = \strtolower($e->getMessage() ?? '');
+                if (\str_contains($msg, 'lock') || \str_contains($msg, 'skip locked')) {
+                    return null; // behave as if row was locked
+                }
+                throw $e;
+            }
         }
 
         // No-op fallback: invoke the closure without explicit locking, keeping the expected arity

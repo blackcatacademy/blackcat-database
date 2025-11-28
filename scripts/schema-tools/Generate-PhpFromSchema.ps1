@@ -23,7 +23,6 @@ param(
   [switch]$Force,
   [switch]$WhatIf,
   [switch]$AllowUnresolved,                   # for work-in-progress templates, temporarily allow unresolved tokens
-  [switch]$IncludeFeatureViews,               # opt-in processing of schema-views-feature-*.psd1 (default on)
   [switch]$JoinAsInner,                       # (legacy) alias for JoinPolicy 'all'
   [switch]$JoinAsInnerStrict,                 # (legacy) alias for JoinPolicy 'any'
   [ValidateSet('left','all','any')]
@@ -137,8 +136,18 @@ function New-UniqueHelpers {
 
   foreach ($combo in $UniqueCombos) {
     if (-not $combo -or $combo.Count -eq 0) { continue }
+    # Skip helpers that would collide with built-ins (e.g., PK = id already has getById/existsById)
+    if ($PkCols -and $PkCols.Count -eq 1 -and $combo.Count -eq 1) {
+      if ($combo[0].ToLower() -eq $PkCols[0].ToLower()) { continue }
+    }
     $namesPascal = @($combo | ForEach-Object { ConvertTo-PascalCase $_ })
-    $namesCamel  = @($combo | ForEach-Object { ConvertTo-CamelCase  $_ })
+    $namesCamel  = @(
+      $combo | ForEach-Object {
+        $v = ConvertTo-CamelCase $_
+        if ($v -match '^[^A-Za-z_]') { $v = 'c' + $v } # ensure valid PHP variable name
+        return $v
+      }
+    )
     $suffix = ($namesPascal -join 'And')
 
     $paramDecl = New-Object System.Collections.Generic.List[string]
@@ -266,8 +275,8 @@ function New-CriteriaHelpers {
 
   if ($set.ContainsKey('deleted_at')) {
     $out.Add(@"
-    public function withTrashed(): self    { return `$this->softDeleteMode('with'); }
-    public function onlyTrashed(): self    { return `$this->softDeleteMode('only'); }
+    public function withTrashed(bool `$on = true): self { return parent::withTrashed(`$on); }
+    public function onlyTrashed(bool `$on = true): self { return parent::onlyTrashed(`$on); }
 "@)
   }
 
@@ -421,7 +430,18 @@ function Get-UniqueCombosFromCreateSql {
     if ($col) { $combos += ,@($col) }
   }
 
-  return ,$combos
+  # Drop combos that contain expressions/invalid identifiers (e.g., COALESCE(...))
+  $filtered = @()
+  foreach ($combo in $combos) {
+    if (-not $combo) { continue }
+    $valid = $true
+    foreach ($c in $combo) {
+      if (-not ($c -match '^[a-z0-9_]+$')) { $valid = $false; break }
+    }
+    if ($valid) { $filtered += ,$combo }
+  }
+
+  return ,$filtered
 }
 function Assert-UpsertConsistency {
   param(
@@ -1329,9 +1349,7 @@ function New-ColumnPropertyMap($columns) {
   $pairs = @()
   foreach ($c in $columns) {
     $prop = ConvertTo-CamelCase $c.Name
-    if ($prop -ne $c.Name) {
-      $pairs += ("'{0}' => '{1}'" -f $c.Name, $prop)
-    }
+    $pairs += ("'{0}' => '{1}'" -f $c.Name, $prop)
   }
   if (-not $pairs -or (@($pairs)).Count -eq 0) { return '[]' }
   return "[ " + ($pairs -join ', ') + " ]"
@@ -1339,7 +1357,10 @@ function New-ColumnPropertyMap($columns) {
 
 function ConvertTo-PhpArray([string[]]$arr) {
   if (-not $arr -or $arr.Count -eq 0) { return '[]' }
-  $q = $arr | ForEach-Object { "'{0}'" -f $_ }
+  $q = $arr | ForEach-Object {
+    $escaped = $_.Replace('\', '\\').Replace("'", "\'")
+    "'$escaped'"
+  }
   "[ " + ($q -join ', ') + " ]"
 }
 
@@ -1373,7 +1394,8 @@ function Get-TablesFromJoin([string]$sql) {
 
   # Ignore table-functions such as json_table(...), inet6_ntoa(...), unnest(...):
   # the extra (?!\s*\() ensures the captured identifier is not immediately followed by "("
-  $rx = [regex]'(?is)\b(?:FROM|JOIN(?:\s+LATERAL)?)\s+(?:ONLY\s+)?(?<ref>(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z0-9_]+)(?:\.(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z0-9_]+))*)(?!\s*\()'
+  # Allow comments/hints and APPLY variants.
+  $rx = [regex]'(?is)\b(?:FROM|JOIN(?:\s+LATERAL)?|CROSS\s+APPLY|OUTER\s+APPLY)\s+(?:ONLY\s+)?(?:/\*.*?\*/\s*)*(?<ref>(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z0-9_]+)(?:\.(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z0-9_]+))*)(?!\s*\()'
 
   foreach ($m in $rx.Matches($sql)) {
     $ref   = $m.Groups['ref'].Value
@@ -1441,24 +1463,17 @@ function Build-ViewOwnershipIndex {
 
   foreach ($entry in $ViewsMap.Views.GetEnumerator()) {
     $viewName = [string]$entry.Key
-    $ownerRaw = ''
-    if ($entry.Value -and $entry.Value.PSObject -and $entry.Value.PSObject.Properties['Owner']) {
-      $ownerRaw = [string]$entry.Value.Owner
-    }
-    $owner = $null
-    if ($ownerRaw) {
-      $owner = $ownerRaw.ToLowerInvariant()
-    } else {
-      $owner = Resolve-ViewOwnerName -ViewName $viewName -KnownTableSet $knownSet
-    }
-    if ($owner) {
-      if (-not $index.ContainsKey($owner)) {
-        $index[$owner] = New-Object System.Collections.Generic.List[string]
-      }
-      $index[$owner].Add($viewName)
-    } else {
+    $owner = Resolve-ViewOwnerName -ViewName $viewName -KnownTableSet $knownSet
+
+    if (-not ($owner -and $knownSet.ContainsKey($owner))) {
       Write-Warning "Unable to map view '$viewName' to a table defined in the schema map."
+      continue
     }
+
+    if (-not $index.ContainsKey($owner)) {
+      $index[$owner] = New-Object System.Collections.Generic.List[string]
+    }
+    $index[$owner].Add($viewName)
   }
 
   foreach ($key in @($index.Keys)) {
@@ -1523,102 +1538,91 @@ if (-not $mapPaths -or $mapPaths.Count -eq 0) { throw "No schema maps selected."
 Write-Host "Selected maps ($($mapPaths.Count)):" -ForegroundColor Cyan
 $mapPaths | ForEach-Object { Write-Host "  - $_" -ForegroundColor DarkCyan }
 
-# --- Views map registry (support per-engine maps) ---
+# --- Views map registry (support per-engine maps, search multiple dirs) ---
 $viewMaps = @{}
-$featureViewNames = @{}
+$joinViewMaps = @{}
+
+# search order: prefer full views-library (recursive), then explicit ViewsDir/SchemaDir
+$viewDirs = @()
+$libRoot = Join-Path $PSScriptRoot '..\..\views-library'
+if (-not (Test-Path -LiteralPath $libRoot)) {
+  $libRoot = Join-Path $PSScriptRoot '..\views-library'
+}
+if (Test-Path -LiteralPath $libRoot) {
+  $viewDirs += $libRoot
+}
 if ($ViewsPath) {
-  $tag = 'default'
-  $viewMaps[$tag] = [pscustomobject]@{
-    Path = $ViewsPath
-    Data = Import-ViewsMap -Path $ViewsPath
-  }
-  Write-Host "Loaded views map [$tag]: $ViewsPath" -ForegroundColor Cyan
+  $viewDirs += (Split-Path -Parent $ViewsPath)
+} elseif ($PSBoundParameters.ContainsKey('ViewsDir') -and (Test-Path -LiteralPath $ViewsDir)) {
+  $viewDirs += $ViewsDir
 } else {
-  $dirToSearch = $SchemaDir
-  if ($PSBoundParameters.ContainsKey('ViewsDir') -and (Test-Path -LiteralPath $ViewsDir)) {
-    $dirToSearch = $ViewsDir
-  }
-  if (Test-Path -LiteralPath $dirToSearch) {
-    $candidates = @(Get-ChildItem -LiteralPath $dirToSearch -File | Where-Object {
-      $_.Name -match '^(views-map-|schema-views-).+\.psd1$'
-    })
-    foreach ($candidate in @($candidates | Sort-Object Name)) {
-      $tag = Get-EngineTag $candidate.Name
-      if (-not $viewMaps.ContainsKey($tag)) {
-        $viewMaps[$tag] = [pscustomobject]@{
-          Path = $candidate.FullName
-          Data = Import-ViewsMap -Path $candidate.FullName
-        }
-      } else {
-        $data = Import-ViewsMap -Path $candidate.FullName
-        if ($data -and $data.Views) {
-          if (-not $viewMaps[$tag].Data.Views) { $viewMaps[$tag].Data.Views = @{} }
-          foreach ($kv in $data.Views.GetEnumerator()) { $viewMaps[$tag].Data.Views[$kv.Key] = $kv.Value }
-          $viewMaps[$tag].Path += "," + $candidate.FullName
-        }
+  $viewDirs += $SchemaDir
+}
+$viewDirs = @($viewDirs | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique)
+
+# load view maps (merge all)
+foreach ($dir in $viewDirs) {
+  $candidates = @(Get-ChildItem -LiteralPath $dir -Recurse -File | Where-Object {
+    $_.Name -match '^(views-map-|schema-views-|feature).+\.psd1$' -and $_.Name -notmatch 'joins'
+  })
+  foreach ($candidate in @($candidates | Sort-Object FullName)) {
+    $tag = Get-EngineTag $candidate.Name
+    if (-not $viewMaps.ContainsKey($tag)) {
+      $viewMaps[$tag] = [pscustomobject]@{
+        Path = $candidate.FullName
+        Data = Import-ViewsMap -Path $candidate.FullName
+      }
+    } else {
+      $data = Import-ViewsMap -Path $candidate.FullName
+      if ($data -and $data.Views) {
+        if (-not $viewMaps[$tag].Data.Views) { $viewMaps[$tag].Data.Views = @{} }
+        foreach ($kv in $data.Views.GetEnumerator()) { $viewMaps[$tag].Data.Views[$kv.Key] = $kv.Value }
+        $viewMaps[$tag].Path += "," + $candidate.FullName
       }
     }
-    foreach ($entry in $viewMaps.GetEnumerator()) {
-      Write-Host ("Loaded views map [{0}]: {1}" -f $entry.Key, $entry.Value.Path) -ForegroundColor Cyan
-    }
-  }
-  if ($viewMaps.Count -eq 0) {
-    Write-Warning "No views map found (looking for 'views-map-*.psd1' or 'schema-views-*.psd1'). View drift checks will throw for missing views."
   }
 }
+foreach ($entry in $viewMaps.GetEnumerator()) {
+  Write-Host ("Loaded views map [{0}]: {1}" -f $entry.Key, $entry.Value.Path) -ForegroundColor Cyan
+}
+if ($viewMaps.Count -eq 0) {
+  Write-Warning "No views map found (looking for 'views-map-*.psd1' or 'schema-views-*.psd1'). View drift checks will throw for missing views."
+}
 
+# load join maps strictly from the views-library (joins-*.psd1); no legacy fallbacks
+$joinDirs = @()
+if (Test-Path -LiteralPath $libRoot) {
+  $joinDirs += $libRoot
+}
+elseif ($ViewsPath) {
+  # explicit override when someone points to a custom views dir
+  $joinDirs += (Split-Path -Parent $ViewsPath)
+}
+foreach ($eng in @('postgres','mysql')) {
+  $merged = $null
+  $paths = @()
+  foreach ($dir in $joinDirs) {
+    $candidates = @(Get-ChildItem -LiteralPath $dir -Recurse -File -Filter ("joins-{0}.psd1" -f $eng))
+    foreach ($c in $candidates) {
+      $paths += $c.FullName
+      $data = Import-ViewsMap -Path $c.FullName
+      if ($data -and $data.Views) {
+        if (-not $merged) { $merged = [ordered]@{ Views = @{} } }
+        foreach ($kv in $data.Views.GetEnumerator()) { $merged.Views[$kv.Key] = $kv.Value }
+      }
+    }
+  }
+  if ($merged) {
+    $joinViewMaps[$eng] = $merged
+    Write-Host ("Loaded joins map [{0}]: {1}" -f $eng, ($paths -join ',')) -ForegroundColor DarkCyan
+  } else {
+    Write-Warning "Join views map for '$eng' not found in: $($joinDirs -join ', ')"
+  }
+}
 
 $FailHardOnViewDrift = $true
 if ($PSBoundParameters.ContainsKey('FailOnViewDrift')) {
   $FailHardOnViewDrift = [bool]$FailOnViewDrift
-}
-
-$includeFeatureViews = $true
-
-# Enable view-derived dependencies by default; allow opt-out via BC_VIEW_DEPENDENCIES=0/false
-$enableViewDependencies = $true
-$envViewDeps = [System.Environment]::GetEnvironmentVariable('BC_VIEW_DEPENDENCIES')
-if ($envViewDeps -and ($envViewDeps -eq '0' -or $envViewDeps.ToLowerInvariant() -eq 'false')) {
-  $enableViewDependencies = $false
-}
-
-if ($includeFeatureViews) {
-  $featurePaths = @()
-  if ($ViewsPath) {
-    $dir = Split-Path -Parent $ViewsPath
-    $leaf = Split-Path -Leaf $ViewsPath
-    if ($leaf -match 'schema-views-(mysql|postgres)') {
-      $eng = $Matches[1]
-      $candidate = Join-Path $dir ("schema-views-feature-{0}.psd1" -f $eng)
-      if (Test-Path -LiteralPath $candidate) { $featurePaths += $candidate }
-    }
-  } else {
-    foreach ($eng in @('postgres','mysql')) {
-      $cand = Join-Path $dirToSearch ("schema-views-feature-{0}.psd1" -f $eng)
-      if (Test-Path -LiteralPath $cand) { $featurePaths += $cand }
-    }
-  }
-
-  foreach ($path in $featurePaths) {
-    $tag = Split-Path -Leaf $path
-    $data = Import-ViewsMap -Path $path
-    $mapEngine = Get-EngineTag $tag
-    if (-not $featureViewNames.ContainsKey($mapEngine)) { $featureViewNames[$mapEngine] = @{} }
-    if ($data -and $data.Views) {
-      foreach ($kv in $data.Views.GetEnumerator()) { $featureViewNames[$mapEngine][$kv.Key] = $true }
-    }
-    if (-not $viewMaps.ContainsKey($mapEngine)) {
-      $viewMaps[$mapEngine] = [pscustomobject]@{
-        Path = $path
-        Data = $data
-      }
-    } else {
-      if (-not $viewMaps[$mapEngine].Data.Views) { $viewMaps[$mapEngine].Data.Views = @{} }
-      foreach ($kv in $data.Views.GetEnumerator()) { $viewMaps[$mapEngine].Data.Views[$kv.Key] = $kv.Value }
-      $viewMaps[$mapEngine].Path += "," + $path
-    }
-    Write-Host ("Loaded feature views map [{0}]: {1}" -f $mapEngine, $path) -ForegroundColor DarkCyan
-  }
 }
 
 $schemaSnapshots = @{}
@@ -1636,7 +1640,6 @@ foreach ($mp in $mapPaths) {
     $firstKey = @($viewMaps.Keys)[0]
     $activeViews = $viewMaps[$firstKey].Data
   }
-  $viewOwnershipIndex = Build-ViewOwnershipIndex -ViewsMap $activeViews -KnownTables $schema.Tables.Keys
   if (-not $schema.Tables) { Write-Warning "No 'Tables' in schema map: $mp"; continue }
   Write-Host "Loaded '$mapLeaf' with $($schema.Tables.Keys.Count) tables. Templates: $($templates.Count)." -ForegroundColor Cyan
 
@@ -1850,12 +1853,44 @@ foreach ($mp in $mapPaths) {
     $depTablesFk = @( Get-ReferencedTablesFromFkSqls $fkSqlsAll )
     $depTablesFk = @($depTablesFk | Where-Object { $_ -and $_ -ne $table })
 
-    $depNames = @($depTablesFk | ForEach-Object { "table-$_" } | Sort-Object -Unique)
+  # populate tokens:
+  $tokenCommon['TABLE']                   = $table
+  $tokenCommon['VIEW']                    = "vw_${table}"
+  # Contract view SQL per engine, sourced directly from schema view maps.
+  $viewSqlByEngine = @{}
+  $enginesToLoad = @('mysql','postgres')
+  foreach ($eng in $enginesToLoad) {
+    $sql = ''
+    if ($viewMaps.ContainsKey($eng)) {
+      $vm = $viewMaps[$eng].Data
+      if ($vm -and $vm.Views -and $vm.Views.ContainsKey($table)) {
+        $cv = $vm.Views[$table]
+        if ($cv -is [hashtable] -and $cv.ContainsKey('create')) {
+          $sql = [string]$cv.create
+        } elseif ($cv -and $cv.PSObject -and $cv.PSObject.Properties['create']) {
+          $sql = [string]$cv.create
+        }
+      }
+    }
+    if (-not $sql) {
+      throw "Contract view SQL for table '$table' not found in schema-views-$eng.psd1 (missing 'create' entry)."
+    }
+    # Strip leading SQL comments/blank lines so CREATE is the first token for DdlGuard (compatible with Windows PS where \R is unsupported)
+    $sql = [regex]::Replace($sql, '(?m)^(\\s*--.*(?:\\r?\\n|$))+', '', 'Multiline')
+    $idxCreate = [System.Globalization.CultureInfo]::InvariantCulture.CompareInfo.IndexOf($sql, 'CREATE', [System.Globalization.CompareOptions]::IgnoreCase)
+    if ($idxCreate -ge 0) {
+      $sql = $sql.Substring($idxCreate)
+    } else {
+      throw "CREATE keyword not found in contract view definition for table '$table' (engine '$eng')."
+    }
+    $viewSqlByEngine[$eng] = $sql.Trim()
+  }
 
-    # populate tokens:
-    $tokenCommon['TABLE']                   = $table
-    $tokenCommon['VIEW']                    = "vw_${table}"
-    $tokenCommon['COLUMNS_ARRAY']           = (ConvertTo-PhpArray $colNames)
+  $tokenCommon['CONTRACT_VIEW_SQL_MYSQL']    = $viewSqlByEngine['mysql']
+  $tokenCommon['CONTRACT_VIEW_SQL_POSTGRES'] = $viewSqlByEngine['postgres']
+  $tokenCommon['COLUMNS_ARRAY']           = (ConvertTo-PhpArray $colNames)
+    # finalize dependencies (FK-derived only)
+    $depNames = @($depTablesFk | ForEach-Object { "table-$_" } | Sort-Object -Unique)
     # [[PK]] can be "id" or "col1, col2" (used by Definitions::pkColumns)
     if ($pkCols.Count -gt 1) {
       $tokenCommon['PK'] = ($pkCols -join ', ')
@@ -2118,38 +2153,8 @@ foreach ($mp in $mapPaths) {
     $tokenCommon['JOINABLE_ENTITIES_MAP'] = if ($joinablePairs.Count -gt 0) { '[ ' + ($joinablePairs -join ', ') + ' ]' } else { '[]' }
     # --- augment deps by tables referenced in our view(s) ---
     $depTablesView = @()
-    if ($enableViewDependencies) {
-      $ownedViewNames = @()
-      $tableKey = $table.ToLower()
-      if ($viewOwnershipIndex.ContainsKey($tableKey)) {
-        $ownedViewNames = @($viewOwnershipIndex[$tableKey])
-      }
-      if ($ownedViewNames.Count -gt 0 -and $activeViews) {
-        $depsCollected = New-Object System.Collections.Generic.List[string]
-        foreach ($viewName in $ownedViewNames) {
-          # Skip deps from feature views to avoid cycles; they are validated via installer when enabled
-          $isFeature = ($featureViewNames.ContainsKey($mapEngine) -and $featureViewNames[$mapEngine].ContainsKey($viewName))
-          if ($isFeature) { continue }
-          foreach ($dep in (Resolve-ViewDependencies $viewName $activeViews (@{}))) {
-            if ($dep) { $depsCollected.Add($dep) }
-          }
-        }
-
-        if ($depsCollected.Count -gt 0) {
-          $knownTables = @($schema.Tables.Keys | ForEach-Object { $_.ToLower() })
-          $depTablesView = @(
-            $depsCollected |
-            Where-Object { $_ -and $_ -ne $tableKey -and ($knownTables -contains $_) } |
-            Select-Object -Unique
-          )
-        }
-      }
-    }
-
-    $depNames = @(
-      $depNames +
-      ($depTablesView | ForEach-Object { "table-$_" })
-    ) | Sort-Object -Unique
+    # View-derived deps disabled for initial install (joins/feature handled separately)
+    $depNames = @($depNames) | Sort-Object -Unique
     foreach ($t in $depTablesView) {
       # if the package for table $t is missing, remind the generator
       $p = Resolve-PackagePath -PackagesDir $ModulesRoot -Table $t -PackagePascal (ConvertTo-PascalCase $t) -Mode $NameResolution

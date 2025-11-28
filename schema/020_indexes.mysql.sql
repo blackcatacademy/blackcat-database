@@ -56,7 +56,7 @@ CREATE UNIQUE INDEX ux_cr_tenant_order_coupon ON coupon_redemptions (tenant_id, 
 -- === coupons ===
 CREATE UNIQUE INDEX ux_coupons_tenant_code_ci ON coupons (tenant_id, code_ci);
 CREATE INDEX idx_coupons_tenant_active ON coupons (tenant_id, is_active);
-CREATE INDEX idx_coupons_tenant_id ON coupons (tenant_id, id);
+CREATE UNIQUE INDEX idx_coupons_tenant_id ON coupons (tenant_id, id);
 
 -- === crypto_algorithms ===
 CREATE INDEX idx_ca_class_status ON crypto_algorithms (class, status);

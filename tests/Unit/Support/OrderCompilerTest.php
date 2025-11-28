@@ -21,7 +21,7 @@ final class OrderCompilerTest extends TestCase
         $items = [['expr'=>'name','dir'=>'DESC','nulls'=>'AUTO']];
         $sql = OrderCompiler::compile($items, 'postgres', alias: 't', tiePk: 'id', stable: true);
         $this->assertStringContainsString('ORDER BY', $sql);
-        $this->assertStringContainsString('"t"."id"', $sql);
+        $this->assertStringContainsString('t.id', $sql);
     }
 
     public function testParseItemsStripsOrderBy(): void

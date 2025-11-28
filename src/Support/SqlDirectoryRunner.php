@@ -108,7 +108,7 @@ final class SqlDirectoryRunner
         foreach ($files as $path) {
             $base = basename($path);
             // Views are handled by Installer::replayViewsScript; skip here to avoid missing-dependency failures
-            if (preg_match('/^040_views\./', $base)) {
+            if (preg_match('/^040_views(\_joins)?\./', $base)) {
                 if ($logger) { $logger->debug('SqlDirectoryRunner: skipping views file', ['file' => $path]); }
                 continue;
             }

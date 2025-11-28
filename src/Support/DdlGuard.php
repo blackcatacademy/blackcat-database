@@ -34,6 +34,7 @@ declare(strict_types=1);
 namespace BlackCat\Database\Support;
 
 use BlackCat\Core\Database;
+use BlackCat\Core\DatabaseException;
 use BlackCat\Database\SqlDialect;
 use BlackCat\Database\Exceptions\DdlRetryExceededException;
 use BlackCat\Database\Exceptions\ViewVerificationException;
@@ -412,7 +413,17 @@ final class DdlGuard
         }
 
         // MySQL/MariaDB – GET_LOCK(timeout) blocks and Database::withAdvisoryLock handles that
-        return $this->db->withAdvisoryLock($key, $timeoutSec, $fn);
+        try {
+            return $this->db->withAdvisoryLock($key, $timeoutSec, $fn);
+        } catch (DatabaseException $e) {
+            // If a stale named lock causes a timeout, attempt a best-effort cleanup and retry once.
+            $msg = \strtolower((string)$e->getMessage());
+            if (\str_contains($msg, 'get_lock timeout')) {
+                try { $this->db->exec('SELECT RELEASE_ALL_LOCKS()'); } catch (\Throwable) {}
+                return $this->db->withAdvisoryLock($key, $timeoutSec, $fn);
+            }
+            throw $e;
+        }
     }
 
     /** @return array{0:string,1:?string,2:?string,3:?string} [name, algorithm, security, definer] */

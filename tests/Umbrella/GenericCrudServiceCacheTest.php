@@ -13,14 +13,30 @@ use BlackCat\Database\Tests\Util\DbUtil;
 final class GenericCrudServiceCacheTest extends TestCase
 {
     private function makeRepo(): object {
-        return new class {
+        return new class implements \BlackCat\Database\Contracts\ContractRepository {
             public int $hits = 0;
             public function insert(array $_): void {}
+            public function insertMany(array $rows): void {}
             public function upsert(array $_): void {}
-            public function updateById(int|string $_, array $__): int { return 1; }
-            public function deleteById(int|string $_): int { return 1; }
-            public function restoreById(int|string $_): int { return 1; }
-            public function findById(int|string $_): ?array { $this->hits++; return ['id'=>1,'v'=>'x']; }
+            public function upsertMany(array $rows): void {}
+            public function updateById(array|string|int $_, array $__): int { return 1; }
+            public function updateByIdWhere(array|string|int $_, array $__row, array $__where): int { return 1; }
+            public function updateByIdOptimistic(array|string|int $_, array $__row, int $__version): int { return 1; }
+            public function updateByIdExpr(array|string|int $_, array $__expr): int { return 1; }
+            public function updateByKeys(array $keys, array $row): int { return 1; }
+            public function upsertByKeys(array $row, array $keys, array $updateColumns = []): void {}
+            public function deleteById(array|string|int $_): int { return 1; }
+            public function restoreById(array|string|int $_): int { return 1; }
+            public function findById(array|string|int $_): ?array { $this->hits++; return ['id'=>1,'v'=>'x']; }
+            public function findByIds(array $ids, array $opts = []): array { return [['id'=>1,'v'=>'x']]; }
+            public function exists(string $whereSql = '1=1', array $params = []): bool { return true; }
+            public function count(string $whereSql = '1=1', array $params = []): int { return 1; }
+            public function paginate(object $criteria): array { return ['items'=>[],'total'=>0,'page'=>1,'perPage'=>10]; }
+            public function paginateBySeek($criteria, array $order, ?array $cursor, int $limit): array { return ['items'=>[],'nextCursor'=>null]; }
+            public function lockById(array|string|int $id, string $mode = 'wait', string $strength = 'update'): ?array { return null; }
+            public function existsById(array|string|int $id): bool { return true; }
+            public function getById(array|string|int $id, bool $asDto = false): array|null { return $this->findById($id); }
+            public function getByUnique(array $keyValues, bool $asDto = false): array|null { return $this->findById(1); }
         };
     }
 

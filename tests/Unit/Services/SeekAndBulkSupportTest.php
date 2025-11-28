@@ -4,14 +4,6 @@ declare(strict_types=1);
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Services\Features\SeekAndBulkSupport;
 use BlackCat\Database\Contracts\SeekPaginableRepository;
-use stdClass;
-use RuntimeException;
-
-// Provide the contract if the project does not declare it (older autoload setups)
-if (!interface_exists(\BlackCat\Database\Contracts\BulkUpsertRepository::class)) {
-    interface BulkUpsertRepository { public function upsertMany(array $rows): void; }
-    class_alias(BulkUpsertRepository::class, \BlackCat\Database\Contracts\BulkUpsertRepository::class);
-}
 use BlackCat\Database\Contracts\BulkUpsertRepository;
 
 final class SeekAndBulkSupportTest extends TestCase

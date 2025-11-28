@@ -1,6 +1,9 @@
 vendor/
 logs/
-scripts/dev/assets/logs/
 scripts/quality/.sqlfluff-venv/
 scripts/quality/sqlfluff*.json
 scripts/quality/sqlfluff*.txt
+scripts/dev/assets/settings/
+tmp/
+var/
+tools/tmp-rebuild-joins.ps1

@@ -30,8 +30,9 @@ final class AuditTrailTest extends TestCase
         $txCnt = (int)self::$db->fetchOne('SELECT COUNT(*) FROM audit_tx');
         $this->assertSame(1, $txCnt);
 
-        // age rows and ensure purge removes them
-        if (self::$db->dialect()->isPg()) {
+        // age rows and ensure purge removes them (branch based on actual database driver)
+        $isPg = \method_exists(self::$db, 'isPg') ? self::$db->isPg() : false;
+        if ($isPg) {
             self::$db->exec("UPDATE audit_changes SET ts = CURRENT_TIMESTAMP - INTERVAL '10 days'");
         } else {
             self::$db->exec("UPDATE audit_changes SET ts = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 10 DAY)");

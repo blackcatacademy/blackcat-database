@@ -2,7 +2,8 @@
   File   = 'src/[[CLASS]].php'  # e.g. UsersModule.php
   Tokens = @(
     'NAMESPACE','CLASS','TABLE','VIEW','VERSION','DIALECTS_ARRAY',
-    'DEPENDENCIES_ARRAY','INDEX_NAMES_ARRAY','FK_NAMES_ARRAY','DATABASE_FQN'
+    'DEPENDENCIES_ARRAY','INDEX_NAMES_ARRAY','FK_NAMES_ARRAY','DATABASE_FQN',
+    'CONTRACT_VIEW_SQL_MYSQL','CONTRACT_VIEW_SQL_POSTGRES'
   )
   Content = @'
 <?php
@@ -39,15 +40,23 @@ final class [[CLASS]] implements ModuleInterface
         $table = SqlIdentifier::qi($db, $this->table());
         $view  = SqlIdentifier::qi($db, self::contractView());
 
+        if ($d->isMysql()) {
+            $createViewSql = <<<'SQL'
+[[CONTRACT_VIEW_SQL_MYSQL]]
+SQL;
+        } else {
+            $createViewSql = <<<'SQL'
+[[CONTRACT_VIEW_SQL_POSTGRES]]
+SQL;
+        }
+
         if (\class_exists('\\BlackCat\\Database\\Support\\DdlGuard')) {
-            (new \BlackCat\Database\Support\DdlGuard($db, $d))->applyCreateView(
-                "CREATE VIEW {$view} AS SELECT * FROM {$table}"
-            );
+            (new \BlackCat\Database\Support\DdlGuard($db, $d))->applyCreateView($createViewSql);
         } else {
             // Prefer CREATE OR REPLACE VIEW (gentle on dependencies)
-            $sql = "CREATE OR REPLACE VIEW {$view} AS SELECT * FROM {$table}";
-            $db->exec($sql);
+            $db->exec($createViewSql);
         }
+
     }
 
     public function upgrade(Database $db, SqlDialect $d, string $from): void
@@ -76,6 +85,13 @@ final class [[CLASS]] implements ModuleInterface
 
         // Quick index/FK check – generator injects names (case-sensitive per DB)
         $expectedIdx = [[INDEX_NAMES_ARRAY]];
+        if ($d->isMysql()) {
+            // Drop PG-only index naming patterns (e.g., GIN/GiST)
+            $expectedIdx = array_values(array_filter(
+                $expectedIdx,
+                static fn(string $n): bool => !str_starts_with($n, 'gin_') && !str_starts_with($n, 'gist_')
+            ));
+        }
         $expectedFk  = [[FK_NAMES_ARRAY]];
 
         $haveIdx = $hasTable ? SchemaIntrospector::listIndexes($db, $d, $table)     : [];

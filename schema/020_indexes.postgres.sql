@@ -54,6 +54,8 @@ CREATE INDEX IF NOT EXISTS idx_books_tenant_category ON books (tenant_id, main_c
 CREATE INDEX IF NOT EXISTS idx_cart_items_cart_id ON cart_items (cart_id);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_cart_items_tenant_norm ON cart_items (tenant_id, cart_id, book_id, COALESCE(sku, ''));
 CREATE INDEX IF NOT EXISTS idx_cart_items_tenant_cart ON cart_items (tenant_id, cart_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_cart_items ON cart_items (tenant_id, cart_id, book_id, sku);
+CREATE INDEX IF NOT EXISTS idx_cart_items_tenant_book ON cart_items (tenant_id, book_id);
 
 -- === carts ===
 CREATE INDEX IF NOT EXISTS idx_carts_tenant ON carts (tenant_id);
@@ -78,6 +80,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_cr_tenant_order_coupon ON coupon_redemption
 -- === coupons ===
 CREATE UNIQUE INDEX IF NOT EXISTS ux_coupons_tenant_code_ci ON coupons (tenant_id, code_ci);
 CREATE INDEX IF NOT EXISTS idx_coupons_tenant_active ON coupons (tenant_id, is_active);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_coupons_tenant_id ON coupons (tenant_id, id);
 
 -- === crypto_algorithms ===
 CREATE INDEX IF NOT EXISTS idx_ca_class_status ON crypto_algorithms (class, status);
@@ -95,6 +98,7 @@ CREATE INDEX IF NOT EXISTS idx_dj_status_sched ON deletion_jobs (status, schedul
 -- === device_fingerprints ===
 CREATE INDEX IF NOT EXISTS idx_df_user ON device_fingerprints (user_id);
 CREATE INDEX IF NOT EXISTS idx_df_last_seen ON device_fingerprints (last_seen);
+CREATE INDEX IF NOT EXISTS idx_df_user_last_seen ON device_fingerprints (user_id, last_seen);
 
 -- === email_verifications ===
 CREATE UNIQUE INDEX IF NOT EXISTS ux_ev_selector ON email_verifications (selector);
@@ -155,6 +159,8 @@ CREATE INDEX IF NOT EXISTS idx_res_book ON inventory_reservations (book_id);
 CREATE INDEX IF NOT EXISTS idx_res_order ON inventory_reservations (order_id);
 CREATE INDEX IF NOT EXISTS idx_res_status_until ON inventory_reservations (status, reserved_until);
 CREATE INDEX IF NOT EXISTS idx_res_tenant_status_until ON inventory_reservations (tenant_id, status, reserved_until);
+CREATE INDEX IF NOT EXISTS idx_inventory_reservations_order ON inventory_reservations (order_id);
+CREATE INDEX IF NOT EXISTS idx_res_book_status ON inventory_reservations (book_id, status);
 
 -- === invoice_items ===
 CREATE INDEX IF NOT EXISTS idx_invoice_items_tenant_invoice ON invoice_items (tenant_id, invoice_id);
@@ -273,6 +279,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_payment_webhooks_payload ON payment_webhook
 CREATE INDEX IF NOT EXISTS idx_payments_order ON payments (order_id);
 CREATE INDEX IF NOT EXISTS idx_payments_provider_event ON payments (provider_event_id);
 CREATE INDEX IF NOT EXISTS idx_payments_created_at ON payments (created_at);
+CREATE INDEX IF NOT EXISTS idx_payments_order_created ON payments (order_id, created_at);
 CREATE INDEX IF NOT EXISTS gin_payments_details     ON payments      USING GIN (details jsonb_path_ops);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_payments_tenant_tx ON payments (tenant_id, transaction_id);
 CREATE INDEX IF NOT EXISTS idx_payments_tenant_order ON payments (tenant_id, order_id);

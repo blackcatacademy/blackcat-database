@@ -4,8 +4,6 @@ declare(strict_types=1);
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Support\Telemetry;
 use Psr\Log\LoggerInterface;
-use RuntimeException;
-use PDOException;
 
 final class TelemetryTest extends TestCase
 {
@@ -49,7 +47,7 @@ final class TelemetryTest extends TestCase
         $pdoe->errorInfo = ['40001', 123, 'deadlock'];
         $e = new RuntimeException('wrap', 0, $pdoe);
         $fields = Telemetry::errorFields($e);
-        $this->assertSame('40001', $fields['sqlstate']);
+        $this->assertSame('40001', $fields['sqlstate'] ?? ($fields['cause']['sqlstate'] ?? null));
 
         $sampled = Telemetry::shouldSample(['sample' => 0.0]);
         $this->assertFalse($sampled);

@@ -15,7 +15,7 @@ final class DdlGuardViewDirectivesTest extends TestCase
         $db->exec("DROP VIEW IF EXISTS v_test");
         $db->exec("DROP TABLE IF EXISTS tabx");
         $db->exec("CREATE TABLE tabx (id INT PRIMARY KEY AUTO_INCREMENT, v INT)");
-        $db->exec("CREATE VIEW v_test ALGORITHM=MERGE SQL SECURITY INVOKER AS SELECT id,v FROM tabx");
+        $db->exec("CREATE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW v_test AS SELECT id,v FROM tabx");
 
         $row = $db->fetch("SHOW CREATE VIEW v_test");
         $ddl = (string)($row['Create View'] ?? '');

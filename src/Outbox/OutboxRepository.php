@@ -84,6 +84,8 @@ final class OutboxRepository
         $tbl = $this->tbl();
         $payload = $this->ingressPayload($r->payloadJson);
 
+        $payload = $this->ensureJsonDocument($payload);
+
         if ($this->db->dialect()->isMysql()) {
             $sql = "INSERT INTO {$tbl}
                     (created_at, available_at, event_type, payload, routing_key, tenant, trace_id, fail_count)
@@ -266,6 +268,29 @@ final class OutboxRepository
         } catch (\Throwable) {
             // best-effort; never impact writes
         }
+        return $json;
+    }
+
+    /**
+     * MySQL JSON columns require a full document root; the outbox payload may be stored
+     * as an object fragment (without outer braces) for envelope flexibility. Normalize
+     * to a valid JSON document before writing to the database.
+     */
+    private function ensureJsonDocument(string $json): string
+    {
+        if ($json === '') {
+            return '{}';
+        }
+        $decoded = json_decode($json, true);
+        if (json_last_error() === JSON_ERROR_NONE) {
+            return $json;
+        }
+        $wrapped = '{' . $json . '}';
+        json_decode($wrapped, true);
+        if (json_last_error() === JSON_ERROR_NONE) {
+            return $wrapped;
+        }
+        // As a last resort return original (the caller already validated earlier)
         return $json;
     }
 }

@@ -3,8 +3,6 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Support\Casts;
-use DateTimeImmutable;
-use DateTimeZone;
 
 final class CastsTest extends TestCase
 {

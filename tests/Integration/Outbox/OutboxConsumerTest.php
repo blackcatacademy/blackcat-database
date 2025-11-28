@@ -8,7 +8,6 @@ use BlackCat\Database\Outbox\OutboxRecord;
 use BlackCat\Database\Outbox\OutboxConsumer;
 use BlackCat\Database\Events\CrudEventDispatcher;
 use BlackCat\Database\Events\CrudEvent;
-use RuntimeException;
 
 final class OutboxConsumerTest extends TestCase
 {

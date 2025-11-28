@@ -24,5 +24,12 @@
 
         public function seedSql(): array { return []; }
 
+        /** Contract / feature views per dialect */
         public function viewsSql(): array { return []; }
+
+        /** Optional additional feature-module views (dialect keyed) */
+        public function featureModuleViewsSql(): array { return []; }
+
+        /** Optional join views (dialect keyed) */
+        public function joinViewsSql(): array { return []; }
     }

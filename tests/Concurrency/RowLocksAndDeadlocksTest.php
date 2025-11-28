@@ -175,7 +175,15 @@ final class RowLocksAndDeadlocksTest extends TestCase
         $idA = $this->insertRow($pdo);
         $idB = $this->insertRow($pdo);
 
-        $php = escapeshellarg(PHP_BINARY) . ' -d display_errors=1 -d error_reporting=32767';
+        // Prefer the regular PHP CLI for the worker (phpdbg swallows exit codes on some setups).
+        $phpBin = PHP_BINARY;
+        if (PHP_SAPI === 'phpdbg' && is_string(PHP_BINDIR)) {
+            $candidate = rtrim(PHP_BINDIR, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'php';
+            if (is_file($candidate) && is_executable($candidate)) {
+                $phpBin = $candidate;
+            }
+        }
+        $php = escapeshellarg($phpBin) . ' -d display_errors=1 -d error_reporting=32767';
         $script = escapeshellarg(__DIR__ . '/../Support/deadlock_worker.php');
         $table  = escapeshellarg(self::$table);
         $col    = escapeshellarg(self::$updCol);

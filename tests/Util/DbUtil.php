@@ -23,6 +23,8 @@ final class DbUtil
     public static function wipeDatabase(): void
     {
         $db = self::db();
+        self::resetCircuit($db);
+        $db->configureCircuit(1000000, 1);
         if ($db->isMysql()) {
             // drop+create the current DB selected by DATABASE()
             $dbName = (string)$db->fetchValue("SELECT DATABASE()", [], '');
@@ -39,6 +41,23 @@ final class DbUtil
             $db->exec("CREATE SCHEMA public");
             $db->exec("GRANT ALL ON SCHEMA public TO postgres");
             $db->exec("GRANT ALL ON SCHEMA public TO public");
+        }
+    }
+
+    /** Reset the Database circuit-breaker state (avoid leftovers between tests). */
+    private static function resetCircuit(Database $db): void
+    {
+        $setter = \Closure::bind(
+            function(string $prop, $val): void {
+                if (property_exists($this, $prop)) {
+                    $this->{$prop} = $val;
+                }
+            },
+            $db,
+            Database::class
+        );
+        foreach (['cbFails' => 0, 'cbOpenUntil' => null] as $prop => $val) {
+            $setter($prop, $val);
         }
     }
 

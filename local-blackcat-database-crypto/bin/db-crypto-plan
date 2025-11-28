@@ -1,0 +1,132 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+require __DIR__ . '/../vendor/autoload.php';
+
+use BlackCat\DatabaseCrypto\Config\EncryptionMap;
+
+$args = array_slice($argv, 1);
+[$options, $positionals] = parseArgs($args);
+if ($positionals === []) {
+    fwrite(STDERR, "Usage: db-crypto-plan [--manifest=path] [--schema=path] <encryption-map.json>\n");
+    exit(1);
+}
+
+$mapPath = $positionals[0];
+$map = EncryptionMap::fromFile($mapPath);
+$manifestContexts = loadManifest($options['manifest'] ?? getenv('BLACKCAT_CRYPTO_MANIFEST') ?: '');
+$schema = loadSchema($options['schema'] ?? '', $options['dsn'] ?? '');
+
+$hasWarn = false;
+echo "Encryption plan for {$mapPath}\n";
+foreach ($map->all() as $table => $columns) {
+    echo "- {$table}\n";
+    foreach ($columns as $column => $strategy) {
+        $ctx = $strategy['context'] ?? '(missing)';
+        $status = ['ok'];
+        if ($ctx === '(missing)') {
+            $status = ['missing-context'];
+        } elseif ($manifestContexts !== [] && !in_array($ctx, $manifestContexts, true)) {
+            $status = ['unknown-context'];
+        }
+
+        if ($schema !== [] && isset($schema[$table])) {
+            if (!in_array($column, $schema[$table], true)) {
+                $status[] = 'missing-in-schema';
+            }
+        }
+
+        if ($status !== ['ok']) {
+            $hasWarn = true;
+        }
+        echo sprintf("    • %-20s %-10s %-20s [%s]\n", $column, $strategy['strategy'] ?? 'encrypt', $ctx, implode(',', $status));
+    }
+}
+
+if ($manifestContexts !== []) {
+    echo sprintf("\nManifest contexts loaded from %s\n", $options['manifest'] ?? getenv('BLACKCAT_CRYPTO_MANIFEST'));
+} else {
+    echo "\nManifest contexts not loaded (set BLACKCAT_CRYPTO_MANIFEST or --manifest=path).\n";
+}
+
+if ($schema !== []) {
+    echo "Schema validation enabled.\n";
+} else {
+    echo "Schema validation disabled (pass --schema=path.json or --dsn=...).\n";
+}
+
+exit($hasWarn ? 2 : 0);
+
+/**
+ * @param list<string> $args
+ * @return array{0:array<string,string>,1:list<string>}
+ */
+function parseArgs(array $args): array
+{
+    $options = [];
+    $positionals = [];
+    foreach ($args as $arg) {
+        if (str_starts_with($arg, '--')) {
+            [$key, $value] = array_pad(explode('=', substr($arg, 2), 2), 2, '1');
+            $options[$key] = $value;
+            continue;
+        }
+        $positionals[] = $arg;
+    }
+    return [$options, $positionals];
+}
+
+/**
+ * @return list<string>
+ */
+function loadManifest(string $path): array
+{
+    if ($path === '' || !is_file($path)) {
+        return [];
+    }
+    $json = json_decode(file_get_contents($path), true);
+    if (!is_array($json) || !isset($json['slots']) || !is_array($json['slots'])) {
+        return [];
+    }
+    return array_keys($json['slots']);
+}
+
+/**
+ * @return array<string,list<string>>
+ */
+function loadSchema(string $path, string $dsn): array
+{
+    if ($path !== '' && is_file($path)) {
+        $json = json_decode(file_get_contents($path), true);
+        if (!is_array($json) || !isset($json['tables']) || !is_array($json['tables'])) {
+            return [];
+        }
+        $schema = [];
+        foreach ($json['tables'] as $table => $columns) {
+            if (!is_array($columns)) {
+                continue;
+            }
+            $schema[strtolower($table)] = array_map('strtolower', $columns);
+        }
+        return $schema;
+    }
+
+    if ($dsn === '') {
+        return [];
+    }
+
+    $pdo = new PDO($dsn, getenv('DB_USER') ?: null, getenv('DB_PASSWORD') ?: null, [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+    ]);
+    $database = $pdo->query('select database()')->fetchColumn();
+    $stmt = $pdo->prepare('SELECT TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = :schema');
+    $stmt->execute(['schema' => $database]);
+    $schema = [];
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $table = strtolower($row['TABLE_NAME']);
+        $schema[$table] ??= [];
+        $schema[$table][] = strtolower($row['COLUMN_NAME']);
+    }
+    return $schema;
+}

@@ -1,0 +1,31 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+require __DIR__ . '/../vendor/autoload.php';
+
+if ($argc < 2) {
+    fwrite(STDERR, "Usage: db-crypto-schema <dsn> [output.json]\n");
+    exit(1);
+}
+
+$dsn = $argv[1];
+$output = $argv[2] ?? null;
+$user = getenv('DB_USER') ?: null;
+$pass = getenv('DB_PASSWORD') ?: null;
+$p = new PDO($dsn, $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+$database = $p->query('select database()')->fetchColumn();
+$stmt = $p->prepare('SELECT TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = :schema ORDER BY TABLE_NAME, ORDINAL_POSITION');
+$stmt->execute(['schema' => $database]);
+$tables = [];
+while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+    $table = strtolower($row['TABLE_NAME']);
+    $tables[$table][] = strtolower($row['COLUMN_NAME']);
+}
+$json = json_encode(['tables' => $tables], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+if ($output) {
+    file_put_contents($output, $json);
+    echo "Schema snapshot written to {$output}\n";
+} else {
+    echo $json . PHP_EOL;
+}

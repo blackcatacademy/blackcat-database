@@ -34,6 +34,17 @@ final class RowFactory
         if (DbHarness::isPg()) return; // PG does not need this
 
         $must = DbHarness::jsonValidatedColumns($table);
+        if (!$must) {
+            // Also treat native JSON columns as requiring valid JSON.
+            $must = [];
+            foreach (DbHarness::columns($table) as $c) {
+                $type = strtolower((string)($c['type'] ?? ''));
+                $full = strtolower((string)($c['full_type'] ?? ''));
+                if ($type === 'json' || str_contains($full, 'json')) {
+                    $must[] = (string)$c['name'];
+                }
+            }
+        }
         if (!$must) return;
         $mustJson = array_fill_keys($must, true);
 
@@ -358,6 +369,7 @@ final class RowFactory
             $name = (string)$c['name'];
             if (!self::isRequired($c)) continue;
             if (!empty($c['is_identity'])) continue;
+            if (!empty($c['is_generated'])) continue;
             if ($pkIsIdentity && strcasecmp($name, $pk) === 0) continue;
             if (array_key_exists($name, $row)) continue;
             if (!isset($allowedSet[$name]) && !isset($allowedSetLc[strtolower($name)])) continue;
@@ -378,6 +390,7 @@ final class RowFactory
         $upd = [];
         foreach ($cols as $c) {
             $n = (string)$c['name'];
+            if (!empty($c['is_generated'])) continue;
             $isDatetime = (bool)preg_match('/(date|time)/i', (string)($c['type'] ?? ''));
             $isEnum = (self::enumChoicesFor($enumMap, $n) !== null)
                    || preg_match('/^enum\(/i', (string)($c['full_type'] ?? ''));

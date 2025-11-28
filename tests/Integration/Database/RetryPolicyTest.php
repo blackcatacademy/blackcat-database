@@ -15,7 +15,7 @@ final class RetryPolicyTest extends TestCase
             : "CREATE TABLE uniqx (id BIGINT PRIMARY KEY AUTO_INCREMENT, email VARCHAR(120) UNIQUE)");
         $db->exec("INSERT INTO uniqx(email) VALUES ('a@x')");
 
-        $this->expectException(\PDOException::class);
+        $this->expectException(\BlackCat\Core\DatabaseException::class);
         $db->exec("INSERT INTO uniqx(email) VALUES ('a@x')");
     }
 }

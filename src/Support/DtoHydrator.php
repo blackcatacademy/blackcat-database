@@ -133,37 +133,37 @@ final class DtoHydrator
         $ordered = [];
         foreach ($params as $p) {
             $name = $p->getName();
-            if (\array_key_exists($name, $vals)) {
-                $ordered[] = $vals[$name];
-            } elseif ($p->isDefaultValueAvailable()) {
-                $ordered[] = $p->getDefaultValue();
-            } else {
-                // No value -> null (may fail if the type is non-nullable, which is fine because it surfaces a bad mapping)
-                $ordered[] = null;
-            }
-        }
+            $val = \array_key_exists($name, $vals)
+                ? $vals[$name]
+                : ($p->isDefaultValueAvailable() ? $p->getDefaultValue() : null);
 
-        // Safe attempt to create the instance; on failure try the "property" fallback (if possible)
-        try {
-            /** @var T $instance */
-            $instance = $rc->newInstanceArgs($ordered);
-            return $instance;
-        } catch (\Throwable) {
-            // Fallback only when no required parameters exist (in theory this branch should never run
-            // because we already chose the path with required parameters deliberately)
-            $obj = $rc->newInstanceWithoutConstructor();
-            foreach ($vals as $name => $value) {
-                if ($rc->hasProperty($name)) {
-                    $rp = $rc->getProperty($name);
-                    $isReadonly = \method_exists($rp, 'isReadOnly') ? $rp->isReadOnly() : false;
-                    if ($rp->isPublic() && !$isReadonly) {
-                        $rp->setValue($obj, $value);
+            // Provide safe fallbacks for non-nullable scalars when the source row lacked a value.
+            if ($val === null && !$p->allowsNull()) {
+                $t = $p->getType();
+                if ($t instanceof \ReflectionNamedType) {
+                    $tn = $t->getName();
+                    switch ($tn) {
+                        case 'int':    $val = 0; break;
+                        case 'float':  $val = 0.0; break;
+                        case 'string': $val = ''; break;
+                        case 'bool':   $val = false; break;
+                        case 'array':  $val = []; break;
+                        default:
+                            if (!$t->isBuiltin()) {
+                                if (\is_a($tn, \DateTimeInterface::class, true)) {
+                                    $val = new \DateTimeImmutable();
+                                }
+                            }
+                            break;
                     }
                 }
             }
-            /** @var T $obj */
-            return $obj;
+            $ordered[] = $val;
         }
+
+        /** @var T $instance */
+        $instance = $rc->newInstanceArgs($ordered);
+        return $instance;
     }
 
     /**

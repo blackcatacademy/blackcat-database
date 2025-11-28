@@ -27,9 +27,13 @@ final class KeysetPaginationTest extends TestCase
             : "INSERT INTO kp(created_at,name) VALUES (NOW() - INTERVAL 10 SECOND, 'mid')");
 
         $sql = "SELECT id,created_at FROM kp
-                WHERE (created_at < :ts) OR (created_at = :ts AND id < :id)
+                WHERE (created_at < :ts_before) OR (created_at = :ts_eq AND id < :id)
                 ORDER BY created_at DESC, id DESC LIMIT 25";
-        $page2 = $db->fetchAll($sql, [':ts'=>$cursorTs, ':id'=>$cursorId]);
+        $page2 = $db->fetchAll($sql, [
+            ':ts_before' => $cursorTs,
+            ':ts_eq'     => $cursorTs,
+            ':id'        => $cursorId,
+        ]);
 
         $ids1 = array_column($page1,'id'); $ids2 = array_column($page2,'id');
         $this->assertSame([], array_values(array_intersect($ids1,$ids2)));

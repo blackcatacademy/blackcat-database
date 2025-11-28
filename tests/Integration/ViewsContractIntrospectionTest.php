@@ -42,17 +42,58 @@ final class ViewsContractIntrospectionTest extends TestCase
             return;
         }
 
-        $exceptions = []; // once unified, keep this empty
+        $requiresTempTable = $this->loadTempTableFlags();
         foreach (self::allViews() as $view) {
             $row = $db->fetchAll("SHOW CREATE VIEW `$view`")[0] ?? null;
             $this->assertNotNull($row, "SHOW CREATE VIEW returned nothing for $view");
             $ddl = strtoupper((string)($row['Create View'] ?? ''));
 
             $this->assertStringContainsString('SQL SECURITY INVOKER', $ddl, "$view: expected SQL SECURITY INVOKER");
-            if (!in_array($view, $exceptions, true)) {
+            if (isset($requiresTempTable[strtoupper($view)])) {
+                $this->assertTrue(
+                    str_contains($ddl, 'ALGORITHM=TEMPTABLE') || str_contains($ddl, 'ALGORITHM=UNDEFINED'),
+                    "$view: expected ALGORITHM=TEMPTABLE per schema metadata"
+                );
+            } else {
                 $this->assertStringContainsString('ALGORITHM=MERGE', $ddl, "$view: expected ALGORITHM=MERGE");
             }
         }
+    }
+
+    private function loadTempTableFlags(): array
+    {
+        $root = dirname(__DIR__, 2) . '/views-library';
+        if (!is_dir($root)) {
+            return [];
+        }
+
+        $flags = [];
+        $iter = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root));
+        foreach ($iter as $file) {
+            if (!$file->isFile()) {
+                continue;
+            }
+            if (!str_ends_with($file->getFilename(), '-mysql.psd1')) {
+                continue;
+            }
+            $content = (string)file_get_contents($file->getPathname());
+            if ($content === '') {
+                continue;
+            }
+
+            $current = null;
+            foreach (preg_split('/\\R/', $content) as $line) {
+                if (preg_match('/^\\s*([A-Za-z0-9_]+)\\s*=\\s*@\\{/', $line, $m)) {
+                    $current = strtoupper($m[1]);
+                    continue;
+                }
+                if ($current && stripos($line, 'RequiresTempTable') !== false && stripos($line, '$true') !== false) {
+                    $flags['VW_' . $current] = true;
+                    $current = null;
+                }
+            }
+        }
+        return $flags;
     }
 
     public function test_helper_columns_contract(): void

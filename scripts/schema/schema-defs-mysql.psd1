@@ -919,6 +919,7 @@
         tenant_id             = @{ Description='Owning tenant (FK tenants.id).' }
         user_id               = @{ Description='User that created the token (FK users.id), optional.' }
         name                  = @{ Description='Human-friendly token label.' }
+        name_ci               = @{ Description='Case-insensitive token label (generated).' }
         token_hash            = @{ Description='Hashed token payload.'; PII='hashed' }
         token_hash_key_version= @{ Description='Key version used when hashing the token.' }
         scopes                = @{ Description='JSON array with granted scopes.' }

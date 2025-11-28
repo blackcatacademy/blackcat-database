@@ -1,5 +1,3 @@
-START TRANSACTION;
-
 -- === app_settings ===
 -- Operational defaults (do not store real secrets)
 INSERT INTO app_settings (setting_key, setting_value, type, section, description, is_protected, updated_at) VALUES
@@ -106,5 +104,4 @@ ON DUPLICATE KEY UPDATE
   rate     = new.rate,
   valid_to = new.valid_to;
 
-COMMIT;
 

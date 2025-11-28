@@ -191,15 +191,21 @@ trait BulkUpsertTrait
         }
 
         // MySQL/MariaDB
-        $isMaria = DbVendor::isMaria($db);
-        $alias   = '_new';
-        $set     = [];
+        $isMaria  = DbVendor::isMaria($db);
+        $ver      = $db->serverVersion();
+        $useAlias = !$isMaria && $ver !== null && \version_compare($ver, '8.0.20', '>=');
+        $alias    = '_new';
+
+        $set = [];
 
         foreach ($updateCols as $c) {
             if (!in_array($c, $cols, true)) continue;
             $lhs = $this->qid($db, $c);
-            $rhs = $isMaria ? 'VALUES(' . $lhs . ')' : $alias . '.' . $lhs; // MySQL 8.0.20+: VALUES() removed
-            $set[] = $lhs . ' = ' . $rhs;
+            if ($useAlias) {
+                $set[] = $lhs . ' = ' . $alias . '.' . $lhs;
+            } else {
+                $set[] = $lhs . ' = VALUES(' . $lhs . ')';
+            }
         }
         if ($updatedAt && !in_array($updatedAt, $updateCols, true)) {
             $set[] = $this->qid($db, $updatedAt) . ' = CURRENT_TIMESTAMP(6)';
@@ -211,8 +217,8 @@ trait BulkUpsertTrait
             $set[]    = $first . ' = ' . $first;
         }
 
-        $prefix = $isMaria ? "INSERT INTO {$tbl}" : "INSERT INTO {$tbl} AS {$alias}";
-        $sql    = "{$prefix} ({$colSql}) VALUES " . implode(', ', $values)
+        $sql    = "INSERT INTO {$tbl} ({$colSql}) VALUES " . implode(', ', $values)
+                . ($useAlias ? " AS {$alias}" : '')
                 . " ON DUPLICATE KEY UPDATE " . implode(', ', $set);
 
         return [$sql, $params];

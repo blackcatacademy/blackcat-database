@@ -26,9 +26,12 @@ VIEW `analytics`.`v_orders` AS
 SELECT 1 AS x
 SQL;
 
-        $rm = new ReflectionMethod($guard, 'parseCreateViewHead');
-        $rm->setAccessible(true);
-        [$name, $alg, $sec, $def] = $rm->invoke($guard, $sql);
+        $call = \Closure::bind(
+            function(string $s) { return $this->parseCreateViewHead($s); },
+            $guard,
+            DdlGuard::class
+        );
+        [$name, $alg, $sec, $def] = $call($sql);
 
         $this->assertSame('analytics.v_orders', $name);
         $this->assertSame('MERGE', $alg);
