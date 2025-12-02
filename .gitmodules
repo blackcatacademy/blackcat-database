@@ -527,3 +527,6 @@
 	url = https://github.com/blackcatdatabase/table-key-wrappers
 	branch = main
 	shallow = true
+[submodule "views-library"]
+	path = views-library
+	url = https://github.com/blackcatdatabase/blackcat-view-schema.git

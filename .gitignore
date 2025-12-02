@@ -5,6 +5,8 @@ scripts/quality/sqlfluff*.txt
 scripts/dev/assets/settings/
 tmp/
 tools/tmp-rebuild-joins.ps1
+debug-feature.ps1
+debug-view2.ps1
 
 # Local dev modules (do not commit)
 local-blackcat-core/
@@ -18,6 +20,3 @@ tests/tmp/coverage/
 logs/
 var/
 tmp.json
-
-# Optional future submodule for shared views library
-# views-library/
