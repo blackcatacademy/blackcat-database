@@ -6,6 +6,11 @@ use BlackCat\Database\Support\PgCompat;
 
 require __DIR__ . '/../vendor/autoload.php';
 
+// Gentle notice when neither pcov nor xdebug is loaded (helps avoid empty coverage runs).
+if (!extension_loaded('pcov') && !extension_loaded('xdebug')) {
+    fwrite(STDERR, "[phpunit] No code coverage driver detected (pcov/xdebug). Enable one for coverage reports.\n");
+}
+
 /**
  * 1) Deterministically choose the target backend.
  *    - respect BC_DB (normalize it)
@@ -19,7 +24,7 @@ $resolveBackend = static function (): string {
         return match ($v) {
             'mysql', 'mariadb'         => 'mysql',
             'pg', 'pgsql', 'postgres', 'postgresql' => 'pg',
-            '', null                   => null,
+            ''                         => null,
             default                    => null,
         };
     })(getenv('BC_DB') ?: '');
@@ -89,7 +94,8 @@ if (Database::isInitialized()) {
     /**
      * 3) Initial init based on the resolved backend
      */
-    $fakeReplicaAllowed = (getenv('BC_FAKE_REPLICA') ?: '1') !== '0';
+    $fakeReplicaVal = getenv('BC_FAKE_REPLICA');
+    $fakeReplicaAllowed = $fakeReplicaVal === false ? true : ($fakeReplicaVal !== '0' && strcasecmp((string)$fakeReplicaVal, 'false') !== 0);
 
     if ($which === 'mysql') {
         $dsn  = getenv('MYSQL_DSN')

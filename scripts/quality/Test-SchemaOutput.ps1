@@ -1,7 +1,16 @@
 param(
-  [string]$MapPath   = (Join-Path $PSScriptRoot 'schema-map.psd1'),
+  [string]$MapPath   = (Join-Path $PSScriptRoot '..\schema\schema-map-postgres.yaml'),
   [string]$SchemaDir = (Join-Path $PSScriptRoot '..\schema')
 )
+
+function Import-YamlFile {
+  param([Parameter(Mandatory)][string]$Path)
+  if (-not (Test-Path -LiteralPath $Path)) { throw "YAML file not found: $Path" }
+  $null = Import-Module Microsoft.PowerShell.Utility -ErrorAction SilentlyContinue
+  $cfy = Get-Command -Name ConvertFrom-Yaml -ErrorAction SilentlyContinue
+  if (-not $cfy) { throw "ConvertFrom-Yaml missing; install powershell-yaml or use PowerShell 7+" }
+  Get-Content -LiteralPath $Path -Raw | & $cfy
+}
 
 function Get-FileText([string]$path) {
   if (!(Test-Path -LiteralPath $path)) { throw "Soubor nenalezen: $path" }
@@ -12,7 +21,7 @@ function Get-FileText([string]$path) {
 $rxOpts = [System.Text.RegularExpressions.RegexOptions]::Multiline `
         -bor [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
 
-$map = Import-PowerShellDataFile -Path $MapPath
+$map = Import-YamlFile -Path $MapPath
 $tables = $map.Tables.Keys | Sort-Object
 
 # Dialect-aware suffix

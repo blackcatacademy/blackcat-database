@@ -46,12 +46,15 @@ final class PdoIdempotencyStoreTest extends TestCase
         $this->assertFalse($store->begin('op-1'));
         $store->commit('op-1', ['ok' => true]);
         $rec = $store->get('op-1');
+        $this->assertIsArray($rec);
         $this->assertSame('success', $rec['status']);
+        $this->assertArrayHasKey('result', $rec);
         $this->assertSame(['ok' => true], $rec['result']);
 
         $this->assertTrue($store->begin('op-2'));
         $store->fail('op-2', 'boom');
         $rec2 = $store->get('op-2');
+        $this->assertIsArray($rec2);
         $this->assertSame('failed', $rec2['status']);
 
         // make op-2 older than threshold

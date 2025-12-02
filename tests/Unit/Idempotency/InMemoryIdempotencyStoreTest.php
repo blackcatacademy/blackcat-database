@@ -14,12 +14,16 @@ final class InMemoryIdempotencyStoreTest extends TestCase
 
         $store->commit('key1', ['result' => 'ok']);
         $rec = $store->get('key1');
+        $this->assertNotNull($rec);
         $this->assertSame('success', $rec['status']);
+        $this->assertArrayHasKey('result', $rec);
         $this->assertSame(['result' => 'ok'], $rec['result']);
 
         $store->fail('key2', 'boom');
         $fail = $store->get('key2');
+        $this->assertNotNull($fail);
         $this->assertSame('failed', $fail['status']);
+        $this->assertArrayHasKey('result', $fail);
         $this->assertNull($fail['result']);
     }
 

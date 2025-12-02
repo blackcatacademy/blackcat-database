@@ -1,5 +1,5 @@
 <# Build-Definitions.ps1 (fixed)
-    Merges schema-map.psd1 (SQL) + schema-defs.psd1 (metadata)
+    Merges schema-map.yaml (SQL) + schema-defs.yaml (metadata)
     → packages/<slug>/docs/definition.md
 #>
 [CmdletBinding()]

@@ -88,7 +88,7 @@ Views:
   encrypted_fields:
     create: |-
       -- Contract view for [encrypted_fields]
-      -- Hides ciphertext; keeps routing metadata.
+      -- Hides raw ciphertext; exposes hex digest for routing/debug.
       CREATE OR REPLACE ALGORITHM=MERGE SQL SECURITY INVOKER VIEW vw_encrypted_fields AS
       SELECT
         id,

@@ -45,7 +45,7 @@ final class SchemaFilesSemicolonTest extends TestCase
 
             // remove BOM and trim trailing whitespace
             $raw = preg_replace('/^\xEF\xBB\xBF/', '', $raw);
-            $trimmed = rtrim($raw);
+            $trimmed = rtrim((string)$raw);
 
             // skip if the file is empty after filtering (or comments only)
             if ($this->isEffectivelyEmptySql($trimmed)) {
@@ -83,11 +83,11 @@ final class SchemaFilesSemicolonTest extends TestCase
         $s = $sql;
 
         // remove block comments /* ... */
-        $s = preg_replace('#/\*.*?\*/#s', '', $s);
+        $s = preg_replace('#/\*.*?\*/#s', '', $s) ?? '';
         // remove single-line comments -- ... at EOL
-        $s = preg_replace('/--[^\n\r]*/', '', $s);
+        $s = preg_replace('/--[^\n\r]*/', '', $s) ?? '';
 
         // empty after removing comments and whitespace?
-        return trim($s) === '';
+        return trim((string)$s) === '';
     }
 }

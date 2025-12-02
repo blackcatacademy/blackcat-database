@@ -1,5 +1,5 @@
 param(
-  # Input directory containing all *.psd1 files
+  # Input directory containing all *.yaml files
   [string]$InDir  = (Join-Path $PSScriptRoot "schema"),
   # Output directory for the generated *.sql files
   [string]$OutDir = (Join-Path (Split-Path $PSScriptRoot -Parent) "schema"),
@@ -33,7 +33,12 @@ function Import-Map {
     Write-Host "  (skip) $Label — nenalezeno: $Path" -ForegroundColor Yellow
     return $null
   }
-  Import-PowerShellDataFile -Path $Path
+  $null = Import-Module Microsoft.PowerShell.Utility -ErrorAction SilentlyContinue
+  $cfy = Get-Command -Name ConvertFrom-Yaml -ErrorAction SilentlyContinue
+  if (-not $cfy) {
+    throw "ConvertFrom-Yaml not available; install powershell-yaml or use PowerShell 7+."
+  }
+  ConvertFrom-Yaml (Get-Content -LiteralPath $Path -Raw)
 }
 
 function Add-SqlTerminator {
@@ -212,16 +217,16 @@ function Write-Seed {
 # ---------- konfigurace cest ----------
 $In = @{
   mysql = @{
-    Map   = Join-Path $InDir "schema-map-mysql.psd1"
-    Views = Join-Path $InDir "schema-views-mysql.psd1"
-    FeatureViews = Join-Path $InDir "schema-views-feature-mysql.psd1"
-    Seed  = Join-Path $InDir "schema-seed-mysql.psd1"
+    Map   = Join-Path $InDir "schema-map-mysql.yaml"
+    Views = Join-Path $InDir "schema-views-mysql.yaml"
+    FeatureViews = Join-Path $InDir "schema-views-feature-mysql.yaml"
+    Seed  = Join-Path $InDir "schema-seed-mysql.yaml"
   }
   postgres = @{
-    Map   = Join-Path $InDir "schema-map-postgres.psd1"
-    Views = Join-Path $InDir "schema-views-postgres.psd1"
-    FeatureViews = Join-Path $InDir "schema-views-feature-postgres.psd1"
-    Seed  = Join-Path $InDir "schema-seed-postgres.psd1"
+    Map   = Join-Path $InDir "schema-map-postgres.yaml"
+    Views = Join-Path $InDir "schema-views-postgres.yaml"
+    FeatureViews = Join-Path $InDir "schema-views-feature-postgres.yaml"
+    Seed  = Join-Path $InDir "schema-seed-postgres.yaml"
   }
 }
 

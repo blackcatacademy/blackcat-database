@@ -54,14 +54,39 @@ trait SeekAndBulkSupport
 {
     /**
      * @param object $criteria
-     * @param array{col:string,dir:'asc'|'desc',pk:string} $order
+     * @param array{col?:string|array,dir?:'asc'|'desc'|string,pk?:string|array} $order
      * @param array{colValue:mixed,pkValue:mixed}|null $cursor
      * @return array{0:array<int,array<string,mixed>>,1:array{colValue:mixed,pkValue:mixed}|null}
      */
     public function paginateBySeek(object $criteria, array $order, ?array $cursor, int $limit): array
     {
+        $orderPk = $order['pk'] ?? '';
+        if (\is_array($orderPk)) {
+            $orderPk = (string)($orderPk[0] ?? '');
+        }
+        $col = '';
+        if (\array_key_exists('col', $order)) {
+            $colVal = $order['col'];
+            if (\is_array($colVal)) {
+                $colVal = $colVal[0] ?? '';
+            }
+            $col = (string)$colVal;
+        }
+        $dir = \strtolower((string)($order['dir'] ?? ''));
+
+        // sane defaults
+        $col = $col !== '' ? $col : ($orderPk ?: 'id');
+        $dir = \in_array($dir, ['asc','desc'], true) ? $dir : 'desc';
+        $pk  = $orderPk !== '' ? $orderPk : $col;
+
+        $orderSpec = [
+            'col' => $col,
+            'dir' => $dir,
+            'pk'  => $pk,
+        ];
+
         if ($this->repo instanceof SeekPaginableRepository) {
-            return $this->repo->paginateBySeek($criteria, $order, $cursor, max(1, (int)$limit));
+            return $this->repo->paginateBySeek($criteria, $orderSpec, $cursor, max(1, (int)$limit));
         }
 
         // Fallback: emulate "page 1" via classic paginate(); trim to $limit
@@ -86,7 +111,7 @@ trait SeekAndBulkSupport
         }
 
         if ($this->repo instanceof BulkUpsertRepository) {
-            $this->repo->upsertMany($rows);
+            $this->repo->upsertMany($rows, [], []);
             return;
         }
 
@@ -130,7 +155,7 @@ trait SeekAndBulkSupport
                 /** @var callable $fn */
                 return $this->withRowLock($id, $fn, 'skip_locked');
             } catch (\PDOException | \RuntimeException $e) {
-                $msg = \strtolower($e->getMessage() ?? '');
+                $msg = \strtolower((string)$e->getMessage());
                 if (\str_contains($msg, 'lock') || \str_contains($msg, 'skip locked')) {
                     return null; // behave as if row was locked
                 }
@@ -139,6 +164,7 @@ trait SeekAndBulkSupport
         }
 
         // No-op fallback: invoke the closure without explicit locking, keeping the expected arity
-        return $fn(null, \method_exists($this, 'db') ? $this->db() : null);
+        // No DB accessor available; run without connection context
+        return $fn(null, null);
     }
 }

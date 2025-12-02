@@ -16,14 +16,15 @@ final class ContractViewSmokeTest extends TestCase
     public function test_select_from_each_contract_view(): void
     {
         DbHarness::ensureInstalled();
-        $root = realpath(__DIR__ . '/../../packages');
+        $root = realpath(__DIR__ . '/../../packages') ?: (__DIR__ . '/../../packages');
         $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS));
         $views = [];
         foreach ($it as $f) {
             if ($f->isFile() && preg_match('~/packages/([^/]+)/schema/040_(?:views|view_contract)\.(mysql|postgres)\.sql$~', $f->getPathname())) {
                 // determine view name via Definitions::contractView()
                 $pkg = basename(dirname(dirname($f->getPathname()))); // packages/<pkg>/schema/...
-                $pascal = implode('', array_map('ucfirst', preg_split('/[_-]/',$pkg)));
+                $parts = preg_split('/[_-]/', $pkg) ?: [];
+                $pascal = implode('', array_map('ucfirst', $parts));
                 $defs = "BlackCat\\Database\\Packages\\{$pascal}\\Definitions";
                 if (class_exists($defs) && method_exists($defs,'contractView')) {
                     $views[$pkg] = $defs::contractView();

@@ -8,8 +8,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && docker-php-ext-install pdo_mysql pdo_pgsql \
  && pecl install pcov \
  && docker-php-ext-enable pcov \
- && echo "pcov.enabled=1" > /usr/local/etc/php/conf.d/pcov.ini \
- && echo "pcov.directory=/work/src" >> /usr/local/etc/php/conf.d/pcov.ini \
+ && { \
+      echo "pcov.enabled=1"; \
+      echo "pcov.overwrite=1"; \
+      echo "pcov.directory=/work"; \
+   } > /usr/local/etc/php/conf.d/pcov.ini \
  && rm -rf /var/lib/apt/lists/*
 
 # Composer

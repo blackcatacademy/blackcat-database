@@ -1,12 +1,17 @@
+[CmdletBinding(PositionalBinding=$true)]
 param(
+  # Catch stray positional arguments (e.g., accidental "+") before binding errors
+  [Parameter(ValueFromRemainingArguments=$true, Position=0)]
+  [string[]]$ExtraArgs,
+
   [Alias('Map','MapFile')]
   [string]$MapPath,                           # optional; defaults to autodetect inside -SchemaDir
-  [string]$SchemaDir = "./schema",            # where to look for schema-map-*.psd1 files
+  [string]$SchemaDir = "./schema",            # where to look for schema-map files
   [ValidateSet('auto','postgres','mysql','both')]
   [string]$EnginePreference = 'both',
 
   [Parameter(Mandatory=$true)]
-  [string]$TemplatesRoot,                     # ./templates/php (contains the *.psd1 templates)
+  [string]$TemplatesRoot,                     # ./templates/php (contains the *.yaml templates)
 
   [string]$ModulesRoot = "./packages",        # root of package submodules (e.g., users -> ./packages/users)
   [ValidateSet('detect','snake','kebab','pascal')]
@@ -16,7 +21,7 @@ param(
   [string]$BaseNamespace = "BlackCat\Database\Packages", # base namespace token
   [string]$DatabaseFQN = "BlackCat\Core\Database",
   [string]$Timezone = "UTC",
-  # Views (optional) – otherwise autodetect views-map-*.psd1 under $ViewsDir/$SchemaDir
+  # Views (optional) – otherwise autodetect views-map under $ViewsDir/$SchemaDir
   [string]$ViewsPath,
   [string]$ViewsDir = "./schema",
   [switch]$FailOnViewDrift,                   # without it, the script still fails when drift is found (see below)
@@ -74,6 +79,8 @@ function Test-StaleRepo {
   }
   ,$hits
 }
+
+$script:SchemaExt = '.yaml'
 
 function Stop-IfNeeded {
   param([string]$RepoRoot)
@@ -158,7 +165,8 @@ function New-UniqueHelpers {
     for ($i=0; $i -lt $combo.Count; $i++) {
       $col = $combo[$i].ToLower()
       $var = $namesCamel[$i]
-      $tp  = if ($colMap.ContainsKey($col)) { Get-PhpParamTypeForColumn $colMap[$col] } else { 'mixed' }
+      $tp  = 'mixed'
+    if ($colMap.ContainsKey($col)) { $tp = Get-PhpParamTypeForColumn $colMap[$col] }
       $paramDecl.Add("$tp `$$var")
       $assocKvs.Add("'$col' => `$$var")
       $bindPairs.Add("'uniq_$col' => `$$var")
@@ -173,9 +181,7 @@ function New-UniqueHelpers {
     $out.Add(@"
     /** @return array<string,mixed>|\[[NAMESPACE]]\Dto\[[DTO_CLASS]]|null */
     public function getBy$suffix($paramList, bool `$asDto = false): array|\[[NAMESPACE]]\Dto\[[DTO_CLASS]]|null {
-        `$row = `$this->getByUnique($assocPhp);
-        if (!`$asDto || !`$row) return `$row;
-        return \[[NAMESPACE]]\Mapper\[[DTO_CLASS]]Mapper::fromRow(`$row);
+        return `$this->getByUnique($assocPhp, `$asDto);
     }
 "@)
 
@@ -192,8 +198,9 @@ function New-UniqueHelpers {
       $out.Add(@"
     /** @return int|string|null */
     public function getIdBy$suffix($paramList) {
-        `$row = `$this->getBy$suffix($argsJoined);
-        return `$row ? (`$row['$pk'] ?? null) : null;
+        `$row = `$this->getBy$suffix($argsJoined, false);
+        if (!is_array(`$row)) { return null; }
+        return `$row['$pk'] ?? null;
     }
 "@)
     }
@@ -215,22 +222,22 @@ function New-CriteriaHelpers {
   if ($PkCols -and $PkCols.Count -eq 1) {
     $pk = $PkCols[0]
     $out.Add(@"
-    public function byId(int|string `$id): self {
-        return `$this->where('t.$pk = :cid', ['cid' => `$id]);
+    public function byId(int|string `$id): static {
+        return `$this->where('$pk', '=', `$id);
     }
-    public function byIds(array `$ids): self {
-        if (!`$ids) return `$this->where('1=0');
-        return `$this->whereIn('t.$pk', array_values(`$ids));
+    public function byIds(array `$ids): static {
+        if (!`$ids) return `$this->whereRaw('1=0');
+        return `$this->where('$pk', 'IN', array_values(`$ids));
     }
 "@)
   } elseif ($PkCols -and $PkCols.Count -gt 1) {
     $parts = @()
-    foreach ($k in $PkCols) { $parts += "t.$k = :cid_$k" }
+    foreach ($k in $PkCols) { $parts += "$k = :cid_$k" }
     $where = [string]::Join(' AND ', $parts)
     $out.Add(@"
     /** @param array<string,mixed> `$id */
     public function byId(array `$id): self {
-        return `$this->where('$where', array_combine(
+        return `$this->whereRaw('$where', array_combine(
             array_map(fn(\$k) => 'cid_' . \$k, array_keys(`$id)),
             array_values(`$id)
         ));
@@ -241,9 +248,9 @@ function New-CriteriaHelpers {
   if ($set.ContainsKey('status')) {
     $out.Add(@"
     /** @param string|array<int,string> `$status */
-    public function byStatus(string|array `$status): self {
-        if (is_array(`$status)) { return `$this->whereIn('t.status', `$status); }
-        return `$this->where('t.status = :st', ['st' => `$status]);
+    public function byStatus(string|array `$status): static {
+        if (is_array(`$status)) { return `$this->where('status', 'IN', `$status); }
+        return `$this->where('status', '=', `$status);
     }
 "@)
   }
@@ -251,32 +258,32 @@ function New-CriteriaHelpers {
   if ($set.ContainsKey('tenant_id')) {
     $out.Add(@"
     /** @param int|string|array<int,int|string> `$tenantId */
-    public function forTenant(int|string|array `$tenantId): self {
-        if (is_array(`$tenantId)) { return `$this->whereIn('t.tenant_id', `$tenantId); }
-        return `$this->where('t.tenant_id = :tid', ['tid' => `$tenantId]);
+    public function forTenant(int|string|array `$tenantId): static {
+        if (is_array(`$tenantId)) { return `$this->where('tenant_id', 'IN', `$tenantId); }
+        return `$this->where('tenant_id', '=', `$tenantId);
     }
 "@)
   }
 
   if ($set.ContainsKey('created_at')) {
     $out.Add(@"
-    public function createdBetween(?\DateTimeInterface `$from, ?\DateTimeInterface `$to): self {
-        return `$this->range('t.created_at', `$from, `$to);
+    public function createdBetween(?\DateTimeInterface `$from, ?\DateTimeInterface `$to): static {
+        return `$this->between('created_at', `$from, `$to);
     }
 "@)
   }
   if ($set.ContainsKey('updated_at')) {
     $out.Add(@"
-    public function updatedSince(\DateTimeInterface `$ts): self {
-        return `$this->where('t.updated_at >= :u', ['u' => `$ts]);
+    public function updatedSince(\DateTimeInterface `$ts): static {
+        return `$this->where('updated_at', '>=', `$ts);
     }
 "@)
   }
 
   if ($set.ContainsKey('deleted_at')) {
     $out.Add(@"
-    public function withTrashed(bool `$on = true): self { return parent::withTrashed(`$on); }
-    public function onlyTrashed(bool `$on = true): self { return parent::onlyTrashed(`$on); }
+    public function withTrashed(bool `$on = true): static { return parent::withTrashed(`$on); }
+    public function onlyTrashed(bool `$on = true): static { return parent::onlyTrashed(`$on); }
 "@)
   }
 
@@ -288,8 +295,8 @@ function New-CriteriaHelpers {
   )) {
     if ($set.ContainsKey($spec.col)) {
       $out.Add(@"
-    public function by$($spec.name)($($spec.type) `$$($spec.col)): self {
-        return `$this->where('t.$($spec.col) = :c_$($spec.col)', ['c_$($spec.col)' => `$$($spec.col)]);
+    public function by$($spec.name)($($spec.type) `$$($spec.col)): static {
+        return `$this->whereRaw('$($spec.col) = :c_$($spec.col)', ['c_$($spec.col)' => `$$($spec.col)]);
     }
 "@)
     }
@@ -312,9 +319,7 @@ function New-TenancyRepoHelpers {
       @"
     /** @return array<string,mixed>|\[[NAMESPACE]]\Dto\[[DTO_CLASS]]|null */
     public function getByIdForTenant(int|string `$id, int|string `$tenantId, bool `$asDto = false): array|\[[NAMESPACE]]\Dto\[[DTO_CLASS]]|null {
-        `$row = `$this->getByUnique(['id' => `$id, 'tenant_id' => `$tenantId]);
-        if (!`$asDto || !`$row) return `$row;
-        return \[[NAMESPACE]]\Mapper\[[DTO_CLASS]]Mapper::fromRow(`$row);
+        return `$this->getByUnique(['id' => `$id, 'tenant_id' => `$tenantId], `$asDto);
     }
 "@
     } else { '' }
@@ -425,7 +430,7 @@ function Get-UniqueCombosFromCreateSql {
 
   # *** NEW ***: in-line UNIQUE on a column
   # e.g.:   name VARCHAR(100) NOT NULL UNIQUE,
-  foreach ($m in [regex]::Matches($CreateSql, '(?im)^\s*[`"]?([a-z0-9_]+)[`"]?\s+[^,\r\n]*?\bUNIQUE\b(?!\s+(?:KEY|INDEX)\b).*?(?:,|$)')) {
+  foreach ($m in [regex]::Matches($CreateSql, '(?im)^(?!\s*CONSTRAINT\b)\s*[`"]?([a-z0-9_]+)[`"]?\s+[^,\r\n]*?\bUNIQUE\b(?!\s+(?:KEY|INDEX)\b).*?(?:,|$)')) {
     $col = $m.Groups[1].Value
     if ($col) { $combos += ,@($col) }
   }
@@ -442,6 +447,19 @@ function Get-UniqueCombosFromCreateSql {
   }
 
   return ,$filtered
+}
+
+function Get-GeneratedColumnsFromCreateSql {
+  param([string]$CreateSql)
+
+  if (-not $CreateSql) { return @() }
+  $cols = @()
+  foreach ($m in [regex]::Matches($CreateSql, '(?im)^\s*[`"]?([a-z0-9_]+)[`"]?\s+[^,\r\n]*\bGENERATED\s+ALWAYS\b')) {
+    $c = $m.Groups[1].Value
+    if ($c -and $c -match '^[a-z0-9_]+$') { $cols += $c.ToLower() }
+  }
+  # dedupe
+  return @($cols | Select-Object -Unique)
 }
 function Assert-UpsertConsistency {
   param(
@@ -735,14 +753,13 @@ function Assert-ViewAlgorithms {
     [Parameter(Mandatory)][string]$Path
   )
   if (-not $ViewsMap -or -not $ViewsMap.Views) { return }
+  $engine = Get-EngineTag $Path
   foreach ($kv in $ViewsMap.Views.GetEnumerator()) {
     $name = [string]$kv.Key
-    $ddl  = ''
-    if ($kv.Value -and $kv.Value.PSObject -and $kv.Value.PSObject.Properties['create']) {
-      $ddl = [string]$kv.Value.create
-    }
+    $ddl  = Get-CreateText $kv.Value
     if (-not $ddl) { continue }
 
+    if ($engine -eq 'postgres') { continue } # Postgres does not use ALGORITHM
     if ($ddl -notmatch '(?i)ALGORITHM\s*=\s*([A-Z]+)') {
       throw "View '$name' in '$Path' is missing ALGORITHM=MERGE|TEMPTABLE."
     }
@@ -755,21 +772,23 @@ function Assert-ViewAlgorithms {
 
 function Import-SchemaMap([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path)) { throw "Schema map not found at '$Path'." }
-  Import-PowerShellDataFile -Path $Path
+  $map = Import-YamlFile -Path $Path
+  ConvertTo-HashtableDeep $map
 }
 function Import-ViewsMap([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path)) { throw "Views map not found at '$Path'." }
-  $data = Import-PowerShellDataFile -Path $Path
+  $data = Import-YamlFile -Path $Path
+  $data = ConvertTo-HashtableDeep $data
   Assert-ViewAlgorithms -ViewsMap $data -Path $Path
   $data
 }
 
 function Get-Templates([string]$Root) {
   if (-not (Test-Path $Root)) { throw "TemplatesRoot '$Root' not found." }
-  $files = Get-ChildItem -LiteralPath $Root -Filter '*.psd1' -Recurse
-  if (-not $files) { throw "No .psd1 templates found under '$Root'." }
+  $files = Get-ChildItem -LiteralPath $Root -Filter '*.yaml' -Recurse
+  if (-not $files) { throw "No .yaml templates found under '$Root'." }
   foreach ($f in $files) {
-    $t = Import-PowerShellDataFile -Path $f.FullName
+    $t = Import-YamlFile -Path $f.FullName
     if (-not $t.File -or -not $t.Content) {
       throw "Template '$($f.FullName)' must define 'File' and 'Content'."
     }
@@ -790,6 +809,26 @@ function Get-EngineTag([string]$path) {
   if ($leaf -match 'postgres') { return 'postgres' }
   return 'default'
 }
+function Import-YamlFile {
+  param([Parameter(Mandatory)][string]$Path)
+  if (-not (Test-Path -LiteralPath $Path)) { throw "YAML file not found: $Path" }
+  # Prefer native ConvertFrom-Yaml (PS7+); accept any module providing it (e.g., powershell-yaml).
+  $null = Import-Module Microsoft.PowerShell.Utility -ErrorAction SilentlyContinue
+  $cfy = Get-Command -Name ConvertFrom-Yaml -ErrorAction SilentlyContinue
+  if (-not $cfy) {
+    $msg = @'
+ConvertFrom-Yaml not available (requires PowerShell 7+ with Microsoft.PowerShell.Utility). Install a YAML parser, e.g.:
+[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) { Register-PSRepository -Default }; Set-PSRepository -Name PSGallery -InstallationPolicy Trusted; Install-Module -Name powershell-yaml -Scope CurrentUser -Force
+'@
+    throw $msg
+  }
+  try {
+    return Get-Content -LiteralPath $Path -Raw | & $cfy
+  } catch {
+    throw "Failed to parse YAML '$Path' via ConvertFrom-Yaml: $($_.Exception.Message)"
+  }
+}
+
 function ConvertTo-PhpAssoc([hashtable]$ht) {
   if (-not $ht -or $ht.Keys.Count -eq 0) { return '[]' }
   $pairs = New-Object System.Collections.Generic.List[string]
@@ -806,6 +845,48 @@ function ConvertTo-PascalCase([string]$snake) {
 function ConvertTo-CamelCase([string]$snake) {
   $p = ConvertTo-PascalCase $snake
   if ($p.Length -gt 0) { ($p.Substring(0,1).ToLower() + $p.Substring(1)) } else { $p }
+}
+function Get-CreateText {
+  param($Value)
+  function Extract($Obj) {
+    if ($null -eq $Obj) { return $null }
+    if ($Obj -is [string]) { return $Obj }
+    if ($Obj -is [System.Collections.IDictionary]) {
+      if ($Obj.Contains('create')) { return Extract $Obj['create'] }
+      if ($Obj.PSObject -and $Obj.PSObject.Properties['create']) { return Extract $Obj.create }
+      foreach ($v in $Obj.Values) { $r = Extract $v; if ($r) { return $r } }
+      return ($Obj.Values | ForEach-Object { [string]$_ }) -join "`n"
+    }
+    if ($Obj -and $Obj.PSObject) {
+      if ($Obj.PSObject.Properties['create']) { return Extract $Obj.create }
+      foreach ($p in $Obj.PSObject.Properties) { $r = Extract $p.Value; if ($r) { return $r } }
+    }
+    if ($Obj -is [System.Collections.IEnumerable] -and -not ($Obj -is [string])) {
+      $parts = @()
+      foreach ($item in $Obj) { $r = Extract $item; if ($r) { $parts += $r } }
+      if ($parts.Count -gt 0) { return ($parts -join "`n") }
+    }
+    return [string]$Obj
+  }
+  return [string](Extract $Value)
+}
+function ConvertTo-HashtableDeep {
+  param($InputObject)
+  if ($InputObject -is [ValueType] -or $InputObject -is [string]) { return $InputObject }
+  if ($InputObject -is [System.Collections.IDictionary]) {
+    $ht = @{}
+    foreach ($k in $InputObject.Keys) { $ht[$k] = ConvertTo-HashtableDeep $InputObject[$k] }
+    return $ht
+  }
+  if ($InputObject -is [System.Collections.IEnumerable] -and -not ($InputObject -is [string])) {
+    return @($InputObject | ForEach-Object { ConvertTo-HashtableDeep $_ })
+  }
+  if ($InputObject -and $InputObject.PSObject) {
+    $ht = @{}
+    foreach ($p in $InputObject.PSObject.Properties) { $ht[$p.Name] = ConvertTo-HashtableDeep $p.Value }
+    return $ht
+  }
+  return $InputObject
 }
 function Get-SubmodulePathSet([string]$repoRoot) {
   $set = @{}
@@ -940,7 +1021,7 @@ function Assert-TableVsView {
   $viewSql  = $null
 
   if ($ViewsMap -and $ViewsMap.Views -and $ViewsMap.Views.ContainsKey($Table)) {
-    $viewSql = [string]$ViewsMap.Views[$Table].create
+    $viewSql = Get-CreateText $ViewsMap.Views[$Table]
   } else {
     $errs.Add("Missing view SQL for '$Table' (expected $viewName).")
   }
@@ -1065,11 +1146,10 @@ function New-JoinMethods {
     $refView  = 'vw_' + $refTable
     $baseName = 'join' + (ConvertTo-PascalCase $refTable)
     if ($nameCounts.ContainsKey($baseName)) { $nameCounts[$baseName]++ } else { $nameCounts[$baseName] = 1 }
-    $methodName = if ($nameCounts[$baseName] -eq 1) {
-        $baseName
-    } else {
-        $suffix = ($p.Local | ForEach-Object { ConvertTo-PascalCase $_ }) -join 'And'
-        $baseName + 'By' + $suffix
+    $methodName = $baseName
+    if ($nameCounts[$baseName] -ne 1) {
+      $suffix = ($p.Local | ForEach-Object { ConvertTo-PascalCase $_ }) -join 'And'
+      $methodName = $baseName + 'By' + $suffix
     }
     $aliasDefault = 'j' + ($idx)
 
@@ -1150,16 +1230,18 @@ function New-AutowireTokens {
   $ctorItems.Add("private $repoShort `$$varName")
   $mapLines.Add("  '$TableName' => `$this->$varName")
 
-  # --- optional override via ./repository-wiring.psd1 ---
-  $rwPath = Join-Path $ModuleDir 'repository-wiring.psd1'
+  # --- optional override via ./repository-wiring.yaml ---
+  $rwPath = Join-Path $ModuleDir 'repository-wiring.yaml'
   if (Test-Path -LiteralPath $rwPath) {
     $rw = Import-PowerShellDataFile -Path $rwPath
     foreach ($r in @($rw.Repositories)) {
       $class = [string]$r.Class
       if (-not $class) { continue }
       $short = ($class -split '\\')[-1]
-      $var   = if ($r.VarName) { ($r.VarName -replace '^\$','') } else { ($short.Substring(0,1).ToLower() + $short.Substring(1)) }
-      $alias = if ($r.Alias) { [string]$r.Alias } else { $short }
+      $var   = ($short.Substring(0,1).ToLower() + $short.Substring(1))
+      if ($r.VarName) { $var = ($r.VarName -replace '^\$','') }
+      $alias = $short
+      if ($r.Alias) { $alias = [string]$r.Alias }
 
       $imports.Add( $( if ($r.Import) { [string]$r.Import } else { "use $class;" } ) )
       $ctorItems.Add("private $short `$$var")
@@ -1240,8 +1322,10 @@ function ConvertFrom-CreateSql([string]$tableName, [string]$sql) {
         $base = $matches[1].ToUpper()
         $par  = $matches[2]
         $uns  = $matches[3]
-        $parText = if ($null -ne $par) { $par } else { '' }
-        $unsText = if ($null -ne $uns) { $uns } else { '' }
+        $parText = ''
+        if ($null -ne $par) { $parText = $par }
+        $unsText = ''
+        if ($null -ne $uns) { $unsText = $uns }
         $sqlType = ($base + $parText + $unsText).Trim()
       } else {
         # fallback – take the first word
@@ -1339,7 +1423,8 @@ function New-DtoConstructorParameters {
   foreach ($c in $columns) {
     $prop    = ConvertTo-CamelCase $c.Name
     $phpType = Get-PhpTypeFromSqlBase $c.Base $c.Nullable
-    $attr    = ($piiSet.ContainsKey($c.Name.ToLower())) ? '#[\SensitiveParameter] ' : ''
+    $attr    = ''
+    if ($piiSet.ContainsKey($c.Name.ToLower())) { $attr = '#[\SensitiveParameter] ' }
     $parts  += ('{0}public readonly {1} ${2}' -f $attr, $phpType, $prop)
   }
   return ($parts -join ",`n        ")
@@ -1414,7 +1499,7 @@ function Resolve-ViewDependencies([string]$table, [hashtable]$views, [hashtable]
   if ($memo.ContainsKey($table)) { return @() }
   $memo[$table] = $true
 
-  $sql = [string]$views.Views[$table].create
+  $sql = Get-CreateText $views.Views[$table]
   $direct = @( Get-TablesFromJoin $sql )
 
   $acc = New-Object System.Collections.Generic.List[string]
@@ -1496,9 +1581,9 @@ if ($MapPath) {
   if (-not (Test-Path -LiteralPath $SchemaDir)) { throw "Schema dir not found: '$SchemaDir'." }
 
   # Get FileInfo[] first, then convert to strings
-  $allItems = @(Get-ChildItem -LiteralPath $SchemaDir -Filter 'schema-map-*.psd1' -File)
+  $allItems = @(Get-ChildItem -LiteralPath $SchemaDir -Filter ("schema-map-*{0}" -f $script:SchemaExt) -File)
   if (-not $allItems -or $allItems.Count -eq 0) {
-    throw "No schema maps found under '$SchemaDir' (pattern 'schema-map-*.psd1')."
+    throw "No schema maps found under '$SchemaDir' (pattern 'schema-map-*' + $script:SchemaExt)."
   }
 
   $pgItems  = @($allItems | Where-Object { $_.Name -match 'postgres' })
@@ -1516,7 +1601,12 @@ if ($MapPath) {
     'both'     { $mapPaths = @($pgPaths + $myPaths + $othPaths) }
     default {
       # auto: prefer Postgres, otherwise MySQL
-      $prefer = if (@($pgPaths).Count -gt 0) { $pgPaths } else { $myPaths }
+      $prefer = @()
+      if (@($pgPaths).Count -gt 0) {
+        $prefer = $pgPaths
+      } else {
+        $prefer = $myPaths
+      }
       $mapPaths = @($prefer + $othPaths)
     }
   }
@@ -1531,39 +1621,39 @@ function Test-SelectStar([string]$viewSql) {
 }
 
 # Remove nulls, duplicates, and missing paths (safety)
-$mapPaths = @($mapPaths | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique)
+  $mapPaths = @($mapPaths | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique)
 
-if (-not $mapPaths -or $mapPaths.Count -eq 0) { throw "No schema maps selected." }
+  if (-not $mapPaths -or $mapPaths.Count -eq 0) { throw "No schema maps selected." }
 
-Write-Host "Selected maps ($($mapPaths.Count)):" -ForegroundColor Cyan
-$mapPaths | ForEach-Object { Write-Host "  - $_" -ForegroundColor DarkCyan }
+  Write-Host "Selected maps ($($mapPaths.Count)):" -ForegroundColor Cyan
+  $mapPaths | ForEach-Object { Write-Host "  - $_" -ForegroundColor DarkCyan }
 
 # --- Views map registry (support per-engine maps, search multiple dirs) ---
-$viewMaps = @{}
-$joinViewMaps = @{}
+  $viewMaps = @{}
+  $joinViewMaps = @{}
 
 # search order: prefer full views-library (recursive), then explicit ViewsDir/SchemaDir
-$viewDirs = @()
-$libRoot = Join-Path $PSScriptRoot '..\..\views-library'
-if (-not (Test-Path -LiteralPath $libRoot)) {
-  $libRoot = Join-Path $PSScriptRoot '..\views-library'
-}
-if (Test-Path -LiteralPath $libRoot) {
-  $viewDirs += $libRoot
-}
-if ($ViewsPath) {
-  $viewDirs += (Split-Path -Parent $ViewsPath)
-} elseif ($PSBoundParameters.ContainsKey('ViewsDir') -and (Test-Path -LiteralPath $ViewsDir)) {
-  $viewDirs += $ViewsDir
-} else {
-  $viewDirs += $SchemaDir
-}
-$viewDirs = @($viewDirs | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique)
+  $viewDirs = @()
+  $libRoot = Join-Path $PSScriptRoot '..\..\views-library'
+  if (-not (Test-Path -LiteralPath $libRoot)) {
+    $libRoot = Join-Path $PSScriptRoot '..\views-library'
+  }
+  if (Test-Path -LiteralPath $libRoot) {
+    $viewDirs += $libRoot
+  }
+  if ($ViewsPath) {
+    $viewDirs += (Split-Path -Parent $ViewsPath)
+  } elseif ($PSBoundParameters.ContainsKey('ViewsDir') -and (Test-Path -LiteralPath $ViewsDir)) {
+    $viewDirs += $ViewsDir
+  } else {
+    $viewDirs += $SchemaDir
+  }
+  $viewDirs = @($viewDirs | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique)
 
 # load view maps (merge all)
 foreach ($dir in $viewDirs) {
   $candidates = @(Get-ChildItem -LiteralPath $dir -Recurse -File | Where-Object {
-    $_.Name -match '^(views-map-|schema-views-|feature).+\.psd1$' -and $_.Name -notmatch 'joins'
+    $_.Name -match '^(views-map-|schema-views-|feature)' -and $_.Extension -eq $script:SchemaExt -and $_.Name -notmatch 'joins'
   })
   foreach ($candidate in @($candidates | Sort-Object FullName)) {
     $tag = Get-EngineTag $candidate.Name
@@ -1586,10 +1676,10 @@ foreach ($entry in $viewMaps.GetEnumerator()) {
   Write-Host ("Loaded views map [{0}]: {1}" -f $entry.Key, $entry.Value.Path) -ForegroundColor Cyan
 }
 if ($viewMaps.Count -eq 0) {
-  Write-Warning "No views map found (looking for 'views-map-*.psd1' or 'schema-views-*.psd1'). View drift checks will throw for missing views."
+  Write-Warning "No views map found (looking for 'views-map-*' + $script:SchemaExt or 'schema-views-*' + $script:SchemaExt). View drift checks will throw for missing views."
 }
 
-# load join maps strictly from the views-library (joins-*.psd1); no legacy fallbacks
+# load join maps strictly from the views-library (joins-*.$script:SchemaExt); no legacy fallbacks
 $joinDirs = @()
 if (Test-Path -LiteralPath $libRoot) {
   $joinDirs += $libRoot
@@ -1602,7 +1692,7 @@ foreach ($eng in @('postgres','mysql')) {
   $merged = $null
   $paths = @()
   foreach ($dir in $joinDirs) {
-    $candidates = @(Get-ChildItem -LiteralPath $dir -Recurse -File -Filter ("joins-{0}.psd1" -f $eng))
+    $candidates = @(Get-ChildItem -LiteralPath $dir -Recurse -File -Filter ("joins-{0}{1}" -f $eng, $script:SchemaExt))
     foreach ($c in $candidates) {
       $paths += $c.FullName
       $data = Import-ViewsMap -Path $c.FullName
@@ -1648,15 +1738,17 @@ foreach ($mp in $mapPaths) {
   foreach ($entry in $tables) {
   $table = [string]$entry.Key                             # e.g. users
   $spec  = $entry.Value
-  $createSql = [string]$spec.create
+  $createSql = Get-CreateText $spec.create
 
   $parsed = ConvertFrom-CreateSql -tableName $table -sql $createSql
   $cols   = @($parsed.Columns)
   $colMap = @{}
   foreach ($col in $cols) {
     if (-not ($col -and $col.PSObject.Properties['Name'])) {
-      $colType = if ($col) { $col.GetType().FullName } else { 'null' }
-      $raw = if ($col) { $col | Out-String } else { '' }
+      $colType = 'null'
+      if ($col) { $colType = $col.GetType().FullName }
+      $raw = ''
+      if ($col) { $raw = $col | Out-String }
       throw "Parsed column without Name for table '$table' (type=$colType). Raw:`n$raw"
     }
     $colMap[$col.Name.ToLower()] = $col
@@ -1672,6 +1764,7 @@ foreach ($mp in $mapPaths) {
   $binaryCols = @($classInfo.Binary | ForEach-Object { $_.ToLower() })
   # list of column names (needed immediately for the PII heuristic)
   $colNames = @($cols | ForEach-Object { $_.Name })
+  $generatedCols = Get-GeneratedColumnsFromCreateSql -CreateSql $createSql
   $packagePascal = ConvertTo-PascalCase $table                      # Users, UserIdentities, OrderItems...
   $entityPascal  = ConvertTo-PascalCase (Singularize $table)        # User, UserIdentity, OrderItem...
   $dtoClass      = "$($entityPascal)Dto"
@@ -1702,6 +1795,7 @@ foreach ($mp in $mapPaths) {
     'DATE_COLUMNS_ARRAY'     = (ConvertTo-PhpArray $classInfo.Dates)
     'BINARY_COLUMNS_ARRAY'   = (ConvertTo-PhpArray $classInfo.Binary)
     'NULLABLE_COLUMNS_ARRAY' = (ConvertTo-PhpArray $classInfo.Nullable)
+    'GENERATED_COLUMNS_ARRAY'= (ConvertTo-PhpArray $generatedCols)
     'PII_COLUMNS_ARRAY'      = (ConvertTo-PhpArray $piiCols)
     'DTO_CTOR_PARAMS'        = (New-DtoConstructorParameters -columns $cols -piiNames $piiCols)
     'SERVICE_CLASS'          = "$($packagePascal)AggregateService"
@@ -1816,11 +1910,13 @@ foreach ($mp in $mapPaths) {
     # Optional whitelist – force a true value when desired
     if ($table -in @('authors','users')) { $rowLockSafe = $true }
 
-    $tokenCommon['IS_ROWLOCK_SAFE'] = if ($rowLockSafe) { 'true' } else { 'false' }
+    $tokenCommon['IS_ROWLOCK_SAFE'] = 'false'
+    if ($rowLockSafe) { $tokenCommon['IS_ROWLOCK_SAFE'] = 'true' }
 
     # default ORDER clause
     if ($hasCreatedAt) {
-      $idOrPk = if ($colNames -contains 'id') { 'id' } else { $pk }
+      $idOrPk = $pk
+      if ($colNames -contains 'id') { $idOrPk = 'id' }
       $defaultOrder = "created_at DESC, $idOrPk DESC"
     } elseif ($colNames -contains 'id') {
       $defaultOrder = 'id DESC'
@@ -1873,7 +1969,7 @@ foreach ($mp in $mapPaths) {
       }
     }
     if (-not $sql) {
-      throw "Contract view SQL for table '$table' not found in schema-views-$eng.psd1 (missing 'create' entry)."
+      throw "Contract view SQL for table '$table' not found in schema-views-$eng$script:SchemaExt (missing 'create' entry)."
     }
     # Strip leading SQL comments/blank lines so CREATE is the first token for DdlGuard (compatible with Windows PS where \R is unsupported)
     $sql = [regex]::Replace($sql, '(?m)^(\\s*--.*(?:\\r?\\n|$))+', '', 'Multiline')
@@ -1897,8 +1993,10 @@ foreach ($mp in $mapPaths) {
     } else {
       $tokenCommon['PK'] = $pk
     }
-    $tokenCommon['SOFT_DELETE_COLUMN']      = ($hasDeletedAt ? 'deleted_at' : '')
-    $tokenCommon['UPDATED_AT_COLUMN']       = ($hasUpdatedAt ? 'updated_at' : '')
+    $tokenCommon['SOFT_DELETE_COLUMN'] = ''
+    if ($hasDeletedAt)  { $tokenCommon['SOFT_DELETE_COLUMN'] = 'deleted_at' }
+    $tokenCommon['UPDATED_AT_COLUMN'] = ''
+    if ($hasUpdatedAt)  { $tokenCommon['UPDATED_AT_COLUMN'] = 'updated_at' }
     $verName = ''
     if ($spec -is [hashtable] -and $spec.ContainsKey('VersionColumn')) {
       $verName = [string]$spec.VersionColumn
@@ -1908,7 +2006,8 @@ foreach ($mp in $mapPaths) {
     $tokenCommon['VERSION_COLUMN'] = $verName
     $tokenCommon['DEFAULT_ORDER_CLAUSE']    = $defaultOrder
     # --- VIEW DRIFT CHECK ---
-    $softCol = if ($hasDeletedAt) { 'deleted_at' } else { '' }
+    $softCol = ''
+    if ($hasDeletedAt) { $softCol = 'deleted_at' }
 
     # Ensure every referenced table has a view
     if ($activeViews) {
@@ -1931,7 +2030,7 @@ foreach ($mp in $mapPaths) {
       -FkLocalColumns $fkLocalCols `
       -FailHard:$FailHardOnViewDrift
 
-    $tokenCommon['UNIQUE_KEYS_ARRAY']       = '[]'                    # keep empty for now
+    $tokenCommon['UNIQUE_KEYS_ARRAY']       = 'null'                  # keep empty for now
     # JSON_COLUMNS_ARRAY already populated above
     $tokenCommon['FILTERABLE_COLUMNS_ARRAY']= (ConvertTo-PhpArray $colNames)
     $tokenCommon['SEARCHABLE_COLUMNS_ARRAY']= (ConvertTo-PhpArray $textCols)
@@ -1947,13 +2046,13 @@ foreach ($mp in $mapPaths) {
     # INDEX/FK names sourced from the schema map when available
     $idxNames = Get-IndexNamesFromSql       @($spec.indexes)
     $fkNames  = Get-ForeignKeyNamesFromSql  @($spec.foreign_keys)
-    $tokenCommon['INDEX_NAMES_ARRAY'] = if (@($idxNames).Count -gt 0) {
-      "[ " + (($idxNames | ForEach-Object { "'$_'" }) -join ', ') + " ]"
-    } else { '[]' }
+    if (@($idxNames).Count -gt 0) {
+      $tokenCommon['INDEX_NAMES_ARRAY'] = "[ " + (($idxNames | ForEach-Object { "'$_'" }) -join ', ') + " ]"
+    } else { $tokenCommon['INDEX_NAMES_ARRAY'] = '[]' }
 
-    $tokenCommon['FK_NAMES_ARRAY'] = if (@($fkNames).Count -gt 0) {
-      "[ " + (($fkNames | ForEach-Object { "'$_'" }) -join ', ') + " ]"
-    } else { '[]' }
+    if (@($fkNames).Count -gt 0) {
+      $tokenCommon['FK_NAMES_ARRAY'] = "[ " + (($fkNames | ForEach-Object { "'$_'" }) -join ', ') + " ]"
+    } else { $tokenCommon['FK_NAMES_ARRAY'] = '[]' }
 
     # ---- UPSERT (robust – keys may be missing) ----
     $ukeys = @()
@@ -1980,13 +2079,13 @@ foreach ($mp in $mapPaths) {
     $ukeysQuoted = @($ukeys | Where-Object { $_ -ne $null -and $_ -ne '' } | ForEach-Object { "'$_'" })
     $uupdQuoted  = @($uupd  | Where-Object { $_ -ne $null -and $_ -ne '' } | ForEach-Object { "'$_'" })
 
-    $tokenCommon['UPSERT_KEYS_ARRAY'] = if (@($ukeysQuoted).Count -gt 0) {
-      "[ " + ($ukeysQuoted -join ', ') + " ]"
-    } else { '[]' }
+    if (@($ukeysQuoted).Count -gt 0) {
+      $tokenCommon['UPSERT_KEYS_ARRAY'] = "[ " + ($ukeysQuoted -join ', ') + " ]"
+    } else { $tokenCommon['UPSERT_KEYS_ARRAY'] = '[]' }
 
-    $tokenCommon['UPSERT_UPDATE_COLUMNS_ARRAY'] = if (@($uupdQuoted).Count -gt 0) {
-      "[ " + ($uupdQuoted -join ', ') + " ]"
-    } else { '[]' }
+    if (@($uupdQuoted).Count -gt 0) {
+      $tokenCommon['UPSERT_UPDATE_COLUMNS_ARRAY'] = "[ " + ($uupdQuoted -join ', ') + " ]"
+    } else { $tokenCommon['UPSERT_UPDATE_COLUMNS_ARRAY'] = '[]' }
 
     # ---- UNIQUE combinations: gather table-level UNIQUEs, unique indexes, and PKs ----
     $addUniqueCombo = {
@@ -2017,6 +2116,17 @@ foreach ($mp in $mapPaths) {
       if ($seen.ContainsKey($k)) { $false } else { $seen[$k] = $true; $true }
     })
 
+    # keep only combos composed of known columns
+    $colSet = @{}
+    foreach ($c in $colNames) { $colSet[$c.ToLower()] = $true }
+    $uniqueCombos = @($uniqueCombos | Where-Object {
+      $allInTable = $true
+      foreach ($c in $_) {
+        if (-not $colSet.ContainsKey($c.ToLower())) { $allInTable = $false; break }
+      }
+      $allInTable
+    })
+
     # Render into [[UNIQUE_KEYS_ARRAY]]
     if (@($uniqueCombos).Count -gt 0) {
       $render = @()
@@ -2025,7 +2135,7 @@ foreach ($mp in $mapPaths) {
       }
       $tokenCommon['UNIQUE_KEYS_ARRAY'] = "[ " + ($render -join ', ') + " ]"
     } else {
-      $tokenCommon['UNIQUE_KEYS_ARRAY'] = '[]'
+      $tokenCommon['UNIQUE_KEYS_ARRAY'] = 'null'
     }
 
     # Validate UPSERT settings against unique combinations
@@ -2120,14 +2230,14 @@ foreach ($mp in $mapPaths) {
     if ($PSBoundParameters.ContainsKey('JoinPolicy') -and ($JoinAsInner -or $JoinAsInnerStrict)) {
       Write-Warning "Legacy switches (-JoinAsInner*) were provided alongside -JoinPolicy. Ignoring the legacy flags and using '$JoinPolicy'."
     }
-    $joinPolicy = if ($PSBoundParameters.ContainsKey('JoinPolicy')) {
-      $JoinPolicy
+    if ($PSBoundParameters.ContainsKey('JoinPolicy')) {
+      $joinPolicy = $JoinPolicy
     } elseif ($JoinAsInnerStrict) {
-      'any'
+      $joinPolicy = 'any'
     } elseif ($JoinAsInner) {
-      'all'
+      $joinPolicy = 'all'
     } else {
-      'left'
+      $joinPolicy = 'left'
     }
 
     $tokenCommon['JOIN_METHODS'] = New-JoinMethods `
@@ -2150,7 +2260,11 @@ foreach ($mp in $mapPaths) {
       $alias = "j$($i)"
       $joinablePairs += "'$($refTables[$i])' => '$alias'"
     }
-    $tokenCommon['JOINABLE_ENTITIES_MAP'] = if ($joinablePairs.Count -gt 0) { '[ ' + ($joinablePairs -join ', ') + ' ]' } else { '[]' }
+    if ($joinablePairs.Count -gt 0) {
+      $tokenCommon['JOINABLE_ENTITIES_MAP'] = '[ ' + ($joinablePairs -join ', ') + ' ]'
+    } else {
+      $tokenCommon['JOINABLE_ENTITIES_MAP'] = '[]'
+    }
     # --- augment deps by tables referenced in our view(s) ---
     $depTablesView = @()
     # View-derived deps disabled for initial install (joins/feature handled separately)
@@ -2210,8 +2324,9 @@ foreach ($mp in $mapPaths) {
     $relPath = $relPath.Replace('[[ENTITY_CLASS]]',  $entityPascal)
     # Resolve [[CLASS]] inside file paths
     if ($relPath -like '*[[CLASS]]*') {
-    $classForPath = ($tpl.File -match '(^|/|\\)Joins(/|\\)') ? $joinsClass : $moduleClass
-    $relPath = $relPath.Replace('[[CLASS]]', $classForPath)
+      $classForPath = $moduleClass
+      if ($tpl.File -match '(^|/|\\)Joins(/|\\)') { $classForPath = $joinsClass }
+      $relPath = $relPath.Replace('[[CLASS]]', $classForPath)
     }
 
     $outPath = Join-Path $moduleDir $relPath
@@ -2220,7 +2335,8 @@ foreach ($mp in $mapPaths) {
     $tokensForThis = @{}
     # 1) special tokens not stored in $tokenCommon
     if ($tpl.Tokens -contains 'CLASS') {
-    $tokensForThis['CLASS'] = ($tpl.File -match '(^|/|\\)Joins(/|\\)') ? $joinsClass : $moduleClass
+      $tokensForThis['CLASS'] = $moduleClass
+      if ($tpl.File -match '(^|/|\\)Joins(/|\\)') { $tokensForThis['CLASS'] = $joinsClass }
     }
     # 2) regular tokens sourced from $tokenCommon
     foreach ($tk in $tpl.Tokens) {
@@ -2237,6 +2353,12 @@ foreach ($mp in $mapPaths) {
     }
 
     # render
+
+    # Template-specific tweaks
+    if ($tpl.Name -match 'aggregate-service-template') {
+      # Aggregate services still need Database + repository imports, but not DTO/Mapper extras.
+      $tokensForThis['USES_ARRAY'] = ("use $DatabaseFQN;`n" + $auto.Imports).Trim()
+    }
     $rendered = Expand-Template -content $tpl.Content -tokenValues $tokensForThis
 
     # check for unresolved [[TOKENS]]
@@ -2244,6 +2366,9 @@ foreach ($mp in $mapPaths) {
     if ((@($unresolved)).Count -gt 0 -and -not $AllowUnresolved) {      $list = $unresolved -join ', '
       throw "Unresolved tokens in '$($tpl.Name)' for table '$table': $list"
     }
+
+    # Cosmetic: normalize leading whitespace for 'use' imports to avoid mixed indentation when templates carry extra spaces.
+    $rendered = ($rendered -split "`n" | ForEach-Object { $_ -replace '^\s+use\s+', 'use ' }) -join "`n"
 
     if ((Test-Path $outPath) -and -not $Force -and -not $WhatIf) {
       throw "File '$outPath' exists. Use -Force to overwrite."

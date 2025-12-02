@@ -6,7 +6,7 @@ Content: |-
   
   use BlackCat\Database\Support\Criteria as BaseCriteria;
   use BlackCat\Core\Database;
-  
+
   /**
    * Per-repo Criteria - thin layer on top of the central BlackCat\Database\Support\Criteria.
    *
@@ -42,12 +42,11 @@ Content: |-
           return [[SEARCHABLE_COLUMNS_ARRAY]];
       }
   
-      /** Columns allowed in ORDER BY (falls back to filterable() when empty). */
-      protected function sortable(): array
-      {
-          $x = [[SORTABLE_COLUMNS_ARRAY]];
-          return $x ?: $this->filterable();
-      }
+  /** Columns allowed in ORDER BY (falls back to filterable() when empty). */
+  protected function sortable(): array
+  {
+      return [[SORTABLE_COLUMNS_ARRAY]];
+  }
   
       /**
        * Whitelist of joinable entities (for safe ->join() usage):
@@ -86,10 +85,10 @@ Content: |-
           bool $quoteIdentifiers = false
       ): static {
           $c = new static(); // previously: new self()
-  
+
           $c->setDialectFromDatabase($db);
-          if ($quoteIdentifiers) { $c->quoteIdentifiers(true); }
-          if ($tenantId !== null) { $c->tenant($tenantId, $tenantColumn); }
+          if ($quoteIdentifiers) { $c->enableIdentifierQuoting(true); }
+          if ($tenantId !== null && $tenantColumn !== '') { $c->tenant($tenantId, $tenantColumn); }
   
           if (\method_exists(\[[NAMESPACE]]\Definitions::class, 'softDeleteColumn')) {
               $soft = \[[NAMESPACE]]\Definitions::softDeleteColumn();

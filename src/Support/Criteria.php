@@ -145,7 +145,7 @@ class Criteria
 
     /* -------------------- Mutators -------------------- */
 
-    public function setDialectFromDatabase(\BlackCat\Core\Database $db): self
+    public function setDialectFromDatabase(\BlackCat\Core\Database $db): static
     {
         $this->db = $db; // enable driver-aware quoteIdent()
         $drv = \strtolower((string)$db->driver());
@@ -153,14 +153,14 @@ class Criteria
     }
  
     /** Optional Database injection without changing the configured dialect. */
-    public function withDatabase(Database $db): self
+    public function withDatabase(Database $db): static
     {
         $this->db = $db;
         return $this;
     }
 
     /** @param string $dialect 'mysql'|'postgres'|'mariadb' */
-    public function setDialect(string $dialect): self
+    public function setDialect(string $dialect): static
     {
         $dRaw = \trim($dialect);
         if ($dRaw === '') {
@@ -172,21 +172,21 @@ class Criteria
     }
 
     /** (NEW) toggles identifier quoting (`t`.`col` / "t"."col") */
-    public function enableIdentifierQuoting(bool $on = true): self
+    public function enableIdentifierQuoting(bool $on = true): static
     {
         $this->quoteIdentifiers = $on;
         return $this;
     }
 
     /** Disable if you need case-sensitive LIKE on MySQL (PG ILIKE is used only when CI is on). */
-    public function useCaseInsensitiveLike(bool $on = true): self
+    public function useCaseInsensitiveLike(bool $on = true): static
     {
         $this->caseInsensitiveLike = $on;
         return $this;
     }
 
     /** (NEW) Enables full-text search (when an index exists) */
-    public function useFulltext(bool $on = true, string $pgDictionary = 'simple'): self
+    public function useFulltext(bool $on = true, string $pgDictionary = 'simple'): static
     {
         $this->useFulltext = $on;
         $this->fulltextDict = $pgDictionary;
@@ -194,11 +194,11 @@ class Criteria
     }
 
     /** Safe limit/offset (negative inputs are clamped to 0) */
-    public function limit(int $n): self { $this->explicitLimit  = \max(0, $n); return $this; }
-    public function offset(int $n): self { $this->explicitOffset = \max(0, $n); return $this; }
+    public function limit(int $n): static { $this->explicitLimit  = \max(0, $n); return $this; }
+    public function offset(int $n): static { $this->explicitOffset = \max(0, $n); return $this; }
 
     /** JSON contains – generates unique parameters to avoid collisions. */
-    public function whereJsonContains(string $jsonCol, array $subset): self
+    public function whereJsonContains(string $jsonCol, array $subset): static
     {
         if (!\in_array($jsonCol, $this->filterable(), true)) return $this;
         $dial = $this->dialect;
@@ -214,7 +214,7 @@ class Criteria
     }
 
     /** JSON get-text equals – unique parameters (path + value). */
-    public function whereJsonTextEquals(string $jsonCol, string $path, string $equals): self
+    public function whereJsonTextEquals(string $jsonCol, string $path, string $equals): static
     {
         if (!\in_array($jsonCol, $this->filterable(), true)) return $this;
         $dial = $this->dialect;
@@ -228,12 +228,12 @@ class Criteria
     }
 
     /** Stable (whitelisted) ORDER BY for tabular listings. */
-    public function orderByTable(string $col, string $dir='ASC', bool $nullsLast=false): self
+    public function orderByTable(string $col, string $dir='ASC', bool $nullsLast=false): static
     {
         return $this->orderBySafe($col, $dir, $nullsLast);
     }
 
-    public function addFilter(string $col, mixed $value): self
+    public function addFilter(string $col, mixed $value): static
     {
         $this->filters[$col] = $value;
         return $this;
@@ -244,7 +244,7 @@ class Criteria
      * Allowed operators: =, <>, !=, >, >=, <, <=, LIKE, ILIKE, IN, NOT IN
      * (ILIKE available only on PG; otherwise remapped to LIKE based on caseInsensitiveLike)
      */
-    public function where(string $col, string $op, mixed $val): self
+    public function where(string $col, string $op, mixed $val): static
     {
         $op = \strtoupper(\trim($op));
         $allowedOps = ['=','<>','!=','>','>=','<','<=','LIKE','ILIKE','IN','NOT IN'];
@@ -272,58 +272,58 @@ class Criteria
         return $this;
     }
 
-    public function between(string $col, mixed $from, mixed $to): self
+    public function between(string $col, mixed $from, mixed $to): static
     {
         $this->ranges[] = ['col'=>$col,'from'=>$from,'to'=>$to];
         return $this;
     }
 
-    public function isNull(string $col): self      { $this->nulls[] = ['col'=>$col,'neg'=>false]; return $this; }
-    public function isNotNull(string $col): self   { $this->nulls[] = ['col'=>$col,'neg'=>true];  return $this; }
+    public function isNull(string $col): static      { $this->nulls[] = ['col'=>$col,'neg'=>false]; return $this; }
+    public function isNotNull(string $col): static   { $this->nulls[] = ['col'=>$col,'neg'=>true];  return $this; }
 
-    public function whereRaw(string $sql, array $params = []): self
+    public function whereRaw(string $sql, array $params = []): static
     {
         if ($sql !== '') {
             $this->raw[] = ['sql'=>$sql,'params'=>$params];
         }
         return $this;
     }
-    public function andWhere(string $sql): self { return $this->whereRaw($sql); }
+    public function andWhere(string $sql): static { return $this->whereRaw($sql); }
 
-    public function bind(string $key, mixed $val): self
+    public function bind(string $key, mixed $val): static
     {
         $this->extraParams[$key] = $val;
         return $this;
     }
 
-    public function orderBySafe(string $col, string $dir = 'ASC', bool $nullsLast = false): self
+    public function orderBySafe(string $col, string $dir = 'ASC', bool $nullsLast = false): static
     {
         $dirUp = \strtoupper(\trim($dir));
         $dirUp = \in_array($dirUp, ['ASC','DESC'], true) ? $dirUp : 'ASC';
         $this->sort[] = ['col'=>$col,'dir'=>$dirUp,'nullsLast'=>(bool)$nullsLast];
         return $this;
     }
-    public function orderBy(string $col, string $dir = 'ASC'): self { return $this->orderBySafe($col, $dir, false); }
+    public function orderBy(string $col, string $dir = 'ASC'): static { return $this->orderBySafe($col, $dir, false); }
 
-    public function search(?string $q): self
+    public function search(?string $q): static
     {
         $this->search = ($q !== null && $q !== '') ? $q : null;
         return $this;
     }
 
-    public function setPage(int $p): self
+    public function setPage(int $p): static
     {
         $this->page = \max(1, $p);
         return $this;
     }
-    public function setPerPage(int $n): self
+    public function setPerPage(int $n): static
     {
         $n = \max(1, \min($this->maxPerPage(), $n));
         $this->perPage = $n;
         return $this;
     }
 
-    public function join(string $sqlJoinFragment, array $params = []): self
+    public function join(string $sqlJoinFragment, array $params = []): static
     {
         if ($sqlJoinFragment !== '') { $this->joins[] = $sqlJoinFragment; }
         foreach ($params as $k=>$v) { $this->joinParams[$k] = $v; }
@@ -331,7 +331,7 @@ class Criteria
     }
 
     /** (NEW) Safe JOIN builder with table/alias/column whitelist and identifier quoting. */
-    public function joinSafe(string $table, string $alias, string $leftCol, string $op, string $rightCol, string $type='INNER'): self
+    public function joinSafe(string $table, string $alias, string $leftCol, string $op, string $rightCol, string $type='INNER'): static
     {
         $typeU = \strtoupper($type);
         if (!\in_array($typeU, ['INNER','LEFT','RIGHT','FULL'], true)) { $typeU = 'INNER'; }
@@ -356,7 +356,7 @@ class Criteria
     }
 
     /** @param int|string|list<int|string> $tenantId */
-    public function tenant(int|string|array $tenantId, string $column = 'tenant_id'): self
+    public function tenant(int|string|array $tenantId, string $column = 'tenant_id'): static
     {
         if (!\in_array($column, $this->filterable(), true)) {
             throw new \LogicException(
@@ -368,12 +368,12 @@ class Criteria
         return $this;
     }
 
-    public function applyTenantScope(TenantScope $t, string $column = 'tenant_id'): self
+    public function applyTenantScope(TenantScope $t, string $column = 'tenant_id'): static
     {
         return $this->tenant($t->idList(), $column);
     }
 
-    public function seek(string $pkCol, mixed $after, string $dir = 'DESC', bool $inclusive = false): self
+    public function seek(string $pkCol, mixed $after, string $dir = 'DESC', bool $inclusive = false): static
     {
         $this->seekPk = $pkCol;
         $this->seekAfter = $after;
@@ -635,20 +635,20 @@ class Criteria
         return isset($allowedSort[$col]);
     }
 
-    public function softDelete(string $column = 'deleted_at'): self
+    public function softDelete(string $column = 'deleted_at'): static
     {
         $this->softDeleteCol = $column;
         return $this;
     }
 
-    public function withTrashed(bool $on = true): self
+    public function withTrashed(bool $on = true): static
     {
         $this->withTrashed = $on;
         if ($on) $this->onlyTrashed = false;
         return $this;
     }
 
-    public function onlyTrashed(bool $on = true): self
+    public function onlyTrashed(bool $on = true): static
     {
         $this->onlyTrashed = $on;
         if ($on) $this->withTrashed = false;

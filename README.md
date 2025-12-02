@@ -97,11 +97,11 @@ Usage examples and options live in [docs/generators.md](./docs/generators.md) an
 [docs/usage.md](./docs/usage.md). To reproduce what CI does:
 
 ```bash
-pwsh ./scripts/schema-tools/Split-SchemaToPackages.ps1 -MapPath ./scripts/schema-map.psd1 -PackagesDir ./packages
-pwsh ./scripts/docs/New-PackageReadmes.ps1 -MapPath ./scripts/schema-map.psd1 -PackagesDir ./packages -Force
-pwsh ./scripts/schema-tools/Build-Definitions.ps1 -MapPath ./scripts/schema-map.psd1 -DefsPath ./scripts/schema-defs.psd1 -PackagesDir ./packages -Force
-pwsh ./scripts/docs/New-PackageChangelogs.ps1 -MapPath ./scripts/schema-map.psd1 -PackagesDir ./packages -Force
-pwsh ./scripts/docs/New-DocsIndex.ps1 -MapPath ./scripts/schema-map.psd1 -PackagesDir ./packages -OutPath ./PACKAGES.md -Force
+pwsh ./scripts/schema-tools/Split-SchemaToPackages.ps1 -MapPath ./scripts/schema/schema-map-postgres.yaml -PackagesDir ./packages
+pwsh ./scripts/docs/New-PackageReadmes.ps1 -MapPath ./scripts/schema/schema-map-postgres.yaml -PackagesDir ./packages -Force
+pwsh ./scripts/schema-tools/Build-Definitions.ps1 -MapPath ./scripts/schema/schema-map-postgres.yaml -DefsPath ./scripts/schema/schema-defs-postgres.yaml -PackagesDir ./packages -Force
+pwsh ./scripts/docs/New-PackageChangelogs.ps1 -MapPath ./scripts/schema/schema-map-postgres.yaml -PackagesDir ./packages -Force
+pwsh ./scripts/docs/New-DocsIndex.ps1 -MapPath ./scripts/schema/schema-map-postgres.yaml -PackagesDir ./packages -OutPath ./PACKAGES.md -Force
 ```
 
 All scripts produce deterministic output (LF endings, stable headers, final

@@ -20,19 +20,15 @@ Content: |-
        * @return string[]
        */
       public static function pkColumns(): array {
-          $raw = '[[PK]]';
-          $parts = array_values(array_filter(array_map(
-              static fn($p) => trim($p, " \t\n\r\0\x0B`\""),
-              preg_split('/\s*,\s*/', $raw ?? '')
-          )));
-          if ($parts) {
-              return $parts;
-          }
-          $rawClean = trim((string)$raw, " \t\n\r\0\x0B`\"");
-          if ($rawClean === '') {
+          $raw = trim('[[PK]]');
+          if ($raw === '') {
               throw new \InvalidArgumentException('Definitions::pkColumns(): token [[PK]] must not be empty.');
           }
-          return [$rawClean];
+          $parts = array_values(array_filter(array_map(
+              static fn($p) => trim($p, " \t\n\r\0\x0B`\""),
+              preg_split('/\s*,\s*/', $raw) ?: []
+          )));
+          return $parts ?: [$raw];
       }
   
       /**
@@ -48,17 +44,17 @@ Content: |-
   
       // --- optional metadata ---
       public static function softDeleteColumn(): ?string {
-          $c = '[[SOFT_DELETE_COLUMN]]'; return $c !== '' ? $c : null;
+          $c = trim('[[SOFT_DELETE_COLUMN]]'); return $c !== '' ? $c : null;
       }
       public static function updatedAtColumn(): ?string {
-          $c = '[[UPDATED_AT_COLUMN]]'; return $c !== '' ? $c : null;
+          $c = trim('[[UPDATED_AT_COLUMN]]'); return $c !== '' ? $c : null;
       }
       public static function versionColumn(): ?string {
-          $c = '[[VERSION_COLUMN]]'; return $c !== '' ? $c : null;
+          $c = trim('[[VERSION_COLUMN]]'); return $c !== '' ? $c : null;
       }
       /** e.g. "created_at DESC, id DESC" */
       public static function defaultOrder(): ?string {
-          $c = '[[DEFAULT_ORDER_CLAUSE]]'; return $c !== '' ? $c : null;
+          $c = trim('[[DEFAULT_ORDER_CLAUSE]]'); return $c !== '' ? $c : null;
       }
   
       /** @return array<int,array<int,string>> list of unique keys */
@@ -69,10 +65,13 @@ Content: |-
   
       /** @return string[] List of numeric columns (generator heuristic; no runtime DB queries). */
       public static function intColumns(): array { return [[INT_COLUMNS_ARRAY]]; }
-  
+
       /** @return array<string,string> alias => column mapping (for input normalization) */
       public static function paramAliases(): array { return [[PARAM_ALIASES_ARRAY]]; }
-  
+
+      /** @return string[] columns that are generated/virtual and must be excluded from INSERT/UPSERT input */
+      public static function generatedColumns(): array { return [[GENERATED_COLUMNS_ARRAY]]; }
+      
       /** Repository hint: is the version column actually numeric? (no information_schema needed) */
       public static function versionIsNumeric(): bool
       {
@@ -91,7 +90,7 @@ Content: |-
        * identity | uuid | natural | composite
        */
       public static function pkStrategy(): string {
-          $c = '[[PK_STRATEGY]]';
+          $c = trim('[[PK_STRATEGY]]');
           return $c !== '' ? $c : 'natural';
       }
   
@@ -148,6 +147,7 @@ Tokens:
   - PK_STRATEGY
   - IS_ROWLOCK_SAFE
   - INT_COLUMNS_ARRAY
+  - GENERATED_COLUMNS_ARRAY
   - PARAM_ALIASES_ARRAY
   - PII_COLUMNS_ARRAY
   - STATUS_TRANSITIONS_MAP

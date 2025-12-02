@@ -74,8 +74,8 @@ $script:UmbrellaBodyBox = $null
 $script:PackagesTitleBox = $null
 $script:PackagesBodyBox = $null
 
-$MapPg   = Join-Path $SchemaDir 'schema-map-postgres.psd1'
-$DefsPg  = Join-Path $SchemaDir 'schema-defs-postgres.psd1'
+$MapPg   = Join-Path $SchemaDir 'schema-map-postgres.yaml'
+$DefsPg  = Join-Path $SchemaDir 'schema-defs-postgres.yaml'
 
 $Warnings = New-Object System.Collections.Generic.List[string]
 $script:LogBox = $null

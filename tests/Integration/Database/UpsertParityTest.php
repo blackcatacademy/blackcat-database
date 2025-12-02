@@ -9,6 +9,9 @@ final class UpsertParityTest extends TestCase
     public function test_upsert_insert_and_update_paths(): void
     {
         $db = Database::getInstance();
+        if ($db->isPg()) {
+            try { $db->exec('ROLLBACK'); } catch (\Throwable) {}
+        }
         $db->exec("DROP TABLE IF EXISTS upar");
         $sql = $db->isPg()
             ? "CREATE TABLE upar (email TEXT PRIMARY KEY, name TEXT, updated_at TIMESTAMPTZ NULL)"

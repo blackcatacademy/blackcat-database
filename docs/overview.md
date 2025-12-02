@@ -3,7 +3,7 @@
 BlackCat Database is a catalog of production-ready table modules that run on **PostgreSQL 13+**, **MySQL 8+** and **MariaDB 10.4+**. Each module ships with schema SQL, typed PHP repositories/services, and automation to ensure installs stay reproducible across environments.
 
 ## Layout & sources of truth
-- `scripts/schema/schema-map-{dialect}.psd1` keep the canonical schema metadata (tables, views, seeds) for every supported database engine. The `scripts/schema/schema-*.psd1` files mirror dialect-specific definitions/seed/view metadata.
+- `scripts/schema/schema-map-{dialect}.yaml` keep the canonical schema metadata (tables, views, seeds) for every supported database engine. The `scripts/schema/schema-*.yaml` files mirror dialect-specific definitions/seed/view metadata.
 - `packages/<module>/` holds the generated PHP + SQL for a single logical table/view. Packages can be consumed individually or via the umbrella orchestrator.
 - `docs/` (this folder) captures the operational knowledge: usage guide, CI cheatsheet, and task-focused how-to articles.
 - `scripts/schema-tools/Generate-PhpFromSchema.ps1` plus the PowerShell templates under `scripts/templates/php/` turn the schema maps into repositories, DTOs, services, installers and tests. See `docs/generators.md` for the full pipeline.
@@ -15,6 +15,6 @@ BlackCat Database is a catalog of production-ready table modules that run on **P
 - **BulkUpsertTrait & UpsertBuilder** (`src/BulkUpsertRepository.php`, `src/Support/UpsertBuilder.php`) offer efficient single-row and bulk UPSERTs with automatic chunking, quoted identifiers, and optional `RETURNING` for vendors that support it.
 - **AuditTrail** (`src/Audit/AuditTrail.php`) persists change events and transaction metadata with JSON payloads, observability tags, and installer helpers for both Postgres and MySQL/MariaDB backends.
 - **IdempotentCrudService + Idempotency stores** (`src/Services/IdempotentCrudService.php`, `src/Idempotency`) wrap CRUD operations in idempotent guards backed by PDO/DB tables or in-memory stores, complete with retry-friendly statuses.
-- **Installer helpers & templates** (see `scripts/templates/php/*.psd1`) keep generated repositories/services consistent, while `docs/howto/*.md` document advanced tasks such as SQL coverage, backoff, RBAC, feature flags and the new tenant/audit/idempotency helpers.
+- **Installer helpers & templates** (see `scripts/templates/php/*.yaml`) keep generated repositories/services consistent, while `docs/howto/*.md` document advanced tasks such as SQL coverage, backoff, RBAC, feature flags and the new tenant/audit/idempotency helpers.
 
 Use `docs/usage.md` for the day-to-day workflow and the `howto/` series for focused playbooks.

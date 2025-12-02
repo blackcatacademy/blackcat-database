@@ -5,26 +5,44 @@ use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Services\Features\SeekAndBulkSupport;
 use BlackCat\Database\Contracts\SeekPaginableRepository;
 use BlackCat\Database\Contracts\BulkUpsertRepository;
+use RuntimeException;
+
+final class SeekHost
+{
+    use SeekAndBulkSupport;
+    public int $txnCalls = 0;
+    public array $lockCalls = [];
+
+    public function __construct(public object $repo, private bool $hasLock)
+    {
+    }
+
+    public function paginate(object $criteria): array
+    {
+        return ['items' => [['id' => 1], ['id' => 2]]];
+    }
+
+    public function txn(callable $fn): mixed
+    {
+        $this->txnCalls++;
+        return $fn();
+    }
+
+    public function withRowLock(mixed $id, callable $fn, string $mode = 'wait'): mixed
+    {
+        if (!$this->hasLock) {
+            throw new RuntimeException('lock not available');
+        }
+        $this->lockCalls[] = [$id, $mode];
+        return $fn(['id' => $id], null);
+    }
+}
 
 final class SeekAndBulkSupportTest extends TestCase
 {
-    private function host(object $repo, bool $hasLock = true): object
+    private function host(object $repo, bool $hasLock = true): SeekHost
     {
-        return new class($repo, $hasLock) {
-            use SeekAndBulkSupport;
-            public int $txnCalls = 0;
-            public array $lockCalls = [];
-            public function __construct(public object $repo, private bool $hasLock) {}
-            public function paginate(object $criteria): array { return ['items' => [['id' => 1], ['id' => 2]]]; }
-            public function txn(callable $fn) { $this->txnCalls++; return $fn(); }
-            public function withRowLock(mixed $id, callable $fn, string $mode = 'wait'): mixed {
-                if (!$this->hasLock) {
-                    throw new RuntimeException('lock not available');
-                }
-                $this->lockCalls[] = [$id, $mode];
-                return $fn(['id' => $id], null);
-            }
-        };
+        return new SeekHost($repo, $hasLock);
     }
 
     public function testPaginateBySeekDelegatesWhenSupported(): void
@@ -34,12 +52,27 @@ final class SeekAndBulkSupportTest extends TestCase
             public function paginateBySeek(object $criteria, array $order, ?array $cursor, int $limit): array
             {
                 $this->args = [$criteria,$order,$cursor,$limit];
-                return [['items' => [['id' => 5]], 1], ['cursor' => null]];
+                return [[['id' => 5]], ['colValue' => 1, 'pkValue' => 5]];
             }
         };
         $host = $this->host($repo);
         [$items] = $host->paginateBySeek((object)[], ['col' => 'id', 'dir' => 'asc', 'pk' => 'id'], null, 10);
-        $this->assertSame(5, $items['items'][0]['id']);
+        $this->assertSame(5, $items[0]['id']);
+    }
+
+    public function testPaginateBySeekNormalizesPkArrayToString(): void
+    {
+        $repo = new class implements SeekPaginableRepository {
+            public array $orderSpec = [];
+            public function paginateBySeek(object $criteria, array $order, ?array $cursor, int $limit): array
+            {
+                $this->orderSpec = $order;
+                return [[], null];
+            }
+        };
+        $host = $this->host($repo);
+        $host->paginateBySeek((object)[], ['col' => 'id', 'dir' => 'asc', 'pk' => ['id']], null, 10);
+        $this->assertSame('id', $repo->orderSpec['pk']);
     }
 
     public function testPaginateBySeekFallsBackToPaginate(): void
@@ -54,7 +87,7 @@ final class SeekAndBulkSupportTest extends TestCase
     {
         $repo = new class implements BulkUpsertRepository {
             public array $rows = [];
-            public function upsertMany(array $rows): void { $this->rows = $rows; }
+            public function upsertMany(array $rows, array $keys = [], array $updateColumns = []): void { $this->rows = $rows; }
         };
         $host = $this->host($repo);
         $host->bulkUpsert([['id' => 1]]);

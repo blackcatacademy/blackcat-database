@@ -134,6 +134,7 @@ Tables:
       - CREATE INDEX IF NOT EXISTS idx_users_actor_role ON users (actor_role)
       - CREATE INDEX IF NOT EXISTS idx_users_last_login_ip_hash ON users (last_login_ip_hash)
       - CREATE UNIQUE INDEX IF NOT EXISTS ux_users_email_hash_live ON users (email_hash) WHERE deleted_at IS NULL
+      - CREATE UNIQUE INDEX IF NOT EXISTS ux_users_email_hash ON users (email_hash)
     SoftDelete: deleted_at
     foreign_keys:
   sync_errors:
@@ -987,6 +988,7 @@ Tables:
     foreign_keys:
     indexes:
       - CREATE UNIQUE INDEX IF NOT EXISTS ux_tenants_slug_live_ci ON tenants (slug_ci) WHERE deleted_at IS NULL
+      - CREATE UNIQUE INDEX IF NOT EXISTS ux_tenants_slug_ci_is_live ON tenants (slug_ci, is_live)
     SoftDelete: deleted_at
   global_id_registry:
     DefaultOrder: created_at DESC
@@ -1303,6 +1305,7 @@ Tables:
         cart_id CHAR(36) NOT NULL,
         book_id BIGINT NOT NULL,
         sku VARCHAR(64) NULL,
+        sku_norm TEXT GENERATED ALWAYS AS (COALESCE(sku, '')) STORED,
         variant JSONB NULL,
         quantity INTEGER NOT NULL,
         unit_price NUMERIC(12,2) NOT NULL DEFAULT 0.00,
@@ -1318,7 +1321,7 @@ Tables:
       - ALTER TABLE cart_items ADD CONSTRAINT fk_cart_items_book  FOREIGN KEY (tenant_id, book_id) REFERENCES books(tenant_id, id) ON DELETE CASCADE
     indexes:
       - CREATE INDEX IF NOT EXISTS idx_cart_items_cart_id ON cart_items (cart_id)
-      - CREATE UNIQUE INDEX IF NOT EXISTS ux_cart_items_tenant_norm ON cart_items (tenant_id, cart_id, book_id, COALESCE(sku, ''))
+      - CREATE UNIQUE INDEX IF NOT EXISTS ux_cart_items_tenant_norm ON cart_items (tenant_id, cart_id, book_id, sku_norm)
       - CREATE INDEX IF NOT EXISTS idx_cart_items_tenant_cart ON cart_items (tenant_id, cart_id)
       - CREATE UNIQUE INDEX IF NOT EXISTS ux_cart_items ON cart_items (tenant_id, cart_id, book_id, sku)
       - CREATE INDEX IF NOT EXISTS idx_cart_items_tenant_book ON cart_items (tenant_id, book_id)

@@ -1261,6 +1261,7 @@ Tables:
         cart_id CHAR(36) NOT NULL,
         book_id BIGINT UNSIGNED NOT NULL,
         sku VARCHAR(64) NULL,
+        sku_norm VARCHAR(64) AS (COALESCE(sku, '')) STORED,
         variant JSON NULL,
         quantity INT UNSIGNED NOT NULL,
         unit_price DECIMAL(12,2) NOT NULL DEFAULT 0.00,
@@ -1281,7 +1282,7 @@ Tables:
       - CREATE INDEX idx_cart_items_cart_id ON cart_items (cart_id)
       - CREATE INDEX idx_cart_items_tenant_cart ON cart_items (tenant_id, cart_id)
       - CREATE INDEX idx_cart_items_tenant_book ON cart_items (tenant_id, book_id)
-      - CREATE UNIQUE INDEX ux_cart_items_tenant_norm ON cart_items (tenant_id, cart_id, book_id, (COALESCE(sku, '')))
+      - CREATE UNIQUE INDEX ux_cart_items_tenant_norm ON cart_items (tenant_id, cart_id, book_id, sku_norm)
   user_consents:
     DefaultOrder: id DESC
     create: |-

@@ -5,9 +5,12 @@ parameters:
   level: 8
   paths:
     - src
+    - packages
+    - tests
   excludePaths:
     analyse:
-      - tests
+      - local-blackcat-core
+      - local-blackcat-database-crypto
   bootstrapFiles:
     - phpstan.bootstrap.php
   stubFiles:

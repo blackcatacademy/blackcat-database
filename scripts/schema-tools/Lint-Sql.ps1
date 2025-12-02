@@ -1,7 +1,7 @@
 param(
   [Parameter(Mandatory=$true)] [string] $PackagesDir,
   [Parameter(Mandatory=$true)] [string] $MapPath,
-  [string] $RulesPath = "$PSScriptRoot/SqlLintRules.psd1"
+[string] $RulesPath = "$PSScriptRoot/SqlLintRules.yaml"
 )
 
 Set-StrictMode -Version Latest

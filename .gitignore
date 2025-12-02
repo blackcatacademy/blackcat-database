@@ -1,9 +1,23 @@
 vendor/
-logs/
 scripts/quality/.sqlfluff-venv/
 scripts/quality/sqlfluff*.json
 scripts/quality/sqlfluff*.txt
 scripts/dev/assets/settings/
 tmp/
-var/
 tools/tmp-rebuild-joins.ps1
+
+# Local dev modules (do not commit)
+local-blackcat-core/
+local-blackcat-database-crypto/
+
+# Coverage outputs
+tmp/coverage/
+tests/tmp/coverage/
+
+# Misc local artefacts
+logs/
+var/
+tmp.json
+
+# Optional future submodule for shared views library
+# views-library/

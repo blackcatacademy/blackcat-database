@@ -54,12 +54,13 @@ if ($argc < 4) {
     fwrite(STDERR, "Args: <RepoFqn> <id> <seconds>\n");
     exit(2);
 }
-$repoFqn = $argv[1];
+$repoFqn = (string)$argv[1];
 $id      = (int)$argv[2];
 $secs    = (int)$argv[3];
 // === DEBUG helpers (controlled by BC_DEBUG) ===
 $isDebug = static function(): bool {
-    $val = $_ENV['BC_DEBUG'] ?? getenv('BC_DEBUG') ?? '';
+    $envVal = $_ENV['BC_DEBUG'] ?? (getenv('BC_DEBUG') !== false ? getenv('BC_DEBUG') : null);
+    $val = $envVal ?? '';
     return $val === '1' || strcasecmp((string)$val, 'true') === 0;
 };
 $dbg = static function(string $fmt, ...$args) use ($isDebug): void {
@@ -67,11 +68,8 @@ $dbg = static function(string $fmt, ...$args) use ($isDebug): void {
     error_log('[lock_row_repo] ' . vsprintf($fmt, $args));
 };
 if (!class_exists($repoFqn)) {
-    // attempt autoload (Composer dev autoloader should be available)
-    if (!class_exists($repoFqn)) {
-        fwrite(STDERR, "Repository class not found: $repoFqn\n");
-        exit(3);
-    }
+    fwrite(STDERR, "Repository class not found: $repoFqn\n");
+    exit(3);
 }
 // Derive the package and Definitions from the repo FQN: ...\Packages\<Pkg>\Repository\...
 $pkg = null;
@@ -89,7 +87,7 @@ if ($defsFqn && class_exists($defsFqn)) {
 }
 
 if (!$pdo->inTransaction()) { $pdo->beginTransaction(); }
-$qi = fn($x) => $db->quoteIdent($x);
+$qi = fn($x) => $db->quoteIdent((string)$x);
 // --- DEBUG: where and how the locker runs ---
 $driver = $db->driver();
 $server = $db->serverVersion() ?? '?';
@@ -157,6 +155,10 @@ $ver0 = $getVersion();
 if ($ver0 !== null) $dbg('version before lock=%s', (string)$ver0);
 
 $repo = new $repoFqn($db);
+if (!method_exists($repo, 'lockById')) {
+    fwrite(STDERR, "[lock_row_repo] Repository {$repoFqn} has no lockById(); aborting.\n");
+    exit(5);
+}
 $row  = $repo->lockById($id); // SELECT ... FOR UPDATE
 if ($table && $verCol) {
     $v1 = $db->fetchOne(

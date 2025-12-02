@@ -26,7 +26,7 @@ $RepoRoot    = Split-Path -Parent $ScriptsRoot
 Set-Location -LiteralPath $RepoRoot
 
 if (-not $MapPath) {
-  $MapPath = Join-Path $PSScriptRoot '..\schema\schema-map-postgres.psd1'
+  $MapPath = Join-Path $PSScriptRoot '..\schema\schema-map-postgres.yaml'
 }
 if (-not $PackagesDir) {
   $PackagesDir = Join-Path $PSScriptRoot '..\..\packages'

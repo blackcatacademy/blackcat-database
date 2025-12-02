@@ -50,8 +50,8 @@ Views:
         p.location,
         p.status,
         p.last_seen,
-        COALESCE(MAX(CASE WHEN r.metric = ''apply_lag_ms'' THEN r.value END), 0)    AS apply_lag_ms,
-        COALESCE(MAX(CASE WHEN r.metric = ''transport_lag_ms'' THEN r.value END), 0) AS transport_lag_ms,
+        COALESCE(MAX(CASE WHEN r.metric = $$apply_lag_ms$$ THEN r.value END), 0)    AS apply_lag_ms,
+        COALESCE(MAX(CASE WHEN r.metric = $$transport_lag_ms$$ THEN r.value END), 0) AS transport_lag_ms,
         MAX(r.captured_at) AS lag_sampled_at
       FROM peer_nodes p
       LEFT JOIN ranked r ON r.peer_id = p.id AND r.rn = 1
@@ -82,8 +82,8 @@ Views:
         SELECT
           channel,
           COUNT(*) AS batches_total,
-          COUNT(*) FILTER (WHERE status = ''success'') AS batches_success,
-          COUNT(*) FILTER (WHERE status = ''failed'')  AS batches_failed,
+          COUNT(*) FILTER (WHERE status = $$success$$) AS batches_success,
+          COUNT(*) FILTER (WHERE status = $$failed$$)  AS batches_failed,
           MAX(finished_at) AS last_finished_at
         FROM sync_batches
         GROUP BY channel
@@ -171,7 +171,7 @@ Views:
         COUNT(*) AS errors_total,
         MAX(created_at) AS last_error_at
       FROM sync_errors
-      WHERE created_at > now() - interval ''7 days''
+      WHERE created_at > now() - interval $$7 days$$
       GROUP BY peer_id, source
       ORDER BY errors_total DESC, last_error_at DESC;
     Owner: blackcat-database-sync

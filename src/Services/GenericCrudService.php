@@ -64,7 +64,7 @@ class GenericCrudService
     use ServiceHelpers;
 
     /** @phpstan-var RepoContract&GenericCrudRepositoryShape */
-    private RepoContract $repository;
+    protected RepoContract $repository;
 
     /** @var array<string,bool>|null map of whitelisted columns for update/upsert */
     private ?array $updatableColsWhitelist = null;

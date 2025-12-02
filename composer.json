@@ -50,7 +50,7 @@
   },
   "scripts": {
     "test": "php tests/ci/run.php",
-    "codegen:php": "pwsh -NoLogo -NoProfile -File scripts/schema-tools/Generate-PhpFromSchema.ps1 -MapPath scripts/schema-map.psd1 -TemplatesRoot scripts/templates/php -ModulesRoot packages -NameResolution detect -StrictSubmodules",
+    "codegen:php": "pwsh -NoLogo -NoProfile -File scripts/schema-tools/Generate-PhpFromSchema.ps1 -MapPath scripts/schema/schema-map-postgres.yaml -TemplatesRoot scripts/templates/php -ModulesRoot packages -NameResolution detect -StrictSubmodules",
     "submodules:update": "git submodule sync --recursive && git submodule update --init --recursive",
     "dump": "composer dump-autoload -o"
   },

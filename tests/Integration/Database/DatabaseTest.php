@@ -8,15 +8,15 @@ use PHPUnit\Framework\TestCase;
 // Polyfills in case tests run without them (or a different autoloader):
 if (!interface_exists('\Psr\Log\LoggerInterface')) {
     interface LoggerInterface {
-        public function emergency($message, array $context = []);
-        public function alert($message, array $context = []);
-        public function critical($message, array $context = []);
-        public function error($message, array $context = []);
-        public function warning($message, array $context = []);
-        public function notice($message, array $context = []);
-        public function info($message, array $context = []);
-        public function debug($message, array $context = []);
-        public function log($level, $message, array $context = []);
+        public function emergency(string|\Stringable $message, array $context = []): void;
+        public function alert(string|\Stringable $message, array $context = []): void;
+        public function critical(string|\Stringable $message, array $context = []): void;
+        public function error(string|\Stringable $message, array $context = []): void;
+        public function warning(string|\Stringable $message, array $context = []): void;
+        public function notice(string|\Stringable $message, array $context = []): void;
+        public function info(string|\Stringable $message, array $context = []): void;
+        public function debug(string|\Stringable $message, array $context = []): void;
+        public function log(string|int $level, string|\Stringable $message, array $context = []): void;
     }
 } else {
     interface LoggerInterface extends \Psr\Log\LoggerInterface {}
@@ -38,22 +38,22 @@ use BlackCat\Core\LockTimeoutException;
 use BlackCat\Core\SerializationFailureException;
 use BlackCat\Core\ConnectionGoneException;
 
-final class SpyLogger implements LoggerInterface
+final class SpyLogger implements LoggerInterface, \Psr\Log\LoggerInterface
 {
     /** @var list<array{level:string,msg:string,ctx:array}> */
     public array $lines = [];
 
-    public function log($level, $message, array $context = []): void {
+    public function log(mixed $level, string|\Stringable $message, array $context = []): void {
         $this->lines[] = ['level'=>(string)$level, 'msg'=>(string)$message, 'ctx'=>$context];
     }
-    public function emergency($message, array $context = []): void { $this->log('emergency', $message, $context); }
-    public function alert($message, array $context = []): void     { $this->log('alert', $message, $context); }
-    public function critical($message, array $context = []): void  { $this->log('critical', $message, $context); }
-    public function error($message, array $context = []): void     { $this->log('error', $message, $context); }
-    public function warning($message, array $context = []): void   { $this->log('warning', $message, $context); }
-    public function notice($message, array $context = []): void    { $this->log('notice', $message, $context); }
-    public function info($message, array $context = []): void      { $this->log('info', $message, $context); }
-    public function debug($message, array $context = []): void     { $this->log('debug', $message, $context); }
+    public function emergency(string|\Stringable $message, array $context = []): void { $this->log('emergency', $message, $context); }
+    public function alert(string|\Stringable $message, array $context = []): void     { $this->log('alert', $message, $context); }
+    public function critical(string|\Stringable $message, array $context = []): void  { $this->log('critical', $message, $context); }
+    public function error(string|\Stringable $message, array $context = []): void     { $this->log('error', $message, $context); }
+    public function warning(string|\Stringable $message, array $context = []): void   { $this->log('warning', $message, $context); }
+    public function notice(string|\Stringable $message, array $context = []): void    { $this->log('notice', $message, $context); }
+    public function info(string|\Stringable $message, array $context = []): void      { $this->log('info', $message, $context); }
+    public function debug(string|\Stringable $message, array $context = []): void     { $this->log('debug', $message, $context); }
 
     /** @param null|callable(array):bool $filter */
     public function pop(callable|null $filter = null): array {
@@ -65,7 +65,7 @@ final class SpyLogger implements LoggerInterface
     }
 }
 
-final class TestObserver implements QueryObserver
+final class TestObserver implements QueryObserver, \BlackCat\Database\Support\QueryObserver
 {
     /** @var list<array{phase:string,route:string,sql:string,ms?:float,err?:string}> */
     public array $events = [];
@@ -82,7 +82,7 @@ final class TestObserver implements QueryObserver
 
 final class DatabaseTest extends TestCase
 {
-    private static ?Database $db = null;
+    private static Database $db;
     private static SpyLogger $logger;
 
     public static function setUpBeforeClass(): void
@@ -93,6 +93,9 @@ final class DatabaseTest extends TestCase
             Database::init(self::configFromEnv(), self::$logger);
         }
         self::$db = Database::getInstance();
+        if (!self::$db instanceof Database) {
+            self::fail('Database::getInstance() did not return a Database instance');
+        }
         self::$db->setLogger(self::$logger);
         self::ensureSchema(self::$db);
     }
@@ -100,6 +103,8 @@ final class DatabaseTest extends TestCase
     protected function setUp(): void
     {
         $this->assertNotNull(self::$db);
+        // Ensure no aborted transaction is lingering on PG between tests.
+        self::safeRollback(self::$db);
         // idempotent cleanup of test data
         self::truncateAll(self::$db);
     }
@@ -180,12 +185,21 @@ final class DatabaseTest extends TestCase
         foreach (['cbFails'=>0,'cbOpenUntil'=>null] as $k=>$v) { $setter($k, $v); }
     }
 
+    private static function safeRollback(Database $db): void
+    {
+        if ($db->driver() !== 'pgsql') {
+            return;
+        }
+        try { $db->exec('ROLLBACK'); } catch (\Throwable) {}
+    }
+
     /*** TESTY ***/
 
     public function testInitPingDialectAndId(): void
     {
         $db = self::$db;
         $this->assertTrue(Database::isInitialized());
+        $this->assertNotNull($db);
         $this->assertTrue($db->ping());
         $this->assertNotSame('', $db->id());
         $drv = $db->driver();

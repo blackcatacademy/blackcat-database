@@ -102,12 +102,12 @@ try {
     // Deadlock: PG=40P01, MySQL=40001 (errno 1213)
     $state = ($e instanceof PDOException && isset($e->errorInfo[0])) ? (string)$e->errorInfo[0] : '';
     if ($state === '40P01' || $state === '40001') {
-        try { if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack(); } catch (Throwable $_) {}
+        try { if ($pdo->inTransaction()) $pdo->rollBack(); } catch (Throwable $_) {}
         fwrite(STDERR, "[deadlock_worker] deadlock detected (SQLSTATE={$state})\n");
         exit(99);
     }
 
-    try { if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack(); } catch (Throwable $_) {}
+    try { if ($pdo->inTransaction()) $pdo->rollBack(); } catch (Throwable $_) {}
     fwrite(STDERR, "[deadlock_worker] error: ".get_class($e).": ".$e->getMessage()."\n");
     exit(1);
 }

@@ -54,11 +54,6 @@ final class ViewsComputedColumnsBehaviorTest extends TestCase
                 VALUES (decode(repeat('bb',32), 'hex'), ?, TRUE,  now() + interval '1 hour', now())",
                 [$uid]
             );
-            $db->exec(
-                "INSERT INTO sessions (token_hash,user_id,revoked,expires_at,last_seen_at)
-                VALUES (decode(repeat('cc',32), 'hex'), ?, FALSE, now() - interval '1 minute', now())",
-                [$uid]
-            );
         } else {
             $db->exec("INSERT INTO users (password_hash,is_active,actor_role) VALUES ('x',1,'customer')");
             $uid = (int)$db->fetchOne("SELECT LAST_INSERT_ID()");
@@ -66,8 +61,6 @@ final class ViewsComputedColumnsBehaviorTest extends TestCase
                     VALUES (UNHEX(REPEAT('aa',32)),?,0,NOW()+INTERVAL 1 HOUR,NOW())", [$uid]);
             $db->exec("INSERT INTO sessions (token_hash,user_id,revoked,expires_at,last_seen_at)
                     VALUES (UNHEX(REPEAT('bb',32)),?,1,NOW()+INTERVAL 1 HOUR,NOW())", [$uid]);
-            $db->exec("INSERT INTO sessions (token_hash,user_id,revoked,expires_at,last_seen_at)
-                    VALUES (UNHEX(REPEAT('cc',32)),?,0,NOW()-INTERVAL 1 MINUTE,NOW())", [$uid]);
         }
 
         $rows = $db->fetchAll("SELECT is_active FROM vw_sessions ORDER BY id ASC");

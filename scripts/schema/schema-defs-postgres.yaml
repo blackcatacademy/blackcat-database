@@ -1106,6 +1106,8 @@ Tables:
         Description: ISO 4217 currency code.
       sku:
         Description: SKU snapshot.
+      sku_norm:
+        Description: Normalized SKU (COALESCE(sku,'')) used for uniqueness.
       id:
         Description: Surrogate primary key.
       variant:

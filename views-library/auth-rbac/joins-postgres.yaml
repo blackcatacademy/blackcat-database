@@ -5,20 +5,20 @@ Views:
       WITH allows AS (
         SELECT ur.user_id, rp.permission_id, ur.tenant_id, ur.scope
         FROM rbac_user_roles ur
-        JOIN rbac_role_permissions rp ON rp.role_id = ur.role_id AND rp.effect = ''allow''
-        WHERE ur.status=''active'' AND (ur.expires_at IS NULL OR ur.expires_at > now())
+        JOIN rbac_role_permissions rp ON rp.role_id = ur.role_id AND rp.effect = $$allow$$
+        WHERE ur.status=$$active$$ AND (ur.expires_at IS NULL OR ur.expires_at > now())
         UNION
         SELECT up.user_id, up.permission_id, up.tenant_id, up.scope
-        FROM rbac_user_permissions up WHERE up.effect = ''allow''
+        FROM rbac_user_permissions up WHERE up.effect = $$allow$$
       ),
       denies AS (
         SELECT ur.user_id, rp.permission_id, ur.tenant_id, ur.scope
         FROM rbac_user_roles ur
-        JOIN rbac_role_permissions rp ON rp.role_id = ur.role_id AND rp.effect = ''deny''
-        WHERE ur.status=''active'' AND (ur.expires_at IS NULL OR ur.expires_at > now())
+        JOIN rbac_role_permissions rp ON rp.role_id = ur.role_id AND rp.effect = $$deny$$
+        WHERE ur.status=$$active$$ AND (ur.expires_at IS NULL OR ur.expires_at > now())
         UNION
         SELECT up.user_id, up.permission_id, up.tenant_id, up.scope
-        FROM rbac_user_permissions up WHERE up.effect = ''deny''
+        FROM rbac_user_permissions up WHERE up.effect = $$deny$$
       )
       SELECT a.user_id, a.permission_id, a.tenant_id, a.scope
       FROM allows a
@@ -26,7 +26,7 @@ Views:
         ON d.user_id = a.user_id
        AND d.permission_id = a.permission_id
        AND COALESCE(d.tenant_id, -1) = COALESCE(a.tenant_id, -1)
-       AND COALESCE(d.scope, '''') = COALESCE(a.scope, '''')
+       AND COALESCE(d.scope, $$ $$) = COALESCE(a.scope, $$ $$)
       WHERE d.permission_id IS NULL;
     Requires:
       - rbac_user_roles
@@ -40,20 +40,20 @@ Views:
     create: |-
       CREATE OR REPLACE VIEW vw_rbac_conflicts AS
       WITH allowed AS (
-        SELECT user_id, permission_id, tenant_id, scope FROM rbac_user_permissions WHERE effect=''allow''
+        SELECT user_id, permission_id, tenant_id, scope FROM rbac_user_permissions WHERE effect=$$allow$$
         UNION
         SELECT ur.user_id, rp.permission_id, ur.tenant_id, ur.scope
         FROM rbac_user_roles ur
-        JOIN rbac_role_permissions rp ON rp.role_id = ur.role_id AND rp.effect=''allow''
-        WHERE ur.status=''active'' AND (ur.expires_at IS NULL OR ur.expires_at > now())
+        JOIN rbac_role_permissions rp ON rp.role_id = ur.role_id AND rp.effect=$$allow$$
+        WHERE ur.status=$$active$$ AND (ur.expires_at IS NULL OR ur.expires_at > now())
       ),
       denied AS (
-        SELECT user_id, permission_id, tenant_id, scope FROM rbac_user_permissions WHERE effect=''deny''
+        SELECT user_id, permission_id, tenant_id, scope FROM rbac_user_permissions WHERE effect=$$deny$$
         UNION
         SELECT ur.user_id, rp.permission_id, ur.tenant_id, ur.scope
         FROM rbac_user_roles ur
-        JOIN rbac_role_permissions rp ON rp.role_id = ur.role_id AND rp.effect=''deny''
-        WHERE ur.status=''active'' AND (ur.expires_at IS NULL OR ur.expires_at > now())
+        JOIN rbac_role_permissions rp ON rp.role_id = ur.role_id AND rp.effect=$$deny$$
+        WHERE ur.status=$$active$$ AND (ur.expires_at IS NULL OR ur.expires_at > now())
       )
       SELECT DISTINCT
         a.user_id,
@@ -83,13 +83,13 @@ Views:
       WITH active_roles AS (
         SELECT ur.user_id, ur.role_id
         FROM rbac_user_roles ur
-        WHERE ur.status = ''active'' AND (ur.expires_at IS NULL OR ur.expires_at > now())
+        WHERE ur.status = $$active$$ AND (ur.expires_at IS NULL OR ur.expires_at > now())
       ),
       role_perms AS (
         SELECT ar.user_id, rp.permission_id
         FROM active_roles ar
         JOIN rbac_role_permissions rp ON rp.role_id = ar.role_id
-        WHERE rp.effect = ''allow''
+        WHERE rp.effect = $$allow$$
       )
       SELECT
         u.id AS user_id,

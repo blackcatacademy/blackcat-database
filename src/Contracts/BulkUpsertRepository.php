@@ -43,5 +43,5 @@ interface BulkUpsertRepository
     /**
      * @param array<int,array<string,mixed>> $rows
      */
-    public function upsertMany(array $rows): void;
+    public function upsertMany(array $rows, array $keys = [], array $updateColumns = []): void;
 }

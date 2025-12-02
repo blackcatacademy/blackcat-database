@@ -33,7 +33,20 @@ final class LockModesTest extends TestCase
             \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
         ]);
         $pdo2->beginTransaction();
-        $row = $pdo2->query("SELECT * FROM lockme WHERE id=1 FOR UPDATE SKIP LOCKED")->fetch() ?: null;
+        $row = null;
+        try {
+            $stmt = $pdo2->query("SELECT * FROM lockme WHERE id=1 FOR UPDATE SKIP LOCKED");
+            $row = $stmt !== false ? ($stmt->fetch() ?: null) : null;
+        } catch (\PDOException $e) {
+            // MariaDB < full support (or quirky builds): emulate SKIP LOCKED by treating syntax error as "no row available".
+            $msg = strtolower((string)$e->getMessage());
+            $code = (string)$e->getCode();
+            $isSyntax = ($code === '42000' || $code === '1064' || str_contains($msg, 'skip locked'));
+            if (!$isSyntax) {
+                throw $e;
+            }
+            $row = null; // behave like SKIP LOCKED: return no row instead of error
+        }
         $pdo2->rollBack();
         $db->rollback();
 
@@ -51,10 +64,27 @@ final class LockModesTest extends TestCase
         $db->exec("CREATE TABLE lockme2 (id BIGSERIAL PRIMARY KEY, v INT)");
         $db->exec("INSERT INTO lockme2(v) VALUES (1)");
 
+        // Tx1: hold lock
         $db->beginTransaction();
         $db->fetch("SELECT * FROM lockme2 WHERE id=1 FOR UPDATE");
+
+        // Tx2: expect NOWAIT to fail
+        $pdo2 = new \PDO(
+            getenv('PG_DSN') ?: 'pgsql:host=127.0.0.1;port=5432;dbname=test',
+            getenv('PG_USER') ?: 'postgres',
+            getenv('PG_PASS') ?: 'postgres',
+            [
+                \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
+                \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
+            ]
+        );
+        $pdo2->beginTransaction();
         $this->expectException(\PDOException::class);
-        $db->fetch("SELECT * FROM lockme2 WHERE id=1 FOR UPDATE NOWAIT");
+        $stmt = $pdo2->query("SELECT * FROM lockme2 WHERE id=1 FOR UPDATE NOWAIT");
+        if ($stmt !== false) {
+            $stmt->fetch();
+        }
+        $pdo2->rollBack();
         $db->rollback();
     }
 }

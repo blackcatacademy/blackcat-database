@@ -1,5 +1,5 @@
 <#  New-PackageReadmes.ps1 (EN Cool v3.1 SAFE QUOTING)
-    Generates README.md for each package based on scripts/schema-map.psd1
+    Generates README.md for each package based on scripts/schema/schema-map-postgres.yaml
     - Badges
     - Files tree
     - Quick apply (bash & PowerShell)
@@ -313,7 +313,7 @@ foreach ($t in $tables) {
     $readme += "- $idxSummary"
     $readme += ""
     $readme += "## Notes"
-    $readme += '- Generated from the umbrella repository **blackcat-database** using `scripts/schema-map.psd1`.'
+    $readme += '- Generated from the umbrella repository **blackcat-database** using `scripts/schema/schema-map-postgres.yaml`.'
     $readme += '- To change the schema, update the map and re-run the generators.'
     $readme += ""
     $readme += "## License"

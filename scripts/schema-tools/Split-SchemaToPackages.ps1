@@ -1,4 +1,4 @@
-﻿param(
+param(
   [string]$InDir = (Join-Path (Split-Path $PSScriptRoot -Parent) 'schema'),
   [string]$PackagesDir = (Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'packages'),
   [ValidateSet('mysql','postgres')][string[]]$Engine = @('mysql','postgres'),
@@ -17,6 +17,7 @@ if (-not $PSBoundParameters.ContainsKey('FailOnErrors')) { $FailOnErrors = $true
 
 $script:ViewsLibraryRoot = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'views-library'
 
+$script:SchemaExt = '.yaml'
 $script:WarnList     = New-Object System.Collections.Generic.List[string]
 $script:ErrorList    = New-Object System.Collections.Generic.List[string]
 $script:ClearedFiles = New-Object 'System.Collections.Generic.HashSet[string]'
@@ -40,6 +41,71 @@ function Add-SemicolonIfMissing {
 function ConvertTo-PascalCase {
   param([Parameter(Mandatory)][string]$Text)
   ($Text -split '[_\-\s]+' | ForEach-Object { if ($_ -ne '') { $_.Substring(0,1).ToUpper() + $_.Substring(1).ToLower() } }) -join ''
+}
+function ConvertTo-HashtableDeep {
+  param($InputObject)
+  if ($InputObject -is [ValueType] -or $InputObject -is [string]) { return $InputObject }
+  if ($InputObject -is [System.Collections.IDictionary]) {
+    $ht = @{}
+    foreach ($k in $InputObject.Keys) { $ht[$k] = ConvertTo-HashtableDeep $InputObject[$k] }
+    return $ht
+  }
+  if ($InputObject -is [System.Collections.IEnumerable] -and -not ($InputObject -is [string])) {
+    return @($InputObject | ForEach-Object { ConvertTo-HashtableDeep $_ })
+  }
+  if ($InputObject -and $InputObject.PSObject) {
+    $ht = @{}
+    foreach ($p in $InputObject.PSObject.Properties) { $ht[$p.Name] = ConvertTo-HashtableDeep $p.Value }
+    return $ht
+  }
+  return $InputObject
+}
+function ConvertTo-Hashtable {
+  param([Parameter(Mandatory)]$InputObject)
+  if ($InputObject -is [System.Collections.IDictionary]) { return @{} + $InputObject }
+  if ($InputObject -and $InputObject.PSObject) {
+    $ht = @{}
+    foreach ($p in $InputObject.PSObject.Properties) { $ht[$p.Name] = $p.Value }
+    return $ht
+  }
+  return @{}
+}
+function Get-ViewCreateValue {
+  param($Value)
+  function Extract {
+    param($Obj)
+    if ($null -eq $Obj) { return $null }
+    if ($Obj -is [string]) {
+      return ($Obj -join "`n")
+    }
+    if ($Obj -is [System.Collections.IDictionary]) {
+      if ($Obj.Contains('create')) { return Extract $Obj['create'] }
+      if ($Obj.PSObject -and $Obj.PSObject.Properties['create']) { return Extract $Obj.create }
+      foreach ($v in $Obj.Values) {
+        $r = Extract $v
+        if ($r) { return $r }
+      }
+      return ($Obj.Values | ForEach-Object { [string]$_ }) -join "`n"
+    }
+    if ($Obj -and $Obj.PSObject) {
+      if ($Obj.PSObject.Properties['create']) { return Extract $Obj.create }
+      foreach ($p in $Obj.PSObject.Properties) {
+        $r = Extract $p.Value
+        if ($r) { return $r }
+      }
+    }
+    if ($Obj -is [System.Collections.IEnumerable]) {
+      $parts = @()
+      foreach ($item in $Obj) {
+        $r = Extract $item
+        if ($r) { $parts += $r }
+      }
+      if ($parts.Count -gt 0) { return ($parts -join "`n") }
+    }
+    return [string]$Obj
+  }
+
+  return [string](Extract $Value)
 }
 function New-DirectoryIfMissing {
   param([Parameter(Mandatory)][string]$Path)
@@ -101,13 +167,32 @@ function Resolve-ViewPackagePath {
   }
   return $null
 }
+function Import-YamlFile {
+  param([Parameter(Mandatory)][string]$Path)
+  if (-not (Test-Path -LiteralPath $Path)) { throw "YAML file not found: $Path" }
+  # Prefer native ConvertFrom-Yaml (PS7+); accept any module providing it (e.g., powershell-yaml).
+  $null = Import-Module Microsoft.PowerShell.Utility -ErrorAction SilentlyContinue
+  $cfy = Get-Command -Name ConvertFrom-Yaml -ErrorAction SilentlyContinue
+    if (-not $cfy) {
+      throw "ConvertFrom-Yaml not available (requires PowerShell 7+ with Microsoft.PowerShell.Utility). Install a YAML parser, e.g.: " +
+        "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) { Register-PSRepository -Default }; " +
+        "Set-PSRepository -Name PSGallery -InstallationPolicy Trusted; Install-Module -Name powershell-yaml -Scope CurrentUser -Force"
+    }
+  try {
+    return Get-Content -LiteralPath $Path -Raw | & $cfy
+  } catch {
+    throw "Failed to parse YAML '$Path' via ConvertFrom-Yaml: $($_.Exception.Message)"
+  }
+}
 function Import-MapFile {
   param([Parameter(Mandatory)][string]$Path,[Parameter(Mandatory)][string]$Engine)
   if (-not (Test-Path -LiteralPath $Path)) {
     Add-ErrorMessage "SKIP [$Engine] - schema map not found: $Path"
     return $null
   }
-  try { return Import-PowerShellDataFile -Path $Path }
+  try {
+    return ConvertTo-HashtableDeep (Import-YamlFile -Path $Path)
+  }
   catch { throw "Failed to load map '$Path': $($_.Exception.Message)" }
 }
 function Get-StableMapStamp {
@@ -149,7 +234,19 @@ function Get-FirstTableFromSql {
   param([Parameter(Mandatory)][string]$Sql)
   $clean = $Sql -replace '/\*.*?\*/',' ' -replace '--.*?$',' ' -replace '#.*?$',' ' -replace '\s+',' ' -replace '[\[\]`"()]',' '
   $m = [regex]::Matches($clean, '(?i)\b(FROM|JOIN|APPLY|LATERAL)\s+([a-z0-9_]+)')
-  if ($m.Count -gt 0) { return $m[0].Groups[2].Value }
+  foreach ($match in $m) {
+    $val = $match.Groups[2].Value
+    if ($val -and $val -notmatch '^(select)$') { return $val }
+  }
+  return $null
+}
+function Resolve-PackageByModuleFolder {
+  param([Parameter(Mandatory)][string]$PackagesDir,[Parameter(Mandatory)][string]$ModuleFolder)
+  $dirs = Get-ChildItem -LiteralPath $PackagesDir -Directory -ErrorAction SilentlyContinue
+  foreach ($d in $dirs) {
+    $candidate = Join-Path $d.FullName ("schema/modules/{0}" -f $ModuleFolder)
+    if (Test-Path -LiteralPath $candidate) { return $d.FullName }
+  }
   return $null
 }
 function Write-ViewFile {
@@ -176,7 +273,8 @@ function Invoke-Split {
   Write-Host "Engines:         $($Engine -join ', ')"
 
   foreach ($eng in $Engine) {
-    $mapPath = Join-Path $InDir "schema-map-$eng.psd1"
+    $mapLeaf = "schema-map-{0}{1}" -f $eng, $script:SchemaExt
+    $mapPath = Join-Path $InDir $mapLeaf
     $map = Import-MapFile -Path $mapPath -Engine $eng
     if (-not $map) { continue }
     Write-Host ("[{0}] tables: {1}" -f $eng, $map.Tables.Keys.Count)
@@ -204,8 +302,18 @@ function Invoke-Split {
 
       $spec    = $map.Tables[$t]
       $create  = [string]$spec.create
-      $indexes = @($spec.indexes      | Where-Object { $_ -and $_.Trim() -ne '' })
-      $fks     = @($spec.foreign_keys | Where-Object { $_ -and $_.Trim() -ne '' })
+      $indexes = @(
+        $spec.indexes | ForEach-Object {
+          if ($_ -is [string]) { $_.Trim() }
+          elseif ($_ -is [hashtable] -and $_.ContainsKey('create')) { [string]$_.create }
+        } | Where-Object { $_ -and $_ -ne '' }
+      )
+      $fks = @(
+        $spec.foreign_keys | ForEach-Object {
+          if ($_ -is [string]) { $_.Trim() }
+          elseif ($_ -is [hashtable] -and $_.ContainsKey('create')) { [string]$_.create }
+        } | Where-Object { $_ -and $_ -ne '' }
+      )
 
       if (-not $create) {
         Add-ErrorMessage "SKIP [$eng/$t] - missing 'create' entry in schema map."
@@ -244,19 +352,20 @@ function Invoke-Split {
       }
     }
 
-    $viewsPath = Join-Path $InDir "schema-views-$eng.psd1"
+    $viewsPath = Join-Path $InDir ("schema-views-{0}{1}" -f $eng, $script:SchemaExt)
     $viewsMap  = Import-MapFile -Path $viewsPath -Engine "$eng-views"
     if ($viewsMap -and $viewsMap.Views) {
-      Write-Host ("[{0}] contract views: {1}" -f $eng, $viewsMap.Views.Keys.Count)
+      $viewsHt = ConvertTo-HashtableDeep $viewsMap.Views
+      Write-Host ("[{0}] contract views: {1}" -f $eng, $viewsHt.Keys.Count)
       $viewsLeaf  = Split-Path -Leaf $viewsPath
       $viewsStamp = Get-StableMapStamp -MapPath $viewsPath
 
-      foreach ($entry in $viewsMap.Views.GetEnumerator()) {
+    foreach ($entry in $viewsHt.GetEnumerator()) {
         $table    = [string]$entry.Key
-        $viewSql  = [string]$entry.Value.create
-        $ownerRaw = ''
+        $viewSql  = Get-ViewCreateValue $entry.Value
+        $ownerRaw = $null
         if ($entry.Value -is [hashtable] -and $entry.Value.ContainsKey('Owner')) {
-          $ownerRaw = [string]$entry.Value['Owner']
+          $ownerRaw = Get-ViewCreateValue $entry.Value['Owner']
         }
         if ($eng -eq 'mysql') { Test-MySqlViewDirectives -ViewSql $viewSql -ViewName $table -SourceTag $viewsLeaf }
 
@@ -304,20 +413,19 @@ function Invoke-Split {
         }
       }
     } else {
-      Write-Host "No views map for engine '$eng' at $viewsPath â€” skipping." -ForegroundColor DarkGray
+      Write-Host "No views map for engine '$eng' at $viewsPath - skipping." -ForegroundColor DarkGray
     }
 
     if ($IncludeFeatureViews) {
-    $featureMaps = @()
-    if ($IncludeFeatureViews -and (Test-Path -LiteralPath $script:ViewsLibraryRoot)) {
-      $featureMaps = Get-ChildItem -LiteralPath $script:ViewsLibraryRoot -Recurse -File |
-        Where-Object { $_.Name -match ('feature.*{0}.*\.psd1$' -f [regex]::Escape($eng)) -and $_.Name -notmatch 'joins' } |
-        Sort-Object FullName
-    }
-      if ($featureMaps.Count -eq 0) {
-        Write-Host "No feature views map for engine '$eng' â€” skipping." -ForegroundColor DarkGray
+      $featureMaps = @()
+      if ($IncludeFeatureViews -and (Test-Path -LiteralPath $script:ViewsLibraryRoot)) {
+        $featureMaps = Get-ChildItem -LiteralPath $script:ViewsLibraryRoot -Recurse -File |
+          Where-Object { $_.Name -match ('feature.*{0}.*\.yaml$' -f [regex]::Escape($eng)) -and $_.Name -notmatch 'joins' } |
+          Sort-Object FullName
       }
-
+      if ($featureMaps.Count -eq 0) {
+        Write-Host "No feature views map for engine '$eng' - skipping." -ForegroundColor DarkGray
+      }
       foreach ($fm in $featureMaps) {
         $featPath = $fm.FullName
         $featMap = Import-MapFile -Path $featPath -Engine "$eng-feature-views"
@@ -330,13 +438,13 @@ function Invoke-Split {
         Write-Host ("Processing feature map {0} (views: {1})" -f $featLeaf, $featMap.Views.Keys.Count) -ForegroundColor DarkGray
 
         # Stable order so dependent views (e.g., rollups relying on helper views) are written after their prerequisites.
-        $featureEntries = $featMap.Views.GetEnumerator() | Sort-Object Key
+        $featureEntries = (ConvertTo-HashtableDeep $featMap.Views).GetEnumerator() | Sort-Object Key
         foreach ($entry in $featureEntries) {
           $table    = [string]$entry.Key
-          $viewSql  = [string]$entry.Value.create
-          $ownerRaw = ''
+          $viewSql  = Get-ViewCreateValue $entry.Value
+          $ownerRaw = $null
           if ($entry.Value -is [hashtable] -and $entry.Value.ContainsKey('Owner')) {
-            $ownerRaw = [string]$entry.Value['Owner']
+            $ownerRaw = Get-ViewCreateValue $entry.Value['Owner']
           }
           if ($eng -eq 'mysql') { Test-MySqlViewDirectives -ViewSql $viewSql -ViewName $table -SourceTag $featLeaf }
 
@@ -364,6 +472,9 @@ function Invoke-Split {
                 $pkgPath = Resolve-ViewPackagePath -PackagesDir $PackagesDir -ViewName $firstTable -Mode $NameResolution
                 $usedFirstTableFallback = $null -ne $pkgPath
               }
+            }
+            if (-not $pkgPath) {
+              $pkgPath = Resolve-PackageByModuleFolder -PackagesDir $PackagesDir -ModuleFolder $moduleFolder
             }
             if (-not $pkgPath) {
               $pkgPath = Resolve-ViewPackagePath -PackagesDir $PackagesDir -ViewName $table -Mode $NameResolution
@@ -427,10 +538,10 @@ function Invoke-Split {
     # --- joins views (derived aggregates across tables) ---
     $joinMaps = @()
     if (Test-Path -LiteralPath $script:ViewsLibraryRoot) {
-      $joinMaps = Get-ChildItem -LiteralPath $script:ViewsLibraryRoot -Recurse -File -Filter ("joins-{0}.psd1" -f $eng) | Sort-Object FullName
+      $joinMaps = Get-ChildItem -LiteralPath $script:ViewsLibraryRoot -Recurse -File -Filter ("joins-{0}{1}" -f $eng, $script:SchemaExt) | Sort-Object FullName
     }
     if (-not $joinMaps) {
-      $alt = Join-Path $InDir ("schema-views-joins-{0}.psd1" -f $eng)
+      $alt = Join-Path $InDir ("schema-views-joins-{0}{1}" -f $eng, $script:SchemaExt)
       if (Test-Path -LiteralPath $alt) { $joinMaps = @(Get-Item -LiteralPath $alt) }
     }
     foreach ($joinMapFile in $joinMaps) {
@@ -439,15 +550,25 @@ function Invoke-Split {
       Write-Host ("[{0}] join views: {1} ({2})" -f $eng, $joinsMap.Views.Keys.Count, $joinMapFile.Name)
       $joinsLeaf  = Split-Path -Leaf $joinMapFile.FullName
       $joinsStamp = Get-StableMapStamp -MapPath $joinMapFile.FullName
-      foreach ($entry in $joinsMap.Views.GetEnumerator()) {
+      $joinsHt = ConvertTo-HashtableDeep $joinsMap.Views
+      foreach ($entry in $joinsHt.GetEnumerator()) {
         $viewName = [string]$entry.Key
-        $viewSql  = [string]$entry.Value.create
+        $viewSql  = Get-ViewCreateValue $entry.Value
         if ([string]::IsNullOrWhiteSpace($viewName) -or [string]::IsNullOrWhiteSpace($viewSql)) {
           Add-ErrorMessage "SKIP join view [$viewName] - view definition is empty."
           continue
         }
         $pkgPath = Resolve-ViewPackagePath -PackagesDir $PackagesDir -ViewName $viewName -Mode 'detect'
         if (-not $pkgPath) { $pkgPath = Resolve-ViewPackagePath -PackagesDir $PackagesDir -ViewName $viewName -Mode $NameResolution }
+        if (-not $pkgPath) {
+          $firstTable = Get-FirstTableFromSql -Sql $viewSql
+          if ($firstTable) {
+            $pkgPath = Resolve-ViewPackagePath -PackagesDir $PackagesDir -ViewName $firstTable -Mode $NameResolution
+            if ($pkgPath) {
+              Write-Host "JOIN [$viewName]: resolved via first table '$firstTable'." -ForegroundColor DarkGray
+            }
+          }
+        }
         if (-not $pkgPath) {
           $snake = $viewName
           $kebab = ($viewName -replace '_','-')
@@ -498,4 +619,5 @@ function Invoke-Split {
   if ($FailOnErrors -and $ErrorList.Count -gt 0) {
     exit 1
   }
+}
 Invoke-Split

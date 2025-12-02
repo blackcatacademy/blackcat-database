@@ -25,7 +25,7 @@ Views:
       SELECT
         u.id AS user_id,
         COUNT(o.id) AS orders_count,
-        SUM(CASE WHEN o.status IN (''paid'',''completed'') THEN o.total ELSE 0 END) AS total_spent
+        SUM(CASE WHEN o.status IN ($$paid$$,$$completed$$) THEN o.total ELSE 0 END) AS total_spent
       FROM users u
       LEFT JOIN orders o ON o.user_id = u.id
       GROUP BY u.id;
@@ -37,8 +37,8 @@ Views:
         p.*,
         EXTRACT(EPOCH FROM (now() - p.created_at)) AS age_sec
       FROM payments p
-      WHERE p.status = ''failed''
-        AND p.created_at > now() - interval ''24 hours''
+      WHERE p.status = $$failed$$
+        AND p.created_at > now() - interval $$24 hours$$
       ORDER BY p.created_at DESC;
   kms_health_checks_latest:
     create: |-
@@ -54,13 +54,13 @@ Views:
       CREATE OR REPLACE VIEW vw_login_hotspots_ip AS
       SELECT
         ip_hash,
-        UPPER(encode(ip_hash,''hex'')) AS ip_hash_hex,
-        COUNT(*) FILTER (WHERE attempted_at > now() - interval ''24 hours'') AS total_24h,
-        COUNT(*) FILTER (WHERE success = false AND attempted_at > now() - interval ''24 hours'') AS failed_24h,
+        UPPER(encode(ip_hash,$$hex$$)) AS ip_hash_hex,
+        COUNT(*) FILTER (WHERE attempted_at > now() - interval $$24 hours$$) AS total_24h,
+        COUNT(*) FILTER (WHERE success = false AND attempted_at > now() - interval $$24 hours$$) AS failed_24h,
         MAX(attempted_at) AS last_attempt_at
       FROM login_attempts
       GROUP BY ip_hash
-      HAVING COUNT(*) FILTER (WHERE success = false AND attempted_at > now() - interval ''24 hours'') > 0
+      HAVING COUNT(*) FILTER (WHERE success = false AND attempted_at > now() - interval $$24 hours$$) > 0
       ORDER BY failed_24h DESC, last_attempt_at DESC;
   event_outbox_throughput_hourly:
     create: |-
@@ -88,7 +88,7 @@ Views:
         gateway,
         status,
         COUNT(*) AS total,
-        SUM(CASE WHEN status IN (''authorized'',''paid'',''partially_refunded'',''refunded'') THEN amount ELSE 0 END) AS sum_amount
+        SUM(CASE WHEN status IN ($$authorized$$,$$paid$$,$$partially_refunded$$,$$refunded$$) THEN amount ELSE 0 END) AS sum_amount
       FROM payments
       GROUP BY gateway, status
       ORDER BY gateway, status;
@@ -135,7 +135,7 @@ Views:
         EXTRACT(EPOCH FROM (now() - n.created_at)) AS age_sec,
         EXTRACT(EPOCH FROM (now() - COALESCE(n.last_attempt_at, n.created_at))) AS idle_sec
       FROM notifications n
-      WHERE n.status IN (''pending'',''processing'')
+      WHERE n.status IN ($$pending$$,$$processing$$)
         AND (n.next_attempt_at IS NULL OR n.next_attempt_at <= now());
   merkle_roots_latest:
     create: |-
@@ -182,7 +182,7 @@ Views:
         name,
         SUM(count) AS total_count
       FROM rate_limit_counters
-      WHERE window_start > now() - interval ''1 hour''
+      WHERE window_start > now() - interval $$1 hour$$
       GROUP BY subject_type, subject_id, name
       HAVING SUM(count) > 0
       ORDER BY total_count DESC, subject_type, subject_id, name;
@@ -205,14 +205,14 @@ Views:
       CREATE OR REPLACE VIEW vw_orders_funnel AS
       SELECT
         COUNT(*) AS orders_total,
-        COUNT(*) FILTER (WHERE status = ''pending'')   AS pending,
-        COUNT(*) FILTER (WHERE status = ''paid'')      AS paid,
-        COUNT(*) FILTER (WHERE status = ''completed'') AS completed,
-        COUNT(*) FILTER (WHERE status = ''failed'')    AS failed,
-        COUNT(*) FILTER (WHERE status = ''cancelled'') AS cancelled,
-        COUNT(*) FILTER (WHERE status = ''refunded'')  AS refunded,
+        COUNT(*) FILTER (WHERE status = $$pending$$)   AS pending,
+        COUNT(*) FILTER (WHERE status = $$paid$$)      AS paid,
+        COUNT(*) FILTER (WHERE status = $$completed$$) AS completed,
+        COUNT(*) FILTER (WHERE status = $$failed$$)    AS failed,
+        COUNT(*) FILTER (WHERE status = $$cancelled$$) AS cancelled,
+        COUNT(*) FILTER (WHERE status = $$refunded$$)  AS refunded,
         ROUND(
-          100.0 * COUNT(*) FILTER (WHERE status IN (''paid'',''completed'')) / GREATEST(COUNT(*),1),
+          100.0 * COUNT(*) FILTER (WHERE status IN ($$paid$$,$$completed$$)) / GREATEST(COUNT(*),1),
           2
         ) AS payment_conversion_pct
       FROM orders;
@@ -267,13 +267,13 @@ Views:
       CREATE OR REPLACE VIEW vw_login_hotspots_user AS
       SELECT
         user_id,
-        COUNT(*) FILTER (WHERE attempted_at > now() - interval ''24 hours'') AS total_24h,
-        COUNT(*) FILTER (WHERE success = false AND attempted_at > now() - interval ''24 hours'') AS failed_24h,
+        COUNT(*) FILTER (WHERE attempted_at > now() - interval $$24 hours$$) AS total_24h,
+        COUNT(*) FILTER (WHERE success = false AND attempted_at > now() - interval $$24 hours$$) AS failed_24h,
         MAX(attempted_at) AS last_attempt_at
       FROM login_attempts
       WHERE user_id IS NOT NULL
       GROUP BY user_id
-      HAVING COUNT(*) FILTER (WHERE success = false AND attempted_at > now() - interval ''24 hours'') > 0
+      HAVING COUNT(*) FILTER (WHERE success = false AND attempted_at > now() - interval $$24 hours$$) > 0
       ORDER BY failed_24h DESC, last_attempt_at DESC;
   sessions_active_by_user:
     create: |-
@@ -293,13 +293,13 @@ Views:
       -- Pending outbox backlog per producer node/channel
       CREATE OR REPLACE VIEW vw_sync_backlog_by_node AS
       SELECT
-        COALESCE(producer_node, ''(unknown)'') AS producer_node,
+        COALESCE(producer_node, $$(unknown)$$) AS producer_node,
         event_type,
-        COUNT(*) FILTER (WHERE status = ''pending'') AS pending,
-        COUNT(*) FILTER (WHERE status = ''failed'')  AS failed,
+        COUNT(*) FILTER (WHERE status = $$pending$$) AS pending,
+        COUNT(*) FILTER (WHERE status = $$failed$$)  AS failed,
         COUNT(*) AS total
       FROM event_outbox
-      GROUP BY COALESCE(producer_node, ''(unknown)''), event_type
+      GROUP BY COALESCE(producer_node, $$(unknown)$$), event_type
       ORDER BY pending DESC NULLS LAST, failed DESC;
   crypto_keys_latest:
     create: |-
@@ -327,7 +327,7 @@ Views:
       SELECT
         status,
         COUNT(*) AS total,
-        COUNT(*) FILTER (WHERE status=''pending'' AND (next_attempt_at IS NULL OR next_attempt_at <= now())) AS due_now
+        COUNT(*) FILTER (WHERE status=$$pending$$ AND (next_attempt_at IS NULL OR next_attempt_at <= now())) AS due_now
       FROM webhook_outbox
       GROUP BY status;
   sync_errors_failures_recent:
@@ -342,7 +342,7 @@ Views:
         e.error,
         e.created_at
       FROM sync_errors e
-      WHERE e.created_at > now() - interval ''24 hours''
+      WHERE e.created_at > now() - interval $$24 hours$$
       ORDER BY e.created_at DESC;
   orders_payments_latest:
     create: |-
@@ -382,7 +382,7 @@ Views:
         EXTRACT(EPOCH FROM (now() - eo.created_at)) AS age_sec,
         EXTRACT(EPOCH FROM (now() - COALESCE(eo.next_attempt_at, eo.created_at))) AS since_next_sec
       FROM event_outbox eo
-      WHERE eo.status IN (''pending'',''failed'')
+      WHERE eo.status IN ($$pending$$,$$failed$$)
         AND (eo.next_attempt_at IS NULL OR eo.next_attempt_at <= now());
   event_outbox_metrics:
     create: |-
@@ -412,8 +412,8 @@ Views:
         b.title,
         b.is_active,
         b.is_available,
-        COUNT(*) FILTER (WHERE ba.asset_type = ''cover'') AS cover_assets,
-        COUNT(*) FILTER (WHERE ba.asset_type IN (''pdf'',''epub'',''mobi'',''sample'',''extra'')) AS downloadable_assets
+        COUNT(*) FILTER (WHERE ba.asset_type = $$cover$$) AS cover_assets,
+        COUNT(*) FILTER (WHERE ba.asset_type IN ($$pdf$$,$$epub$$,$$mobi$$,$$sample$$,$$extra$$)) AS downloadable_assets
       FROM books b
       LEFT JOIN book_assets ba
         ON ba.tenant_id = b.tenant_id AND ba.book_id = b.id
@@ -474,11 +474,11 @@ Views:
       -- Daily audit activity split by change type
       CREATE OR REPLACE VIEW vw_audit_activity_daily AS
       SELECT
-        date_trunc(''day'', changed_at) AS day,
+        date_trunc($$day$$, changed_at) AS day,
         COUNT(*) AS total,
-        COUNT(*) FILTER (WHERE change_type=''INSERT'') AS inserts,
-        COUNT(*) FILTER (WHERE change_type=''UPDATE'') AS updates,
-        COUNT(*) FILTER (WHERE change_type=''DELETE'') AS deletes
+        COUNT(*) FILTER (WHERE change_type=$$INSERT$$) AS inserts,
+        COUNT(*) FILTER (WHERE change_type=$$UPDATE$$) AS updates,
+        COUNT(*) FILTER (WHERE change_type=$$DELETE$$) AS deletes
       FROM audit_log
       GROUP BY 1
       ORDER BY day DESC;
@@ -492,9 +492,9 @@ Views:
         d.risk_score,
         d.first_seen,
         d.last_seen,
-        UPPER(encode(d.fingerprint_hash,''hex'')) AS fingerprint_hash_hex
+        UPPER(encode(d.fingerprint_hash,$$hex$$)) AS fingerprint_hash_hex
       FROM device_fingerprints d
-      WHERE d.last_seen > now() - interval ''30 days''
+      WHERE d.last_seen > now() - interval $$30 days$$
         AND d.risk_score IS NOT NULL
       ORDER BY d.risk_score DESC, d.last_seen DESC;
   rate_limit_counters_usage:
@@ -509,7 +509,7 @@ Views:
         MIN(window_start) AS first_window,
         MAX(window_start) AS last_window
       FROM rate_limit_counters
-      WHERE window_start > now() - interval ''1 hour''
+      WHERE window_start > now() - interval $$1 hour$$
       GROUP BY subject_type, subject_id, name
       ORDER BY total_count DESC;
   orders_revenue_daily:
@@ -517,11 +517,11 @@ Views:
       -- Daily revenue (orders) and counts; refunds reported separately
       CREATE OR REPLACE VIEW vw_revenue_daily AS
       SELECT
-        date_trunc(''day'', created_at) AS day,
-        COUNT(*) FILTER (WHERE status IN (''paid'',''completed'')) AS paid_orders,
-        SUM(total) FILTER (WHERE status IN (''paid'',''completed'')) AS revenue_gross,
-        COUNT(*) FILTER (WHERE status IN (''failed'',''cancelled'')) AS lost_orders,
-        SUM(total) FILTER (WHERE status IN (''failed'',''cancelled'')) AS lost_total
+        date_trunc($$day$$, created_at) AS day,
+        COUNT(*) FILTER (WHERE status IN ($$paid$$,$$completed$$)) AS paid_orders,
+        SUM(total) FILTER (WHERE status IN ($$paid$$,$$completed$$)) AS revenue_gross,
+        COUNT(*) FILTER (WHERE status IN ($$failed$$,$$cancelled$$)) AS lost_orders,
+        SUM(total) FILTER (WHERE status IN ($$failed$$,$$cancelled$$)) AS lost_total
       FROM orders
       GROUP BY 1
       ORDER BY day DESC;
@@ -539,7 +539,7 @@ Views:
       -- Daily refunds amount
       CREATE OR REPLACE VIEW vw_refunds_daily AS
       SELECT
-        date_trunc(''day'', r.created_at) AS day,
+        date_trunc($$day$$, r.created_at) AS day,
         SUM(r.amount) AS refunds_total,
         COUNT(*)      AS refunds_count
       FROM refunds r
@@ -567,11 +567,11 @@ Views:
       -- System errors per day and level
       CREATE OR REPLACE VIEW vw_system_errors_daily AS
       SELECT
-        date_trunc(''day'', created_at) AS day,
+        date_trunc($$day$$, created_at) AS day,
         level,
         COUNT(*) AS count
       FROM system_errors
-      GROUP BY date_trunc(''day'', created_at), level
+      GROUP BY date_trunc($$day$$, created_at), level
       ORDER BY day DESC, level;
   tax_rates_current:
     create: |-
@@ -654,9 +654,9 @@ Views:
         job_type,
         status,
         COUNT(*) AS total,
-        COUNT(*) FILTER (WHERE status=''pending'' AND (scheduled_at IS NULL OR scheduled_at <= now())) AS due_now,
-        COUNT(*) FILTER (WHERE status=''processing'') AS processing,
-        COUNT(*) FILTER (WHERE status=''failed'')     AS failed
+        COUNT(*) FILTER (WHERE status=$$pending$$    AND (scheduled_at IS NULL OR scheduled_at <= now())) AS due_now,
+        COUNT(*) FILTER (WHERE status=$$processing$$) AS processing,
+        COUNT(*) FILTER (WHERE status=$$failed$$)     AS failed
       FROM system_jobs
       GROUP BY job_type, status
       ORDER BY job_type, status;
@@ -699,9 +699,9 @@ Views:
         p.*
       FROM payments p
       WHERE
-        (status IN (''paid'',''authorized'') AND amount < 0)
-        OR (status = ''paid'' AND (transaction_id IS NULL OR transaction_id = ''''))
-        OR (status = ''failed'' AND amount > 0);
+        (status IN ($$paid$$,$$authorized$$) AND amount < 0)
+        OR (status = $$paid$$ AND (transaction_id IS NULL OR transaction_id = ''))
+        OR (status = $$failed$$ AND amount > 0);
   refunds_by_day_and_gateway:
     create: |-
       -- Refunds aggregated by day and gateway
@@ -778,8 +778,8 @@ Views:
       SELECT
         u.id AS user_id,
         MAX(l.attempted_at) AS last_attempt_at,
-        COUNT(*) FILTER (WHERE l.attempted_at > now() - interval ''24 hours'') AS attempts_24h,
-        COUNT(*) FILTER (WHERE l.success = false AND l.attempted_at > now() - interval ''24 hours'') AS failed_24h
+        COUNT(*) FILTER (WHERE l.attempted_at > now() - interval $$24 hours$$) AS attempts_24h,
+        COUNT(*) FILTER (WHERE l.success = false AND l.attempted_at > now() - interval $$24 hours$$) AS failed_24h
       FROM users u
       LEFT JOIN login_attempts l ON l.user_id = u.id
       GROUP BY u.id;

@@ -5,12 +5,12 @@
 ## Views (MySQL/MariaDB)
 - Always declare `ALGORITHM=MERGE|TEMPTABLE` **and** `SQL SECURITY INVOKER`. `ALGORITHM=UNDEFINED` is rejected.
 - Clause order matters on MySQL: `CREATE ALGORITHM=… SQL SECURITY … VIEW … AS …`.
-- Use the umbrella maps (`schema-views-*.psd1`, `schema-views-feature-*.psd1`) for SQL; don’t hand-roll `CREATE VIEW … SELECT * …` in modules.
+- Use the umbrella maps (`schema-views-*.yaml`, `schema-views-feature-*.yaml`) for SQL; don’t hand-roll `CREATE VIEW … SELECT * …` in modules.
 - Split tool guardrails: `scripts/schema-tools/Split-SchemaToPackages.ps1` emits warnings when a MySQL view lacks `ALGORITHM` or `SQL SECURITY` (regular + feature maps). Treat warnings as blockers.
 
 ## Install ordering
 - **Tables before views.** Installer will fail fast if a view references a missing table; retries won’t mask missing DDL.
-- Feature views belong in `schema-views-feature-*.psd1`; contract views in `schema-views-*.psd1`. Both sets must live in a package that matches the owner table.
+- Feature views belong in `schema-views-feature-*.yaml`; contract views in `schema-views-*.yaml`. Both sets must live in a package that matches the owner table.
 
 ## Locks & orchestration
 - Orchestrator advisory lock: `blackcat:orch:<dbid>[:<extra>]` (deterministic). Avoid random suffixes; they hide contention.

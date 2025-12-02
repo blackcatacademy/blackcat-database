@@ -9,6 +9,12 @@ namespace BlackCat\Database\Services;
  *
  * Implementations typically come from generated repositories in ./packages.
  * Methods are intentionally permissive; not every repository supports all of them.
+ *
+ * Optional extensions (checked via method_exists in services):
+ * @method void upsertMany(array $rows)
+ * @method void upsertRevive(array $row)
+ * @method void upsertManyRevive(array $rows)
+ * @method class-string def()
  */
 interface GenericCrudRepositoryShape
 {

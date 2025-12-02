@@ -9,29 +9,35 @@ if (function_exists('ini_set')) {
 }
 
 // Prefer local source trees for core/crypto packages to avoid stale vendor copies during static analysis.
+// Can be disabled by exporting PHPSTAN_USE_LOCAL_CORE=0 when local sources are outdated/broken.
+$useLocalCore = getenv('PHPSTAN_USE_LOCAL_CORE');
 $repoRoot = __DIR__;
-$coreSrc  = $repoRoot . '/local-blackcat-core/src';
-$coreAutoload = $repoRoot . '/local-blackcat-core/vendor/autoload.php';
-if (is_file($coreAutoload)) {
-    require $coreAutoload;
-}
-$overrides = [
-    'BlackCat\\Core\\'             => $coreSrc,
-    'BlackCat\\DatabaseCrypto\\'   => $repoRoot . '/local-blackcat-database-crypto/src',
-];
-spl_autoload_register(static function (string $class) use ($overrides): void {
-    foreach ($overrides as $prefix => $dir) {
-        if (strncmp($class, $prefix, strlen($prefix)) !== 0) {
-            continue;
-        }
-        $rel  = substr($class, strlen($prefix));
-        $path = $dir . '/' . str_replace('\\', '/', $rel) . '.php';
-        if (is_file($path)) {
-            require $path;
-            return;
-        }
+if ($useLocalCore === false || $useLocalCore === '' || $useLocalCore === '0') {
+    $overrides = [];
+} else {
+    $coreSrc  = $repoRoot . '/local-blackcat-core/src';
+    $coreAutoload = $repoRoot . '/local-blackcat-core/vendor/autoload.php';
+    if (is_file($coreAutoload)) {
+        require $coreAutoload;
     }
-}, true, true);
+    $overrides = [
+        'BlackCat\\Core\\'             => $coreSrc,
+        'BlackCat\\DatabaseCrypto\\'   => $repoRoot . '/local-blackcat-database-crypto/src',
+    ];
+    spl_autoload_register(static function (string $class) use ($overrides): void {
+        foreach ($overrides as $prefix => $dir) {
+            if (strncmp($class, $prefix, strlen($prefix)) !== 0) {
+                continue;
+            }
+            $rel  = substr($class, strlen($prefix));
+            $path = $dir . '/' . str_replace('\\', '/', $rel) . '.php';
+            if (is_file($path)) {
+                require $path;
+                return;
+            }
+        }
+    }, true, true);
+}
 
 $autoloadPath = __DIR__ . '/vendor/autoload.php';
 

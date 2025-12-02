@@ -55,12 +55,20 @@ final class PgCompat
 
     public function install(): void
     {
+        // Crypto functions (digest/encode) used by views.
+        $this->db->exec("CREATE EXTENSION IF NOT EXISTS pgcrypto");
+
         // Schema for helper functions.
         $this->db->exec("CREATE SCHEMA IF NOT EXISTS bc_compat");
 
         // last_insert_id() – similar to MySQL (current session sequence)
         $this->db->exec(<<<'SQL'
 CREATE OR REPLACE FUNCTION bc_compat.last_insert_id() RETURNS bigint
+LANGUAGE sql VOLATILE STRICT AS $$ SELECT lastval()::bigint $$;
+SQL);
+        // Public alias for compatibility with tests expecting bare LAST_INSERT_ID()
+        $this->db->exec(<<<'SQL'
+CREATE OR REPLACE FUNCTION last_insert_id() RETURNS bigint
 LANGUAGE sql VOLATILE STRICT AS $$ SELECT lastval()::bigint $$;
 SQL);
 
@@ -263,6 +271,7 @@ SQL);
     public function ensureUpdatedAtTrigger(string $table, string $column = 'updated_at', bool $respectManual = false): void
     {
         [$schema, $tbl] = $this->splitSchemaAndName($table);
+        $schema = $schema ?: 'public';
 
         // Validuj existenci sloupce (schema-aware).
         $exists = (bool)$this->db->fetchOne(
@@ -270,7 +279,7 @@ SQL);
              FROM information_schema.columns
              WHERE lower(table_name)=lower(:t)
                AND lower(column_name)=lower(:c)
-               AND (:s IS NULL OR table_schema = :s)
+               AND table_schema = :s
              LIMIT 1",
             [':t'=>$tbl, ':c'=>$column, ':s'=>$schema]
         );
@@ -290,7 +299,6 @@ SQL);
             CREATE TRIGGER {$qiTr}
             BEFORE UPDATE ON {$qiT}
             FOR EACH ROW
-            WHEN (OLD IS DISTINCT FROM NEW)
             EXECUTE FUNCTION {$fn}()
         ");
     }
@@ -301,6 +309,7 @@ SQL);
     public function ensureRowVersion(string $table, string $column = 'row_version'): void
     {
         [$schema, $tbl] = $this->splitSchemaAndName($table);
+        $schema = $schema ?: 'public';
 
         $qiT  = $this->qi($table);
         $qiV  = $this->qid($column);
@@ -310,7 +319,7 @@ SQL);
              FROM information_schema.columns
              WHERE lower(table_name)=lower(:t)
                AND lower(column_name)=lower(:c)
-               AND (:s IS NULL OR table_schema = :s)
+               AND table_schema = :s
              LIMIT 1",
             [':t'=>$tbl, ':c'=>$column, ':s'=>$schema]
         );
@@ -330,7 +339,6 @@ SQL);
             CREATE TRIGGER {$qiTr}
             BEFORE UPDATE ON {$qiT}
             FOR EACH ROW
-            WHEN (OLD IS DISTINCT FROM NEW)
             EXECUTE FUNCTION bc_compat.tg_inc_row_version()
         ");
     }
@@ -363,6 +371,7 @@ SQL);
     public function ensureUuidBinComputed(string $table, string $uuidCol = 'uuid', string $uuidBinCol = 'uuid_bin'): void
     {
         [$schema, $tbl] = $this->splitSchemaAndName($table);
+        $schema = $schema ?: 'public';
 
         $qiT  = $this->qi($table);
         $qiU  = $this->qid($uuidCol);
@@ -373,7 +382,7 @@ SQL);
              FROM information_schema.columns
              WHERE lower(table_name)=lower(:t)
                AND lower(column_name)=lower(:c)
-               AND (:s IS NULL OR table_schema = :s)
+               AND table_schema = :s
              LIMIT 1",
             [':t'=>$tbl, ':c'=>$uuidBinCol, ':s'=>$schema]
         );
@@ -411,6 +420,7 @@ SQL);
     private function dropTriggerIfExists(string $trigger, string $table): void
     {
         [$schema, $tbl] = $this->splitSchemaAndName($table);
+        $schema = $schema ?: 'public';
 
         $row = $this->db->fetch(
             "SELECT 1
@@ -420,7 +430,7 @@ SQL);
             WHERE NOT t.tgisinternal
               AND lower(t.tgname) = lower(:tr)
               AND lower(c.relname) = lower(:tbl)
-              AND (:s IS NULL OR n.nspname = :s)
+              AND n.nspname = :s
             LIMIT 1",
             [':tr'=>$trigger, ':tbl'=>$tbl, ':s'=>$schema]
         );

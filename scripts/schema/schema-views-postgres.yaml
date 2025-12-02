@@ -89,7 +89,7 @@ Views:
   encrypted_fields:
     create: |-
       -- Contract view for [encrypted_fields]
-      -- Hides ciphertext; keeps routing metadata.
+      -- Hides raw ciphertext; exposes hex digest for routing/debug.
       CREATE OR REPLACE VIEW vw_encrypted_fields AS
       SELECT
         id,
@@ -99,7 +99,6 @@ Views:
         meta,
         created_at,
         updated_at,
-        ciphertext,
         UPPER(encode(ciphertext,'hex')) AS ciphertext_hex
       FROM encrypted_fields;
   merkle_anchors:
@@ -1571,7 +1570,6 @@ Views:
         user_id,
         token_hash_algo,
         token_hash_key_version,
-        token_hash,
         UPPER(encode(token_hash,'hex')) AS token_hash_hex,
         type,
         scopes,

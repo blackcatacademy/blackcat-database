@@ -17,10 +17,15 @@ final class MapperRoundTripDynamicTest extends TestCase
     {
         $out = [];
         $root = realpath(__DIR__ . '/../../../packages');
+        if ($root === false) {
+            return [];
+        }
         $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS));
         foreach ($it as $f) {
             if ($f->isFile() && preg_match('~/packages/([^/]+)/src/Mapper/([A-Za-z0-9_]+)Mapper\.php$~', $f->getPathname(), $m)) {
-                $pkg = $m[1]; $mapperClass = "BlackCat\\Database\\Packages\\".implode('', array_map('ucfirst', preg_split('/[_-]/',$pkg)))."\\Mapper\\{$m[2]}Mapper";
+                $pkg = $m[1];
+                $parts = preg_split('/[_-]/',$pkg) ?: [];
+                $mapperClass = "BlackCat\\Database\\Packages\\".implode('', array_map('ucfirst', $parts))."\\Mapper\\{$m[2]}Mapper";
                 require_once $f->getPathname();
                 if (class_exists($mapperClass)) $out[] = [$pkg, $mapperClass];
             }
@@ -31,7 +36,8 @@ final class MapperRoundTripDynamicTest extends TestCase
     #[DataProvider('dtoMappersProvider')]
     public function test_round_trip_for_known_columns(string $pkg, string $mapperClass): void
     {
-        $defsClass = "BlackCat\\Database\\Packages\\".implode('', array_map('ucfirst', preg_split('/[_-]/',$pkg)))."\\Definitions";
+        $parts = preg_split('/[_-]/', $pkg) ?: [];
+        $defsClass = "BlackCat\\Database\\Packages\\".implode('', array_map('ucfirst', $parts))."\\Definitions";
         if (!class_exists($defsClass)) $this->markTestSkipped("defs missing for $pkg");
 
         /** @var string[] $cols */
@@ -55,8 +61,8 @@ final class MapperRoundTripDynamicTest extends TestCase
         };
         $toSegmentCamelSnake = static function(string $snake): string {
             $parts = explode('_', strtolower($snake));
-            if (!$parts) return $snake;
             $out = array_shift($parts);
+            if ($out === '') return $snake;
             foreach ($parts as $p) { $out .= '_'.ucfirst($p); }
             return $out;
         };

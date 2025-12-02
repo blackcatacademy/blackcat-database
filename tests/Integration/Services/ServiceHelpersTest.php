@@ -30,6 +30,8 @@ final class ServiceHelpersTest extends TestCase
             $db = Database::getInstance();
             if ($db->dialect()->isMysql()) {
                 $db->exec('CREATE TABLE IF NOT EXISTS t (id BIGINT AUTO_INCREMENT PRIMARY KEY, v TEXT)');
+            } elseif ($db->dialect()->isPg()) {
+                $db->exec('CREATE TABLE IF NOT EXISTS t (id BIGSERIAL PRIMARY KEY, v TEXT)');
             } else {
                 $db->exec('CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY AUTOINCREMENT, v TEXT)');
             }

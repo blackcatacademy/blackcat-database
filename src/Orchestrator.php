@@ -75,46 +75,49 @@ final class Orchestrator
 
             // PostgreSQL: execute everything in a single transaction
             if ($db->isPg()) {
-                $db->txWithMeta(function (Database $db) use ($statements, $dryRun, $meta, $timeoutMs) {
-                    return $db->withStatementTimeout($timeoutMs, function () use ($db, $statements, $dryRun, $meta) {
-                        $i = 0;
-                        foreach ($statements as $sql) {
-                            $sql = trim((string)$sql);
-                            // Skip empty lines and manual BEGIN/COMMIT statements inside the batch
-                            if ($sql === '' || preg_match('~^\s*(BEGIN|COMMIT|ROLLBACK)\b~i', $sql)) continue;
+                $db->exec('SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL SERIALIZABLE');
+                $db->exec('BEGIN');
+                try {
+                    // Apply timeout at the start of the transaction.
+                    $db->execWithMeta('SET LOCAL statement_timeout TO ' . (int)$timeoutMs, [], ['op' => 'ddl.timeout'] + $meta);
 
-                            if ($dryRun) {
-                                $this->logger?->info('ddl-dry-run', [
-                                    'step' => $i++,
-                                    'sql_preview' => SqlPreview::preview($sql),
-                                    'len'         => strlen($sql),
-                                ] + $meta);
-                                continue;
-                            }
+                    $i = 0;
+                    foreach ($statements as $sql) {
+                        $sql = trim((string)$sql);
+                        // Skip empty lines and manual BEGIN/COMMIT statements inside the batch
+                        if ($sql === '' || preg_match('~^\s*(BEGIN|COMMIT|ROLLBACK)\b~i', $sql)) continue;
 
-                            try {
-                                $t0 = microtime(true);
-                                $db->execWithMeta($sql, [], ['op' => 'ddl.step'] + $meta);
-                                $this->logger?->debug('ddl-step-ok', [
-                                    'step' => $i++,
-                                    'ms'   => Observability::ms($t0),
-                                ] + $meta);
-                            } catch (\Throwable $e) {
-                                $err = Observability::errorFields($e);
-                                $this->logger?->error('ddl-step-error', [
-                                    'step'        => $i,
-                                    'sql_preview' => SqlPreview::preview($sql),
-                                    'len'         => strlen($sql),
-                                ] + $err + $meta);
-                                throw $e;
-                            }
+                        if ($dryRun) {
+                            $this->logger?->info('ddl-dry-run', [
+                                'step' => $i++,
+                                'sql_preview' => SqlPreview::preview($sql),
+                                'len'         => strlen($sql),
+                            ] + $meta);
+                            continue;
                         }
-                        return null;
-                    });
-                }, $meta, [
-                    'timeoutMs' => $timeoutMs,
-                    'isolation' => 'serializable',
-                ]);
+
+                        try {
+                            $t0 = microtime(true);
+                            $db->execWithMeta($sql, [], ['op' => 'ddl.step'] + $meta);
+                            $this->logger?->debug('ddl-step-ok', [
+                                'step' => $i++,
+                                'ms'   => Observability::ms($t0),
+                            ] + $meta);
+                        } catch (\Throwable $e) {
+                            $err = Observability::errorFields($e);
+                            $this->logger?->error('ddl-step-error', [
+                                'step'        => $i,
+                                'sql_preview' => SqlPreview::preview($sql),
+                                'len'         => strlen($sql),
+                            ] + $err + $meta);
+                            throw $e;
+                        }
+                    }
+                    $db->exec('COMMIT');
+                } catch (\Throwable $e) {
+                    $db->exec('ROLLBACK');
+                    throw $e;
+                }
                 return null;
             }
 
@@ -281,7 +284,7 @@ final class Orchestrator
                     'lock' => $lockName, 'attempt' => $attempt, 'sleep_ms' => $sleepMs
                 ]);
             },
-            classifier: [$this, 'classifyLockError']
+            classifier: fn(\Throwable $e) => $this->classifyLockError($e)
         );
     }
 

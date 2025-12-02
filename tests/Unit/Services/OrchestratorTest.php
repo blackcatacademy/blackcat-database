@@ -22,7 +22,8 @@ final class OrchestratorTest extends TestCase
     public function testRunDryAndApply(): void
     {
         $db = Database::getInstance();
-        $rt = new Runtime($db, SqlDialect::mysql, new NullLogger());
+        $dialect = $db->isPg() ? SqlDialect::postgres : SqlDialect::mysql;
+        $rt = new Runtime($db, $dialect, new NullLogger());
         $orc = new Orchestrator($rt);
 
         $orc->run(['CREATE TABLE IF NOT EXISTS x(a INT)'], true, ['op'=>'test']);
@@ -41,14 +42,15 @@ final class OrchestratorTest extends TestCase
         putenv("BC_SCHEMA_DIR={$tmpSchema}");
         $_ENV['BC_SCHEMA_DIR'] = $tmpSchema;
 
-        $inst = new \BlackCat\Database\Installer($db, SqlDialect::mysql);
+        $dialect = $db->isPg() ? SqlDialect::postgres : SqlDialect::mysql;
+        $inst = new \BlackCat\Database\Installer($db, $dialect);
         $inst->ensureRegistry();
         // ensure no stale installer lock and tag this run
         putenv('BC_ORCH_LOCK_EXTRA=test');
         $_ENV['BC_ORCH_LOCK_EXTRA'] = 'test';
         try { $db->exec('SELECT RELEASE_LOCK(:n)', [':n'=>'blackcat:orch:' . $db->id() . ':test']); } catch (\Throwable) {}
 
-        $rt = new Runtime($db, SqlDialect::mysql, new NullLogger());
+        $rt = new Runtime($db, $dialect, new NullLogger());
         $orc = new Orchestrator($rt);
 
         $mods = [
@@ -56,7 +58,7 @@ final class OrchestratorTest extends TestCase
                 public function name(): string { return 'A'; }
                 public function table(): string { return 'a'; }
                 public function version(): string { return '1.0.0'; }
-                public function dialects(): array { return [ModuleInterface::DIALECT_MYSQL]; }
+                public function dialects(): array { return [ModuleInterface::DIALECT_MYSQL, ModuleInterface::DIALECT_POSTGRES]; }
                 public function dependencies(): array { return []; }
                 public function install(Database $db, SqlDialect $d): void {}
                 public function upgrade(Database $db, SqlDialect $d, string $from): void {}
@@ -69,7 +71,7 @@ final class OrchestratorTest extends TestCase
                 public function name(): string { return 'B'; }
                 public function table(): string { return 'b'; }
                 public function version(): string { return '1.0.0'; }
-                public function dialects(): array { return [ModuleInterface::DIALECT_MYSQL]; }
+                public function dialects(): array { return [ModuleInterface::DIALECT_MYSQL, ModuleInterface::DIALECT_POSTGRES]; }
                 public function dependencies(): array { return []; }
                 public function install(Database $db, SqlDialect $d): void {}
                 public function upgrade(Database $db, SqlDialect $d, string $from): void {}

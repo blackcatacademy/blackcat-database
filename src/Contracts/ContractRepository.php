@@ -72,8 +72,15 @@ namespace BlackCat\Database\Contracts;
  * @method list<AssocRow> findByIds(array $ids, array $opts = [])
  * @method int  updateByIdOptimistic(int|string|array $id, array $row, int $expectedVersion)
  * @method int  updateByIdExpr(int|string|array $id, array $expr)
+ * @method void upsertMany(array $rows)
+ * @method void upsertRevive(array $row)
+ * @method void upsertManyRevive(array $rows)
  * @method void setIngressAdapter(?object $adapter = null, ?string $table = null)
  * @method string table()
+ * @method class-string def()
+ * @method list<AssocRow> findAllByIds(array $ids)
+ * @method AssocRow|\BlackCat\Database\Contracts\Dto|null getByUnique(array $keys, bool $asDto = false)
+ * @method AssocRow|\BlackCat\Database\Contracts\Dto|null getById(int|string|array $id, bool $asDto = false)
  */
 interface ContractRepository
 {
@@ -188,7 +195,8 @@ interface ContractRepository
      *
      * @param Id $id
      * @param 'wait'|'nowait'|'skip_locked' $mode
+     * @param 'update'|'share' $strength
      * @return AssocRow|null
      */
-    public function lockById(int|string|array $id, string $mode = 'wait'): ?array;
+    public function lockById(int|string|array $id, string $mode = 'wait', string $strength = 'update'): ?array;
 }

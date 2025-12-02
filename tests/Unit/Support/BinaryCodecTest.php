@@ -30,6 +30,8 @@ final class BinaryCodecTest extends TestCase
     public function testDecodesStreamsAndObjects(): void
     {
         $stream = fopen('php://temp', 'rb+');
+        $this->assertNotFalse($stream, 'Failed to open temp stream');
+        $this->assertIsResource($stream);
         fwrite($stream, 'abcd');
         rewind($stream);
         $this->assertSame('abcd', BinaryCodec::toBinary($stream));

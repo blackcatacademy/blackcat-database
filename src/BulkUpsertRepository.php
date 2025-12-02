@@ -50,8 +50,12 @@ use BlackCat\Database\Contracts\DatabaseIngressAdapterInterface;
  */
 trait BulkUpsertTrait
 {
-    /** @param array<int,array<string,mixed>> $rows */
-    public function upsertMany(array $rows): void
+    /**
+     * @param array<int,array<string,mixed>> $rows
+     * @param string[] $keys conflict keys override (optional)
+     * @param string[] $updateColumns update columns override (optional)
+     */
+    public function upsertMany(array $rows, array $keys = [], array $updateColumns = []): void
     {
         if (!$rows) return;
 
@@ -73,13 +77,18 @@ trait BulkUpsertTrait
 
         // 2) Conflict keys & update columns.
         $pkCols   = \method_exists($def, 'pkColumns') ? (array)$def::pkColumns() : [(string)$def::pk()];
-        $conflict = \method_exists($def, 'upsertKeys') ? (array)$def::upsertKeys() : $pkCols;
-        $conflict = $this->filterKnownColumns($def, array_values(array_unique(array_map('strval', $conflict))));
+        $conflictSource = $keys ?: (\method_exists($def, 'upsertKeys') ? (array)$def::upsertKeys() : $pkCols);
+        $conflict = $this->filterKnownColumns($def, array_values(array_unique(array_map('strval', $conflictSource))));
 
         $updateCols =
-            \method_exists($this, 'upsertUpdateColumns')
-            ? (array)$this->upsertUpdateColumns()
-            : array_values(array_diff($allCols, $conflict, ['created_at']));
+            $updateColumns && \is_array($updateColumns)
+            ? $updateColumns
+            : (
+                /** @phpstan-ignore-next-line phpstan cannot see consuming repo methods */
+                \method_exists($this, 'upsertUpdateColumns')
+                ? (array)$this->upsertUpdateColumns()
+                : array_values(array_diff($allCols, $conflict, ['created_at']))
+            );
         $updateCols = array_values(array_unique(array_map('strval', $updateCols)));
         $updateCols = $this->filterKnownColumns($def, $updateCols);
 
@@ -114,15 +123,22 @@ trait BulkUpsertTrait
             );
 
             // Short robust retry for transient errors.
-            Retry::runAdvanced(
-                fn() => \method_exists($db, 'executeWithMeta')
-                    ? $db->executeWithMeta($sql, $params, [
+            $run = function () use ($db, $sql, $params, $def, $chunk) {
+                /** @phpstan-ignore-next-line optional db extension */
+                if (\method_exists($db, 'executeWithMeta')) {
+                    return $db->executeWithMeta($sql, $params, [
                         'svc'   => 'repo',
                         'op'    => 'bulk_upsert',
                         'table' => (string)$def::table(),
                         'rows'  => \count($chunk),
-                    ])
-                    : $db->execute($sql, $params),
+                    ]);
+                }
+                return $db->execute($sql, $params);
+            };
+
+            /** @phpstan-ignore-next-line runtime hook uses Retry generic */
+            Retry::runAdvanced(
+                $run,
                 attempts: 3,
                 initialMs: 25,
                 factor: 2.0,
@@ -132,9 +148,11 @@ trait BulkUpsertTrait
         }
 
         // 4) Post-write hooks (best-effort).
+        /** @phpstan-ignore-next-line repo may provide hook */
         if (\method_exists($this, 'afterWrite')) {
             try { $this->afterWrite(); } catch (\Throwable) {}
         }
+        /** @phpstan-ignore-next-line repo may provide cache hook */
         if (\method_exists($this, 'invalidateSelfCache')) {
             try { $this->invalidateSelfCache(); } catch (\Throwable) {}
         }
@@ -193,27 +211,34 @@ trait BulkUpsertTrait
         // MySQL/MariaDB
         $isMaria  = DbVendor::isMaria($db);
         $ver      = $db->serverVersion();
-        $useAlias = !$isMaria && $ver !== null && \version_compare($ver, '8.0.20', '>=');
+        // Prefer alias path when version unknown to avoid VALUES() and ambiguity on new MySQL.
+        $useAlias = !$isMaria && ($ver === null || \version_compare($ver, '8.0.20', '>='));
+        if (\getenv('BC_UPSERT_DEBUG') === '1') {
+            \error_log("[upsert] bulk dialect=" . ($isMaria ? 'maria' : 'mysql') . " ver=" . ($ver ?? 'null') . " useAlias=" . ($useAlias ? '1' : '0'));
+        }
         $alias    = '_new';
+        $tblPref  = $tbl . '.';
 
         $set = [];
 
         foreach ($updateCols as $c) {
             if (!in_array($c, $cols, true)) continue;
-            $lhs = $this->qid($db, $c);
+            $lhs = $tblPref . $this->qid($db, $c);
             if ($useAlias) {
-                $set[] = $lhs . ' = ' . $alias . '.' . $lhs;
+                $col = $this->qid($db, $c);
+                $set[] = $lhs . ' = ' . $alias . '.' . $col;
             } else {
-                $set[] = $lhs . ' = VALUES(' . $lhs . ')';
+                $col = $this->qid($db, $c);
+                $set[] = $lhs . ' = VALUES(' . $col . ')';
             }
         }
         if ($updatedAt && !in_array($updatedAt, $updateCols, true)) {
-            $set[] = $this->qid($db, $updatedAt) . ' = CURRENT_TIMESTAMP(6)';
+            $set[] = $tblPref . $this->qid($db, $updatedAt) . ' = CURRENT_TIMESTAMP(6)';
         }
         if (!$set) {
             // No-op update to trigger duplicate handling
             $firstCol = $conflictKeys[0] ?? $cols[0];
-            $first    = $this->qid($db, $firstCol);
+            $first    = $tblPref . $this->qid($db, $firstCol);
             $set[]    = $first . ' = ' . $first;
         }
 
@@ -243,6 +268,7 @@ trait BulkUpsertTrait
 
     private function resolveIngressAdapter(): ?DatabaseIngressAdapterInterface
     {
+        /** @phpstan-ignore-next-line consuming repo may have property */
         if (\property_exists($this, 'cryptoIngressAdapter')) {
             $adapter = $this->{'cryptoIngressAdapter'};
             if ($adapter instanceof DatabaseIngressAdapterInterface) {
@@ -250,6 +276,7 @@ trait BulkUpsertTrait
             }
         }
 
+        /** @phpstan-ignore-next-line consuming repo may implement */
         if (\method_exists($this, 'getIngressAdapter')) {
             try {
                 $adapter = $this->getIngressAdapter();

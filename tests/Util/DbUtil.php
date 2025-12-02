@@ -77,7 +77,8 @@ final class DbUtil
             if (!preg_match('~/packages/([^/]+)/src/([A-Za-z0-9_]+)Module\.php$~', $path, $m)) continue;
 
             $pkgDir = $m[1];
-            $pkgPascal = implode('', array_map(fn($x)=>ucfirst($x), preg_split('/[_-]/', $pkgDir)));
+            $parts = preg_split('/[_-]/', $pkgDir) ?: [];
+            $pkgPascal = implode('', array_map(fn($x)=>ucfirst($x), $parts));
             $class = "BlackCat\\Database\\Packages\\{$pkgPascal}\\{$pkgPascal}Module";
 
             require_once $path; // ensure autoload kicks in

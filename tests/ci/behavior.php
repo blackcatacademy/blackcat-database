@@ -23,8 +23,8 @@ Database::init([
 $db = Database::getInstance();
 
 $fail = 0;
-function ok($msg){ echo "[OK] $msg\n"; }
-function ng($msg){ echo "[FAIL] $msg\n"; global $fail; $fail++; }
+function ok(string $msg): void { echo "[OK] $msg\n"; }
+function ng(string $msg): void { echo "[FAIL] $msg\n"; global $fail; $fail++; }
 
 /* 1) View masking: app_settings.type='secret' must return NULL in the view */
 try {
@@ -85,5 +85,6 @@ try {
     ($ts !== '') ? ok("DEFAULT timestamp populated (app_settings.updated_at)") : ng("DEFAULT timestamp not populated");
 } catch (Throwable $e) { ng("app_settings default timestamp: ".$e->getMessage()); }
 
-if ($fail > 0) { echo "FAILED behavior tests: $fail\n"; exit(20); }
+/** @var int $fail */
+if ((int)$fail > 0) { echo "FAILED behavior tests: $fail\n"; exit(20); }
 echo "ALL GREEN (behavior)\n";
