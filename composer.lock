@@ -4,20 +4,59 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "9025fe1d2f84260663e19c116ffcdbe9",
+    "content-hash": "00cdd3becf9a4b73a04eafb91aaefe94",
     "packages": [
         {
-            "name": "blackcatacademy/blackcat-core",
-            "version": "dev-main",
+            "name": "blackcat/crypto",
+            "version": "dev-dev",
             "source": {
                 "type": "git",
-                "url": "https://github.com/blackcatacademy/blackcat-core.git",
-                "reference": "1f98a97a75c29903a99dc6ea609ad85a52956de4"
+                "url": "git@github.com:blackcatacademy/blackcat-crypto.git",
+                "reference": "63cb9ed63a92e7a70b91555d1e4ea68cb3affadf"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/blackcatacademy/blackcat-core/zipball/1f98a97a75c29903a99dc6ea609ad85a52956de4",
-                "reference": "1f98a97a75c29903a99dc6ea609ad85a52956de4",
+                "url": "https://api.github.com/repos/blackcatacademy/blackcat-crypto/zipball/63cb9ed63a92e7a70b91555d1e4ea68cb3affadf",
+                "reference": "63cb9ed63a92e7a70b91555d1e4ea68cb3affadf",
+                "shasum": ""
+            },
+            "require": {
+                "ext-sodium": "*",
+                "php": "^8.2",
+                "psr/log": "^3.0"
+            },
+            "bin": [
+                "bin/crypto"
+            ],
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "BlackCat\\Crypto\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "BlackCat\\Crypto\\Tests\\": "tests/"
+                }
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "Centralized cryptography services for BlackCat platform (AEAD, HMAC, KMS wrapping, rotations)",
+            "time": "2025-12-03T15:29:43+00:00"
+        },
+        {
+            "name": "blackcatacademy/blackcat-core",
+            "version": "dev-dev",
+            "source": {
+                "type": "git",
+                "url": "git@github.com:blackcatacademy/blackcat-core.git",
+                "reference": "9e4aff5f7e44c6ab04f0cf3c9f6805fe124ba083"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/blackcatacademy/blackcat-core/zipball/9e4aff5f7e44c6ab04f0cf3c9f6805fe124ba083",
+                "reference": "9e4aff5f7e44c6ab04f0cf3c9f6805fe124ba083",
                 "shasum": ""
             },
             "require": {
@@ -31,7 +70,6 @@
             "suggest": {
                 "ext-mbstring": "Improves SQL preview sanitization and multibyte handling in logs."
             },
-            "default-branch": true,
             "type": "library",
             "extra": {
                 "branch-alias": {
@@ -89,7 +127,47 @@
                 "issues": "https://github.com/blackcatacademy/blackcat-core/issues",
                 "source": "https://github.com/blackcatacademy/blackcat-core"
             },
-            "time": "2025-11-02T12:42:31+00:00"
+            "time": "2025-12-02T23:22:16+00:00"
+        },
+        {
+            "name": "blackcatacademy/blackcat-database-crypto",
+            "version": "dev-dev",
+            "source": {
+                "type": "git",
+                "url": "git@github.com:blackcatacademy/blackcat-database-crypto.git",
+                "reference": "702a0ca3d3dc7d8bd8f11063a57982e20f0799fd"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/blackcatacademy/blackcat-database-crypto/zipball/702a0ca3d3dc7d8bd8f11063a57982e20f0799fd",
+                "reference": "702a0ca3d3dc7d8bd8f11063a57982e20f0799fd",
+                "shasum": ""
+            },
+            "require": {
+                "blackcat/crypto": "dev-main",
+                "blackcatacademy/blackcat-database": "dev-dev",
+                "ext-json": "*",
+                "php": "^8.2"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^11.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "BlackCat\\DatabaseCrypto\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "BlackCat\\DatabaseCrypto\\Tests\\": "tests/"
+                }
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "Transparent crypto adapter for BlackCat Database writes (field-level envelope encryption + HMAC).",
+            "time": "2025-12-02T23:47:14+00:00"
         },
         {
             "name": "psr/log",
@@ -2068,10 +2146,19 @@
             "time": "2024-03-03T12:36:25+00:00"
         }
     ],
-    "aliases": [],
+    "aliases": [
+        {
+            "package": "blackcat/crypto",
+            "version": "dev-dev",
+            "alias": "dev-main",
+            "alias_normalized": "dev-main"
+        }
+    ],
     "minimum-stability": "dev",
     "stability-flags": {
-        "blackcatacademy/blackcat-core": 20
+        "blackcat/crypto": 20,
+        "blackcatacademy/blackcat-core": 20,
+        "blackcatacademy/blackcat-database-crypto": 20
     },
     "prefer-stable": true,
     "prefer-lowest": false,
@@ -2082,5 +2169,5 @@
         "ext-sodium": "*"
     },
     "platform-dev": {},
-    "plugin-api-version": "2.6.0"
+    "plugin-api-version": "2.9.0"
 }

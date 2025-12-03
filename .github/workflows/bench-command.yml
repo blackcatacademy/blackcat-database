@@ -36,6 +36,7 @@ jobs:
         with:
           ref: ${{ steps.pr.outputs.ref }}
           fetch-depth: 0
+          submodules: recursive
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2

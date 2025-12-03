@@ -5,12 +5,40 @@ on:
   pull_request:
 
 jobs:
+  phpstan:
+    name: phpstan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: pcov
+          tools: composer
+
+      - name: Install dependencies
+        uses: ramsey/composer-install@v3
+        with:
+          composer-options: --no-interaction --prefer-dist
+
+      - name: Run phpstan
+        env:
+          BC_DB: mysql
+        run: |
+          vendor/bin/phpstan analyse --configuration=phpstan.neon
+
   phpunit:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        php: ['8.2']
+        php: ['8.3']
         db: ['postgres', 'mysql', 'mariadb']
     services:
       postgres:
@@ -42,9 +70,10 @@ jobs:
           --health-interval=10s --health-timeout=5s --health-retries=5
 
     steps:
-      - name: Checkout
+      - name: Checkout (with submodules)
         uses: actions/checkout@v6
         with:
+          submodules: recursive
           fetch-depth: 0
 
       - name: Setup PHP

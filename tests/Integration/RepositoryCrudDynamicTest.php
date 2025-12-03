@@ -229,6 +229,7 @@ final class RepositoryCrudDynamicTest extends TestCase
     {
         if (!class_exists($repoFqn)) $this->markTestSkipped("repo missing for $table");
 
+        /** @var Database $db */
         $db   = Database::getInstance();
         /** @var \BlackCat\Database\Contracts\ContractRepository $repo */
         $repo = new $repoFqn($db);
@@ -550,6 +551,7 @@ final class RepositoryCrudDynamicTest extends TestCase
     public function test_paginate_smoke(string $table, string $repoFqn): void
     {
         if (!is_string($repoFqn) || !class_exists($repoFqn)) $this->markTestSkipped("repo missing");
+        /** @var Database $db */
         $db = Database::getInstance();
         /** @var class-string $repoFqn */
         $repo = new $repoFqn($db);

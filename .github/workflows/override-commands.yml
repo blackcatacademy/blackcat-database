@@ -13,8 +13,11 @@ jobs:
       pull-requests: write
       contents: read
     steps:
-      - name: Checkout
+      - name: Checkout (with submodules)
         uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 0
 
       - name: Handle /override and /unoverride
         uses: actions/github-script@v8

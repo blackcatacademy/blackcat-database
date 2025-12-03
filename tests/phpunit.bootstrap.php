@@ -51,6 +51,29 @@ $resolveBackend = static function (): string {
 $which = $resolveBackend();
 
 /**
+ * Normalize DSN host for containerized runs: if the DSN points to localhost/127.0.0.1
+ * replace it with a container-reachable host (e.g., service name or host.docker.internal).
+ */
+$rewriteDsnHost = static function (string $dsn, array $candidates): string {
+    if (!preg_match('/host=([^;]+)/i', $dsn, $m)) {
+        return $dsn;
+    }
+    $host = strtolower(trim($m[1]));
+    if ($host !== 'localhost' && $host !== '127.0.0.1') {
+        return $dsn;
+    }
+    $replacement = '';
+    foreach ($candidates as $h) {
+        if ($h !== '') { $replacement = $h; break; }
+    }
+    if ($replacement === '') {
+        return $dsn;
+    }
+    $rewritten = preg_replace('/host=[^;]+/i', 'host=' . $replacement, $dsn, 1);
+    return is_string($rewritten) ? $rewritten : $dsn;
+};
+
+/**
  * 2) If the DB is already initialized, do not init again - only validate the match
  *    and set session GUCs (primarily on PG).
  */
@@ -117,6 +140,14 @@ if (Database::isInitialized()) {
             putenv("BC_REPLICA_PASS={$pass}");
         }
 
+        // Rewrite localhost -> container-reachable host for dockerized phpunit runs.
+        $dsn = $rewriteDsnHost($dsn, ['host.docker.internal', 'mysql']);
+        putenv("MYSQL_DSN={$dsn}");
+        if (getenv('BC_REPLICA_DSN')) {
+            $replica = $rewriteDsnHost((string)getenv('BC_REPLICA_DSN'), ['host.docker.internal', 'mysql']);
+            putenv("BC_REPLICA_DSN={$replica}");
+        }
+
         $replicaCfg = null;
         if ($fakeReplicaAllowed && (getenv('BC_REPLICA_DSN') ?: '') !== '') {
             $replicaCfg = [
@@ -139,7 +170,11 @@ if (Database::isInitialized()) {
             'replicaStickMs' => 200,
         ]);
 
+        /** @var Database $db */
         $db = Database::getInstance();
+        assert($db instanceof Database);
+        /** @var Database $db */
+        $db = $db;
         $db->configureCircuit(1000000, 1);
         (function(Database $db) {
             $setter = \Closure::bind(
@@ -168,6 +203,14 @@ if (Database::isInitialized()) {
             putenv("BC_REPLICA_DSN={$dsn}");
             putenv("BC_REPLICA_USER={$user}");
             putenv("BC_REPLICA_PASS={$pass}");
+        }
+
+        // Rewrite localhost -> container-reachable host for dockerized phpunit runs.
+        $dsn = $rewriteDsnHost($dsn, ['host.docker.internal', 'postgres']);
+        putenv("PG_DSN={$dsn}");
+        if (getenv('BC_REPLICA_DSN')) {
+            $replica = $rewriteDsnHost((string)getenv('BC_REPLICA_DSN'), ['host.docker.internal', 'postgres']);
+            putenv("BC_REPLICA_DSN={$replica}");
         }
         $replicaCfg = null;
         if ($fakeReplicaAllowed && (getenv('BC_REPLICA_DSN') ?: '') !== '') {

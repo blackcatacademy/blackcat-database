@@ -7,6 +7,7 @@
 - Environment comes from `tests/phpunit.bootstrap.php` (sets DSNs, replica shim, MySQL defaults).
   - MySQL DSN: `mysql:host=127.0.0.1;port=3306;dbname=test;charset=utf8mb4`
   - User/pass: `root`/`root`
+  - When running tests inside a container, set `MYSQL_DSN` with a host reachable from the container (e.g. `host=mysql` on compose networks or `host=host.docker.internal` on host networking). The same applies to `PG_DSN` for Postgres (deadlock/locking tests spawn child PHP processes and need a resolvable host).
   - Replica: auto-shimmed to the same DSN (unless `BC_REPLICA_*` provided) so replica-sensitive tests run.
   - Timeouts: MySQL session tuned via bootstrap; max_execution_time set per test run.
 
@@ -71,3 +72,14 @@
 - **Service helpers**: ServiceHelpers, AuditTrail, replication/lag metrics with real schema data.
 
 Run integration after schema/view changes to confirm installer + DdlGuard behaviors; keep unit fast for inner-loop edits.
+
+## Running GitHub Actions locally (Linux jobs)
+
+You can dry-run the Linux workflow matrix with Docker:
+
+1) Stop local DB containers occupying 3306 / 3307 / 5432 (the helper below does this automatically).
+2) Build the runner image once: `pwsh -NoLogo -File tools/run-actions.ps1 -BuildImage`
+3) Run workflows: `pwsh -NoLogo -File tools/run-actions.ps1`
+   - Pass extra `act` flags after the script, e.g. `-l` to list jobs or `-j phpunit-mysql` to scope a job.
+
+The runner image `blackcat/act-runner` bundles `act`, Node, and PowerShell (via `catthehacker/ubuntu:act-22.04-full`). Windows jobs stay skipped; regenerate/docs jobs can be skipped with `act` filters if needed.

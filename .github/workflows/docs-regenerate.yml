@@ -23,11 +23,12 @@ jobs:
             const pr = await github.rest.pulls.get({owner, repo, pull_number: prnum});
             core.setOutput('ref', pr.data.head.ref);
 
-      - name: Checkout PR head (writeable)
+      - name: Checkout PR head (with submodules, writeable)
         uses: actions/checkout@v6
         with:
           ref: ${{ steps.pr.outputs.ref || github.sha }}
           fetch-depth: 0
+          submodules: recursive
 
       - name: Setup PowerShell (pwsh)
         run: pwsh -v

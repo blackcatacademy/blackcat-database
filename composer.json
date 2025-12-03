@@ -5,6 +5,7 @@
   "license": "proprietary",
   "homepage": "https://github.com/blackcatacademy/blackcat-database",
   "keywords": ["database", "schema", "modular", "ecommerce", "installer", "codegen"],
+  "version": "dev-dev",
   "authors": [
     {
       "name": "Black Cat Academy s. r. o.",
@@ -22,7 +23,9 @@
     "ext-json": "*",
     "ext-pdo": "*",
     "ext-sodium": "*",
-    "blackcatacademy/blackcat-core": "dev-main"
+    "blackcatacademy/blackcat-core": "dev-dev",
+    "blackcat/crypto": "dev-dev as dev-main",
+    "blackcatacademy/blackcat-database-crypto": "dev-dev"
   },
   "require-dev": {
     "phpstan/phpstan": "^1.11",
@@ -33,6 +36,14 @@
     {
       "type": "vcs",
       "url": "https://github.com/blackcatacademy/blackcat-core"
+    },
+    {
+      "type": "vcs",
+      "url": "https://github.com/blackcatacademy/blackcat-database-crypto"
+    },
+    {
+      "type": "vcs",
+      "url": "https://github.com/blackcatacademy/blackcat-crypto"
     }
   ],
   "autoload": {
@@ -60,6 +71,9 @@
     "preferred-install": "dist",
     "platform": {
     }
+  },
+  "replace": {
+    "blackcatacademy/blackcat-crypto": "dev-main"
   },
   "minimum-stability": "dev",
   "prefer-stable": true

@@ -19,6 +19,8 @@ jobs:
       SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK || '' }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - name: Setup PHP & Python
         uses: actions/setup-python@v6
         with: { python-version: '3.x' }

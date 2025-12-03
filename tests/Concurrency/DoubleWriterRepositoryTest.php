@@ -136,7 +136,11 @@ final class DoubleWriterRepositoryTest extends TestCase
 
     public function test_repo_update_times_out_while_other_repo_holds_lock(): void
     {
+        /** @var Database $db */
         $db  = Database::getInstance();
+        assert($db instanceof Database);
+        /** @var Database $db */
+        $db = $db;
         $pdo = $db->getPdo();
 
         $id = $this->insertRowAndGetId();
