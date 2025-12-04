@@ -2287,15 +2287,18 @@ foreach ($mp in $mapPaths) {
     throw "Target package for table '$table' was not found (mode=$NameResolution, looked under '$ModulesRoot' for Pascal='$packagePascal', Snake='$table', Kebab='$kebab')."
     }
 
-    # optionally require the target to be a tracked submodule (.gitmodules)
-    if ($StrictSubmodules) {
+  # optionally require the target to be a tracked submodule (.gitmodules)
+  if ($StrictSubmodules) {
     $repoRootResolved = (Resolve-Path -LiteralPath $repoRoot).Path
     $dirResolved      = (Resolve-Path -LiteralPath $moduleDir).Path
-    $rel = $dirResolved.Substring($repoRootResolved.Length).TrimStart('\','/').Replace('\','/')
-    if (-not $subSet.ContainsKey($rel)) {
+    $relRaw = [System.IO.Path]::GetRelativePath($repoRootResolved, $dirResolved)
+    $rel = $relRaw.TrimStart('\','/').Replace('\','/')
+    # allow matching by suffix if relative path normalization differs
+    $isTracked = $subSet.ContainsKey($rel) -or ($subSet.Keys | Where-Object { $_.Trim('/\') -eq $rel.Trim('/\') -or $_.Trim('/\').EndsWith("/$rel") }).Count -gt 0
+    if (-not $isTracked) {
         throw "Target '$rel' is not listed in .gitmodules (initialize the submodule or disable -StrictSubmodules)."
     }
-    }
+  }
     # inside the package you may create subdirectories (src etc.), but do NOT create a new package
     New-Directory (Join-Path $moduleDir 'src')
 
