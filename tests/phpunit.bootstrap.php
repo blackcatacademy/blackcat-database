@@ -55,6 +55,12 @@ $which = $resolveBackend();
  * replace it with a container-reachable host (e.g., service name or host.docker.internal).
  */
 $rewriteDsnHost = static function (string $dsn, array $candidates): string {
+    $isContainer = file_exists('/.dockerenv') || getenv('BC_IN_CONTAINER') !== false;
+    $force       = getenv('BC_FORCE_DSN_REWRITE') === '1';
+    if (!$isContainer && !$force) {
+        return $dsn; // on host runners (e.g., GitHub) keep the original localhost
+    }
+
     if (!preg_match('/host=([^;]+)/i', $dsn, $m)) {
         return $dsn;
     }
