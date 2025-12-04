@@ -62,13 +62,21 @@ $rewriteDsnHost = static function (string $dsn, array $candidates): string {
     if ($host !== 'localhost' && $host !== '127.0.0.1') {
         return $dsn;
     }
+
+    $isResolvable = static function (string $h): bool {
+        if ($h === '') return false;
+        $ip = @gethostbyname($h);
+        return is_string($ip) && $ip !== $h && filter_var($ip, FILTER_VALIDATE_IP) !== false;
+    };
+
     $replacement = '';
     foreach ($candidates as $h) {
-        if ($h !== '') { $replacement = $h; break; }
+        if ($isResolvable($h)) { $replacement = $h; break; }
     }
     if ($replacement === '') {
-        return $dsn;
+        return $dsn; // keep original localhost if no candidate works (e.g., GitHub runner)
     }
+
     $rewritten = preg_replace('/host=[^;]+/i', 'host=' . $replacement, $dsn, 1);
     return is_string($rewritten) ? $rewritten : $dsn;
 };
