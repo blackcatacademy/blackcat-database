@@ -2294,7 +2294,8 @@ foreach ($mp in $mapPaths) {
     $relRaw = [System.IO.Path]::GetRelativePath($repoRootResolved, $dirResolved)
     $rel = $relRaw.TrimStart('\','/').Replace('\','/')
     # allow matching by suffix if relative path normalization differs
-    $isTracked = $subSet.ContainsKey($rel) -or ($subSet.Keys | Where-Object { $_.Trim('/\') -eq $rel.Trim('/\') -or $_.Trim('/\').EndsWith("/$rel") }).Count -gt 0
+    $trackedMatches = @($subSet.Keys | Where-Object { $_.Trim('/\') -eq $rel.Trim('/\') -or $_.Trim('/\').EndsWith("/$rel") })
+    $isTracked = $subSet.ContainsKey($rel) -or ($trackedMatches.Count -gt 0)
     if (-not $isTracked) {
         throw "Target '$rel' is not listed in .gitmodules (initialize the submodule or disable -StrictSubmodules)."
     }
