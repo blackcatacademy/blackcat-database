@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Unit\Services;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Orchestrator;
 use BlackCat\Database\SqlDialect;

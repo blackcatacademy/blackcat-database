@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Integration\Idempotency;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Idempotency\PdoIdempotencyStore;
 use BlackCat\Core\Database;
@@ -64,7 +66,7 @@ final class PdoIdempotencyStoreTest extends TestCase
             self::$db->exec("UPDATE bc_idempotency SET updated_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 10 DAY)");
         }
 
-        $purged = $store->purgeOlderThan(new DateInterval('P5D'));
+        $purged = $store->purgeOlderThan(new \DateInterval('P5D'));
         $this->assertGreaterThanOrEqual(1, $purged);
     }
 }

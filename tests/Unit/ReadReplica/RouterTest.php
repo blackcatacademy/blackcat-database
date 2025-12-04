@@ -1,52 +1,61 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Unit\ReadReplica;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\ReadReplica\Router;
 use BlackCat\Core\Database;
 
 final class RouterTest extends TestCase
 {
-    /**
-     * @return \PHPUnit\Framework\MockObject\MockObject&Database
-     */
-    private function mockDb(): Database
+    private static ?Database $db = null;
+
+    private static function db(): Database
     {
-        $db = $this->getMockBuilder(Database::class)
-            ->disableOriginalConstructor()
-            ->onlyMethods(['inTransaction','execWithMeta','fetchAllWithMeta','fetchRowWithMeta','fetchValueWithMeta','existsWithMeta'])
-            ->getMock();
-        $db->method('inTransaction')->willReturn(false);
-        return $db;
+        if (self::$db === null) {
+            throw new \RuntimeException('Database not initialized');
+        }
+        return self::$db;
+    }
+
+    public static function setUpBeforeClass(): void
+    {
+        if (!Database::isInitialized()) {
+            Database::init(['dsn'=>'sqlite::memory:','user'=>null,'pass'=>null,'options'=>[]]);
+        }
+        self::$db = Database::getInstance();
+        $dial = self::db()->dialect();
+        if ($dial->isPg()) {
+            $ddl = 'CREATE TABLE IF NOT EXISTS demo (id BIGSERIAL PRIMARY KEY, v INT)';
+        } elseif ($dial->isMysql()) {
+            $ddl = 'CREATE TABLE IF NOT EXISTS demo (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, v INT)';
+        } else {
+            $ddl = 'CREATE TABLE IF NOT EXISTS demo (id INTEGER PRIMARY KEY AUTOINCREMENT, v INT)';
+        }
+        self::db()->exec($ddl);
+        self::db()->exec('DELETE FROM demo');
+        self::db()->exec('INSERT INTO demo(v) VALUES (1)');
     }
 
     public function testReadQueriesHitReplicaWhenAvailable(): void
     {
-        $primary = $this->mockDb();
-        $replica = $this->mockDb();
-        $replica->expects($this->once())
-            ->method('fetchAllWithMeta')
-            ->with($this->stringContains('SELECT'))
-            ->willReturn([]);
+        $primary = self::db();
+        $replica = self::db();
 
         $router = new Router($primary, $replica);
-        $router->fetchAllWithMeta('SELECT * FROM demo', [], ['corr' => 'c1']);
+        $picked = $router->pick('SELECT * FROM demo', ['corr' => 'c1']);
+        $this->assertSame($replica, $picked);
     }
 
     public function testStickyAfterWriteKeepsReadsOnPrimary(): void
     {
-        $primary = $this->mockDb();
-        $replica = $this->mockDb();
-        $primary->expects($this->once())
-            ->method('execWithMeta')
-            ->willReturn(1);
-        $primary->expects($this->once())
-            ->method('fetchValueWithMeta')
-            ->willReturn(1);
-        $replica->expects($this->never())->method('fetchValueWithMeta');
+        $primary = self::db();
+        $replica = self::db();
 
         $router = new Router($primary, $replica, 5000);
-        $router->execWithMeta('INSERT INTO demo VALUES (1)', [], ['corr' => 'sticky']);
-        $router->fetchValueWithMeta('SELECT COUNT(*) FROM demo', [], null, ['corr' => 'sticky']);
+        $router->execWithMeta('INSERT INTO demo(v) VALUES (2)', [], ['corr' => 'sticky']);
+        $picked = $router->pick('SELECT COUNT(*) FROM demo', ['corr' => 'sticky']);
+        $this->assertSame($primary, $picked);
     }
 }

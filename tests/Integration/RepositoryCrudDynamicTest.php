@@ -181,16 +181,10 @@ final class RepositoryCrudDynamicTest extends TestCase
                 $class  = "BlackCat\\Database\\Packages\\{$pascal}\\Repository";
                 $defs   = "BlackCat\\Database\\Packages\\{$pascal}\\Definitions";
 
-                if (!class_exists($class, false)) { require_once $path; }
-
-                $defsPath = dirname($path) . DIRECTORY_SEPARATOR . 'Definitions.php';
-                if (!class_exists($defs, false) && is_file($defsPath)) { require_once $defsPath; }
-
                 $crit    = "BlackCat\\Database\\Packages\\{$pascal}\\Criteria";
-                $critPath= dirname($path) . DIRECTORY_SEPARATOR . 'Criteria.php';
-                if (!class_exists($crit, false) && is_file($critPath)) { require_once $critPath; }
 
-                if (class_exists($class, false) && class_exists($defs, false)) {
+                // Composer classmap (packages/*/src) should autoload these; skip if missing.
+                if (class_exists($class) && class_exists($defs)) {
                     /** @var class-string $defs */
                     $table = $defs::table();
                     self::$repos[$table] = $class;

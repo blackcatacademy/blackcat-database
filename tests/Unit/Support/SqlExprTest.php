@@ -1,8 +1,11 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Unit\Support;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Support\SqlExpr;
+use InvalidArgumentException;
 use BlackCat\Core\Database;
 
 final class SqlExprTest extends TestCase

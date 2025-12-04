@@ -25,7 +25,6 @@ final class OptimisticLockingRepositoryTest extends TestCase
 
         // find the first package with versionColumn() and derive the repo via DbHarness
         foreach ((array)glob(__DIR__ . '/../../packages/*/src/Definitions.php') as $df) {
-            require_once $df;
             if (!preg_match('~[\\\\/]packages[\\\\/]([A-Za-z0-9_]+)[\\\\/]src[\\\\/]Definitions\.php$~i', (string)$df, $m)) continue;
             $ns = $m[1];
             $defs = "BlackCat\\Database\\Packages\\{$ns}\\Definitions";
@@ -73,9 +72,6 @@ final class OptimisticLockingRepositoryTest extends TestCase
         foreach (glob($dir . '/*Repository.php') ?: [] as $file) {
             $base = basename($file, '.php');
             $fqn  = "BlackCat\\Database\\Packages\\{$pkgPascal}\\Repository\\{$base}";
-            if (!class_exists($fqn)) {
-                require_once $file;
-            }
             if (class_exists($fqn)) { return $fqn; }
         }
         return null;

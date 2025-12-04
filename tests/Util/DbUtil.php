@@ -81,7 +81,6 @@ final class DbUtil
             $pkgPascal = implode('', array_map(fn($x)=>ucfirst($x), $parts));
             $class = "BlackCat\\Database\\Packages\\{$pkgPascal}\\{$pkgPascal}Module";
 
-            require_once $path; // ensure autoload kicks in
             if (!class_exists($class)) continue;
 
             /** @var ModuleInterface $obj */

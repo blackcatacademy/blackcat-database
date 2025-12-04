@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Integration\Outbox;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Core\Database;
 use BlackCat\Database\Outbox\OutboxRepository;
@@ -8,6 +10,7 @@ use BlackCat\Database\Outbox\OutboxRecord;
 use BlackCat\Database\Outbox\OutboxConsumer;
 use BlackCat\Database\Events\CrudEventDispatcher;
 use BlackCat\Database\Events\CrudEvent;
+use RuntimeException;
 
 final class OutboxConsumerTest extends TestCase
 {

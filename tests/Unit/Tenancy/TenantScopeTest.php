@@ -1,13 +1,14 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Unit\Tenancy;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Tenancy\TenantScope;
 use BlackCat\Database\Tests\Support\DummyCriteria;
 
 final class TenantScopeTest extends TestCase
 {
-
     public function testApplyAndSqlAndAttach(): void
     {
         $scope = new TenantScope([10,20]);

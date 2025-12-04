@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Integration\Database;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Core\Database;
 

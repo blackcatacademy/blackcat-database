@@ -10,12 +10,10 @@ final class RepositoryFacadeSeekFallbackTest extends TestCase
 {
     public function testCriteriaFactoryUsesDbInstance(): void
     {
-        // Build a minimal mock Database exposing driver()
-        $db = $this->getMockBuilder(\BlackCat\Core\Database::class)
-            ->disableOriginalConstructor()
-            ->onlyMethods(['driver'])
-            ->getMock();
-        $db->method('driver')->willReturn('pgsql');
+        if (!\BlackCat\Core\Database::isInitialized()) {
+            \BlackCat\Core\Database::init(['dsn'=>'sqlite::memory:','user'=>null,'pass'=>null,'options'=>[]]);
+        }
+        $db = \BlackCat\Core\Database::getInstance();
 
         $repo = new \BlackCat\Database\Packages\RbacRepoSnapshots\Repository($db);
         $crit = $repo->criteria();
@@ -28,9 +26,10 @@ final class RepositoryFacadeSeekFallbackTest extends TestCase
 
     public function testPaginateBySeekFallbackResetsPaging(): void
     {
-        $db = $this->getMockBuilder(\BlackCat\Core\Database::class)
-            ->disableOriginalConstructor()
-            ->getMock();
+        if (!\BlackCat\Core\Database::isInitialized()) {
+            \BlackCat\Core\Database::init(['dsn'=>'sqlite::memory:','user'=>null,'pass'=>null,'options'=>[]]);
+        }
+        $db = \BlackCat\Core\Database::getInstance();
 
         // Anonymous stub implementing the generated interface (not KeysetRepoContract),
         // so the facade will take the fallback branch.

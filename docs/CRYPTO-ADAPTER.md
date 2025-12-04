@@ -10,9 +10,9 @@ Pro automatické šifrování vstupů můžeš využít balíček [`blackcat-dat
 ```php
 use BlackCat\Crypto\Config\CryptoConfig;
 use BlackCat\Crypto\CryptoManager;
-use BlackCat\DatabaseCrypto\Config\EncryptionMap;
-use BlackCat\DatabaseCrypto\Gateway\PdoGateway;
-use BlackCat\DatabaseCrypto\Adapter\DatabaseCryptoAdapter;
+use BlackCat\Database\Crypto\Config\EncryptionMap;
+use BlackCat\Database\Crypto\Gateway\PdoGateway;
+use BlackCat\Database\Crypto\Adapter\DatabaseCryptoAdapter;
 
 $crypto = CryptoManager::boot(CryptoConfig::fromEnv());
 $map = EncryptionMap::fromFile(__DIR__ . '/../config/encryption.json');

@@ -1,8 +1,7 @@
 <?php
-
 declare(strict_types=1);
 
-namespace Tests\Unit\Services;
+namespace BlackCat\Database\Tests\Unit\Services;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;

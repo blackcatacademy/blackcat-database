@@ -48,7 +48,6 @@ final class BulkInsertTest extends TestCase
                 $defs = "BlackCat\\Database\\Packages\\{$m[1]}\\Definitions";
                 if (class_exists($defs) && $defs::table() === $table) {
                     $repoClass = "BlackCat\\Database\\Packages\\{$m[1]}\\Repository";
-                    require_once $rf;
                     $repo = new $repoClass($db);
                     $defs = "BlackCat\\Database\\Packages\\{$m[1]}\\Definitions";
                     $uniqueKeys = $defs::uniqueKeys();

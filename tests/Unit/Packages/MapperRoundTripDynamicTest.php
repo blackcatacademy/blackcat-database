@@ -26,7 +26,6 @@ final class MapperRoundTripDynamicTest extends TestCase
                 $pkg = $m[1];
                 $parts = preg_split('/[_-]/',$pkg) ?: [];
                 $mapperClass = "BlackCat\\Database\\Packages\\".implode('', array_map('ucfirst', $parts))."\\Mapper\\{$m[2]}Mapper";
-                require_once $f->getPathname();
                 if (class_exists($mapperClass)) $out[] = [$pkg, $mapperClass];
             }
         }

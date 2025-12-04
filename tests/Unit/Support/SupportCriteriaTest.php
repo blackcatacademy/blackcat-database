@@ -1,13 +1,14 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Unit\Support;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Tenancy\TenantScope;
 use BlackCat\Database\Tests\Support\DummyCriteria;
 
 final class SupportCriteriaTest extends TestCase
 {
-
     public function testFiltersOpsBetweenNullsAndOrder(): void
     {
         $c = (new DummyCriteria())

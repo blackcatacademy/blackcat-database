@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Unit\Core;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Core\Database;
 use BlackCat\Core\Database\QueryCache;

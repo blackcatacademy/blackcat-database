@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Unit\Idempotency;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Idempotency\InMemoryIdempotencyStore;
 

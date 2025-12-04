@@ -23,7 +23,6 @@ final class RowLocksAndDeadlocksTest extends TestCase
 
         // find a "safe" table with identity PK 'id' and an updatable column (via Definitions only)
         foreach ((array)glob(__DIR__ . '/../../packages/*/src/Definitions.php') as $df) {
-            require_once $df;
             if (!preg_match('~[\\\\/]packages[\\\\/]([A-Za-z0-9_]+)[\\\\/]src[\\\\/]Definitions\.php$~i', (string)$df, $m)) continue;
             $ns = $m[1];
             $defs = "BlackCat\\Database\\Packages\\{$ns}\\Definitions";
@@ -208,27 +207,19 @@ final class RowLocksAndDeadlocksTest extends TestCase
         if (!isset($env['PATH']) || $env['PATH'] === '') { $env['PATH'] = getenv('PATH') ?: ''; }
         if (!isset($env['HOME']) || $env['HOME'] === '') { $env['HOME'] = getenv('HOME') ?: ''; }
 
-        // Harden DSN per target backend (inside Docker network host MUST be service name)
+        // Harden DSN per target backend
         if ($norm === 'pg') {
-            // if PG_DSN missing or pointing to localhost/127.0.0.1, rewrite to service "postgres"
+            // respect provided PG_DSN; if missing, fallback to localhost
             $pgDsn = $env['PG_DSN'] ?? (getenv('PG_DSN') ?: '');
-            if ($pgDsn === '' || preg_match('~host\s*=\s*(127\.0\.0\.1|localhost)~i', $pgDsn)) {
+            if ($pgDsn === '') {
                 $db   = $env['PGDATABASE'] ?? (getenv('PGDATABASE') ?: 'test');
                 $port = $env['PGPORT']     ?? (getenv('PGPORT') ?: '5432');
-                $env['PG_DSN'] = "pgsql:host=postgres;port={$port};dbname={$db}";
+                $env['PG_DSN'] = "pgsql:host=127.0.0.1;port={$port};dbname={$db}";
             }
             // ensure user/password/schema even when absent from $_ENV
             $env['PG_USER']      = $env['PG_USER']      ?? (getenv('PG_USER')      ?: 'postgres');
             $env['PG_PASS']      = $env['PG_PASS']      ?? (getenv('PG_PASS')      ?: 'postgres');
             $env['BC_PG_SCHEMA'] = $env['BC_PG_SCHEMA'] ?? (getenv('BC_PG_SCHEMA') ?: 'public');
-
-            // if DSN missing or pointing to localhost, rewrite to service name
-            $pgDsn = $env['PG_DSN'] ?? (getenv('PG_DSN') ?: '');
-            if ($pgDsn === '' || preg_match('~host\s*=\s*(127\.0\.0\.1|localhost)~i', $pgDsn)) {
-                $db   = $env['PGDATABASE'] ?? (getenv('PGDATABASE') ?: 'test');
-                $port = $env['PGPORT']     ?? (getenv('PGPORT')     ?: '5432');
-                $env['PG_DSN'] = "pgsql:host=postgres;port={$port};dbname={$db}";
-            }
 
             // avoid ambiguity - drop MySQL variables
             unset($env['MYSQL_DSN'], $env['MYSQL_USER'], $env['MYSQL_PASS']);

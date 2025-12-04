@@ -1,11 +1,14 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Integration\Services;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Support\ServiceHelpers;
 use BlackCat\Core\Database;
 use BlackCat\Core\Database\QueryCache;
 use BlackCat\Core\DatabaseException;
+use PDOException;
 
 final class ServiceHelpersDummyService
 {

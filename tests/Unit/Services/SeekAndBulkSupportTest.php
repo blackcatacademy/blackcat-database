@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Unit\Services;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Services\Features\SeekAndBulkSupport;
 use BlackCat\Database\Contracts\SeekPaginableRepository;
@@ -77,7 +79,7 @@ final class SeekAndBulkSupportTest extends TestCase
 
     public function testPaginateBySeekFallsBackToPaginate(): void
     {
-        $host = $this->host(new stdClass());
+        $host = $this->host(new \stdClass());
         [$items, $cursor] = $host->paginateBySeek((object)[], ['col'=>'id','dir'=>'asc','pk'=>'id'], null, 1);
         $this->assertCount(1, $items);
         $this->assertNull($cursor);

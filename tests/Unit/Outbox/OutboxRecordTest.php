@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Unit\Outbox;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Outbox\OutboxRecord;
 use BlackCat\Database\Events\CrudEvent;

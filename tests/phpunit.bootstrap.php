@@ -194,6 +194,9 @@ if (Database::isInitialized()) {
         if (defined('PDO::MYSQL_ATTR_FOUND_ROWS')) {
             $pdo->setAttribute(PDO::MYSQL_ATTR_FOUND_ROWS, true);
         }
+        // Avoid MySQL session-level query timeouts during heavier DDL/view creation.
+        try { $db->exec('SET SESSION max_execution_time = 0'); } catch (\Throwable $_) {}
+        try { $db->exec('SET SESSION max_statement_time = 0'); } catch (\Throwable $_) {}
     } else { // 'pg'
         $dsn  = getenv('PG_DSN')  ?: 'pgsql:host=127.0.0.1;port=5432;dbname=test';
         $user = getenv('PG_USER') ?: 'postgres';

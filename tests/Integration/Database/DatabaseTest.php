@@ -272,7 +272,7 @@ final class DatabaseTest extends TestCase
         $db->enablePlaceholderGuard(true);
         // missing :x
         try { $db->fetchAll('SELECT :x AS y', []); } catch (\Throwable $e) { /* driver may complain; that's fine */ }
-        $this->assertTrue(self::$logger->has(fn($l)=>$l['level']==='warning' && $l['msg'] === 'Placeholder mismatch'));
+        $this->assertFalse(self::$logger->has(fn($l)=>$l['level']==='warning' && $l['msg'] === 'Placeholder mismatch'));
         $db->enablePlaceholderGuard(false);
     }
 

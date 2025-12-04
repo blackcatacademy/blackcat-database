@@ -1,8 +1,12 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Unit\Support;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Support\Telemetry;
+use PDOException;
+use RuntimeException;
 use Psr\Log\LoggerInterface;
 
 final class TelemetryTest extends TestCase

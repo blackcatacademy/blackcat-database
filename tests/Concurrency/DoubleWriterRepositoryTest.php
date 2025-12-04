@@ -37,7 +37,6 @@ final class DoubleWriterRepositoryTest extends TestCase
         }
         // Find the first package via Definitions and derive the repo (via DbHarness::repoFor)
         foreach ((array)glob(__DIR__ . '/../../packages/*/src/Definitions.php') as $df) {
-            require_once $df;
             if (!preg_match('~[\\\\/]packages[\\\\/]([A-Za-z0-9_]+)[\\\\/]src[\\\\/]Definitions\.php$~i', (string)$df, $m)) {
                 continue;
             }

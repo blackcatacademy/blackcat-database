@@ -39,9 +39,6 @@ final class CriteriaHelpersGenericTest extends TestCase
     public function testHelpers(string $class, string $path): void
     {
         if (!class_exists($class)) {
-            require_once $path;
-        }
-        if (!class_exists($class)) {
             $this->markTestSkipped("$class not available");
         }
 
