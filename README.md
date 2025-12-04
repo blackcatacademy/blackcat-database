@@ -1,15 +1,38 @@
 # BlackCat Database (Umbrella)
 
-[![DB Docs](https://github.com/blackcatacademy/blackcat-database/actions/workflows/db-docs.yml/badge.svg?branch=main)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/db-docs.yml)
-[![DB CI](https://github.com/blackcatacademy/blackcat-database/actions/workflows/db-ci.yml/badge.svg)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/db-ci.yml)
+[![DB Docs](https://github.com/blackcatacademy/blackcat-database/actions/workflows/db-docs.yml/badge.svg?branch=dev)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/db-docs.yml)
+[![DB CI](https://github.com/blackcatacademy/blackcat-database/actions/workflows/db-ci.yml/badge.svg?branch=dev)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/db-ci.yml)
+[![Core CI](https://github.com/blackcatacademy/blackcat-database/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/ci.yml)
+[![Lint PHP](https://github.com/blackcatacademy/blackcat-database/actions/workflows/lint.yml/badge.svg?branch=dev)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/lint.yml)
+[![SQL Lint](https://github.com/blackcatacademy/blackcat-database/actions/workflows/sql-lint.yml/badge.svg?branch=dev)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/sql-lint.yml)
+[![TLS Matrix](https://github.com/blackcatacademy/blackcat-database/actions/workflows/tls-matrix.yml/badge.svg?branch=dev)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/tls-matrix.yml)
 ![MySQL](https://img.shields.io/badge/SQL-MySQL%208.0%2B-4479A1?logo=mysql&logoColor=white)
+![MariaDB](https://img.shields.io/badge/SQL-MariaDB%2010.4.x-003545?logo=mariadb&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/SQL-PostgreSQL%2016-336791?logo=postgresql&logoColor=white)
 ![Status](https://img.shields.io/badge/status-stable-informational)
 ![License](https://img.shields.io/badge/license-BlackCat%20Proprietary-red)
 
-Curated, reusable MySQL 8.x table packages with batteries included: schema
-definitions, docs, changelogs, generators, and automation. Individual modules
-live in `packages/` as Git submodules; this umbrella provides a single place to
-author schemas, regenerate documentation, run CI, and ship operational tooling.
+Curated, reusable table packages with batteries included: schema definitions,
+docs, changelogs, generators, and automation. Individual modules live in
+`packages/` as Git submodules; this umbrella is the command center to author
+schemas, regenerate documentation, run CI, and ship operational tooling across
+MySQL 8.0, MariaDB 10.4, and PostgreSQL 16. Designed to be repeatable, observable,
+and “push-to-green” for every database we support.
+
+**Why this repo**
+- Single source of truth for three engines (MySQL/MariaDB/PostgreSQL) with
+  synchronized maps and views.
+- Deterministic generators (PowerShell + PHP) that mirror what CI runs.
+- Submodules kept lean: each package carries only its DDL/DTOs; this umbrella
+  coordinates codegen, docs, and release hygiene.
+- Built-in dev cockpit: [`scripts/dev/Dev-Workflow.ps1`](./scripts/dev/Dev-Workflow.ps1)
+  provides a guided UI to split schemas, regenerate PHP/README/CHANGELOGs,
+  run PHPUnit/DB suites, and launch services locally without memorizing the
+  command matrix.
+- Observability stack included: Terraform for Loki/Grafana/Elasticsearch
+  ([infra/](./infra/README.md)), Kubernetes manifests and Prometheus rules
+  ([k8s/](./k8s/README.md)), plus dashboards/config in
+  [monitoring/](./monitoring/README.md) and [provisioning/](./provisioning/README.md).
 
 ---
 
@@ -59,9 +82,30 @@ composer install
 
 - PHP 8.2+ with PDO MySQL/PostgreSQL extensions (dev + runtime)
 - PowerShell 7 (`pwsh`) for cross-platform generators
-- MySQL 8.0 (primary target) or MariaDB 10.4+ for testing
+- Databases:
+  - MySQL 8.0+ (primary target)
+  - MariaDB 10.4.x (explicitly pinned/covered in CI)
+  - PostgreSQL 16 (full integration suite)
+- Optional: Docker Compose for local matrix (`docker compose up app-mysql/app-postgres/app-mariadb`).
 
 See [docs/usage.md](./docs/usage.md) for DB bootstrapping and runtime wiring.
+
+**Quick CI parity (local)**
+
+- Split schemas to packages and regenerate docs/definitions:
+  ```bash
+  pwsh ./scripts/schema-tools/Split-SchemaToPackages.ps1 -InDir ./scripts/schema -PackagesDir ./packages
+  pwsh ./scripts/docs/New-PackageReadmes.ps1 -MapPath ./scripts/schema/schema-map-postgres.yaml -PackagesDir ./packages -Force
+  pwsh ./scripts/docs/New-PackageChangelogs.ps1 -MapPath ./scripts/schema/schema-map-postgres.yaml -PackagesDir ./packages -Force
+  ```
+- PHPStan + PHPUnit DB suites (from containers):
+  ```bash
+  docker compose up -d mysql postgres mariadb
+  docker compose run --rm app php vendor/bin/phpstan -c phpstan.neon
+  docker compose run --rm app-mysql php vendor/bin/phpunit --configuration tests/phpunit.xml.dist --testsuite "DB Integration"
+  docker compose run --rm app-postgres php vendor/bin/phpunit --configuration tests/phpunit.xml.dist --testsuite "DB Integration"
+  docker compose run --rm app-mariadb php vendor/bin/phpunit --configuration tests/phpunit.xml.dist --testsuite "DB Integration"
+  ```
 
 ---
 
@@ -159,9 +203,14 @@ Bench dashboards live under `docs/bench/` and can be regenerated via
 GitHub Actions drive reproducibility:
 
 - **`db-docs.yml`** – regenerates schemas/docs and asserts cleanliness on Linux
-  + Windows.
-- **`db-ci.yml`** – executes the PHP + integration suite (installer, services,
-  orchestration).
+  + Windows (tracking `dev`).
+- **`db-ci.yml`** – full PHP + DB integration matrix across MySQL 8.0, MariaDB
+  10.4.x, and PostgreSQL 16 (tracking `dev`), including codegen cleanliness.
+- **`ci.yml` / `lint.yml` / `sql-lint.yml`** – static analysis, coding standards,
+  and SQL lint checks to keep drift small before hitting DB CI.
+- **`tls-matrix.yml`** – TLS compatibility matrix across drivers.
+- **`bench-command.yml`, `pg-perf-digest.yml`** – optional perf/bench harnesses
+  (enable as needed).
 - Additional workflows (bench, chaos tests, TLS matrix, etc.) live under
   [`.github/workflows`](./.github/workflows).
 
