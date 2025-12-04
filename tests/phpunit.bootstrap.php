@@ -289,6 +289,6 @@ if (Database::isInitialized()) {
 /**
  * 4) Shared helpers
  */
-require __DIR__ . '/support/DbHarness.php';
-require __DIR__ . '/support/RowFactory.php';
-require __DIR__ . '/support/AssertSql.php';
+require __DIR__ . '/Support/DbHarness.php';
+require __DIR__ . '/Support/RowFactory.php';
+require __DIR__ . '/Support/AssertSql.php';
