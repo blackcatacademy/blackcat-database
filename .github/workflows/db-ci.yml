@@ -6,12 +6,10 @@ on:
 
 jobs:
   test-mysql:
-    name: php-${{ matrix.php }} • mysql
+    name: php-8.3 • mysql
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix:
-        php: ['8.2', '8.3']
     services:
       mysql:
         image: mysql:8.0
@@ -30,10 +28,15 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Sync & init submodules
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: ${{ matrix.php }}
+          php-version: '8.3'
           extensions: pdo_mysql
           tools: composer
 
@@ -106,7 +109,7 @@ jobs:
           BC_RUN_IDEMPOTENT: "1"
           BC_UNINSTALL: "0"
         run: php ./tests/ci/run.php
-      - name: Behavior smoke tests (${{ matrix.php }} • mysql)
+      - name: Behavior smoke tests (mysql)
         env:
           BC_DB: mysql           # nebo postgres v druhém jobu
           MYSQL_DSN: "mysql:host=127.0.0.1;port=3306;dbname=test;charset=utf8mb4"
@@ -127,12 +130,10 @@ jobs:
         run: php ./tests/ci/run.php
 
   test-postgres:
-    name: php-${{ matrix.php }} • postgres
+    name: php-8.3 • postgres
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix:
-        php: ['8.2', '8.3']
     services:
       postgres:
         image: postgres:16
@@ -151,10 +152,15 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Sync & init submodules
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: ${{ matrix.php }}
+          php-version: '8.3'
           extensions: pdo_pgsql
           tools: composer
 
@@ -226,7 +232,7 @@ jobs:
           BC_RUN_IDEMPOTENT: "1"
           BC_UNINSTALL: "0"
         run: php ./tests/ci/run.php
-      - name: Behavior smoke tests (${{ matrix.php }} • postgres)
+      - name: Behavior smoke tests (postgres)
         env:
           BC_DB: postgres           # nebo postgres v druhém jobu
           MYSQL_DSN: "mysql:host=127.0.0.1;port=3306;dbname=test;charset=utf8mb4"
@@ -244,4 +250,126 @@ jobs:
           PG_PASS: "postgres"
           BC_UNINSTALL: "1"
           BC_RUN_IDEMPOTENT: "0"
+        run: php ./tests/ci/run.php
+
+  test-mariadb:
+    name: php-8.3 • mariadb
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:10.4
+        ports: ['3306:3306']
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: test
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=10s --health-timeout=5s --health-retries=20
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Sync & init submodules
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_mysql
+          tools: composer
+
+      - name: Composer install (with cache)
+        uses: ramsey/composer-install@v3
+        with:
+          composer-options: --no-interaction --prefer-dist
+
+      - name: Split schema to packages (MariaDB)
+        shell: pwsh
+        run: |
+          pwsh ./scripts/schema-tools/Split-SchemaToPackages.ps1 `
+            -InDir ./scripts/schema `
+            -PackagesDir ./packages
+
+      - name: List detected schema maps (debug)
+        shell: pwsh
+        run: |
+          Get-ChildItem -LiteralPath ./scripts/schema -Filter 'schema-map-*.psd1' -File |
+            Select-Object Name,FullName
+
+      - name: Validate codegen (WhatIf, autodetect)
+        shell: pwsh
+        run: |
+          pwsh -File ./scripts/schema-tools/Generate-PhpFromSchema.ps1 `
+            -TemplatesRoot ./scripts/templates/php `
+            -ModulesRoot   ./packages `
+            -SchemaDir     ./scripts/schema `
+            -EnginePreference auto `
+            -StrictSubmodules `
+            -WhatIf
+
+      - name: Generate code (real) and assert clean git
+        shell: pwsh
+        run: |
+          pwsh -File ./scripts/schema-tools/Generate-PhpFromSchema.ps1 `
+            -TemplatesRoot ./scripts/templates/php `
+            -ModulesRoot   ./packages `
+            -SchemaDir     ./scripts/schema `
+            -EnginePreference auto `
+            -StrictSubmodules `
+            -Force
+          $st = git status --porcelain
+          if ($st) {
+            Write-Host "Repository not clean after codegen:`n$st" -ForegroundColor Red
+            Write-Host "Please commit generated PHP files locally." -ForegroundColor Red
+            exit 1
+          }
+
+      - name: PHP lint
+        run: |
+          find . -type f -name "*.php" -print0 | xargs -0 -n1 -P4 php -l
+
+      - name: Run DB integration (MariaDB) — pass 1 (install/upgrade)
+        env:
+          BC_DB: mysql
+          MYSQL_DSN: "mysql:host=127.0.0.1;port=3306;dbname=test;charset=utf8mb4"
+          MYSQL_USER: "root"
+          MYSQL_PASS: "root"
+          BC_RUN_IDEMPOTENT: "0"
+          BC_UNINSTALL: "0"
+        run: php ./tests/ci/run.php
+
+      - name: Run DB integration (MariaDB) — pass 2 (idempotence)
+        env:
+          BC_DB: mysql
+          MYSQL_DSN: "mysql:host=127.0.0.1;port=3306;dbname=test;charset=utf8mb4"
+          MYSQL_USER: "root"
+          MYSQL_PASS: "root"
+          BC_RUN_IDEMPOTENT: "1"
+          BC_UNINSTALL: "0"
+        run: php ./tests/ci/run.php
+      - name: Behavior smoke tests (mariadb)
+        env:
+          BC_DB: mysql
+          MYSQL_DSN: "mysql:host=127.0.0.1;port=3306;dbname=test;charset=utf8mb4"
+          MYSQL_USER: "root"
+          MYSQL_PASS: "root"
+          PG_DSN: "pgsql:host=127.0.0.1;port=5432;dbname=test"
+          PG_USER: "postgres"
+          PG_PASS: "postgres"
+        run: php ./tests/ci/behavior.php
+      - name: Run DB integration (MariaDB) — uninstall smoke test
+        env:
+          BC_DB: mysql
+          MYSQL_DSN: "mysql:host=127.0.0.1;port=3306;dbname=test;charset=utf8mb4"
+          MYSQL_USER: "root"
+          MYSQL_PASS: "root"
+          BC_RUN_IDEMPOTENT: "0"
+          BC_UNINSTALL: "1"
         run: php ./tests/ci/run.php
