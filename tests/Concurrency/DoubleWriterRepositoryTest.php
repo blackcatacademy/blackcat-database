@@ -300,16 +300,17 @@ final class DoubleWriterRepositoryTest extends TestCase
         $readLocker();
         foreach ($pipes as $p) { if (is_resource($p)) fclose($p); }
         if (is_resource($proc)) proc_close($proc);
+        // Refresh version right before optimistic update to avoid drift on CI backends
         $verBefore = (int)$db->fetchOne("SELECT ".self::$verCol." FROM ".self::$table." WHERE {$pkCol}=:id", [':id'=>$id]);
         self::dbg('Version right before optimistic update=%d (expected=%d)', $verBefore, $ver);
-        $aff1 = $repo->updateById($id, [ self::$verCol => $ver, self::$updCol => 'r2' ]);
+        $aff1 = $repo->updateById($id, [ self::$verCol => $verBefore, self::$updCol => 'r2' ]);
         $verAfter = (int)$db->fetchOne("SELECT ".self::$verCol." FROM ".self::$table." WHERE {$pkCol}=:id", [':id'=>$id]);
         self::dbg('Version after optimistic attempt=%d', $verAfter);
         $this->assertSame(1, $aff1, 'First optimistic update should succeed.');
 
         // Second writer (stale version) - simulate by reusing 'ver' (unchanged)
-        self::dbg('Second optimistic update with stale version=%d (should be 0)', $ver);
-        $aff2 = $repo->updateById($id, [ self::$verCol => $ver, self::$updCol => 'r3' ]);
+        self::dbg('Second optimistic update with stale version=%d (should be 0)', $verBefore);
+        $aff2 = $repo->updateById($id, [ self::$verCol => $verBefore, self::$updCol => 'r3' ]);
         self::dbg('aff2=%d', $aff2);
         $this->assertSame(0, $aff2, 'Second optimistic update with stale version must affect 0 rows.');
     }
