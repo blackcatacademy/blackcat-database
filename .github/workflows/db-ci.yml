@@ -80,10 +80,16 @@ jobs:
             -StrictSubmodules `
             -Force
           git submodule foreach --recursive '
+            git fetch --quiet origin +refs/heads/main:refs/remotes/origin/main || true
             st=$(git status --short)
             if [ -n "$st" ]; then
               echo "=== DIRTY SUBMODULE: $name ($path) ==="
               git status --short
+              if git show-ref --verify --quiet refs/remotes/origin/main; then
+                echo "--- Diff vs origin/main ---"
+                git diff --stat origin/main..HEAD || true
+              fi
+              echo "--- Worktree diff ---"
               git diff --stat
             fi'
           $st = git status --porcelain
@@ -210,10 +216,16 @@ jobs:
             -StrictSubmodules `
             -Force
           git submodule foreach --recursive '
+            git fetch --quiet origin +refs/heads/main:refs/remotes/origin/main || true
             st=$(git status --short)
             if [ -n "$st" ]; then
               echo "=== DIRTY SUBMODULE: $name ($path) ==="
               git status --short
+              if git show-ref --verify --quiet refs/remotes/origin/main; then
+                echo "--- Diff vs origin/main ---"
+                git diff --stat origin/main..HEAD || true
+              fi
+              echo "--- Worktree diff ---"
               git diff --stat
             fi'
           $st = git status --porcelain
@@ -339,10 +351,16 @@ jobs:
             -StrictSubmodules `
             -Force
           git submodule foreach --recursive '
+            git fetch --quiet origin +refs/heads/main:refs/remotes/origin/main || true
             st=$(git status --short)
             if [ -n "$st" ]; then
               echo "=== DIRTY SUBMODULE: $name ($path) ==="
               git status --short
+              if git show-ref --verify --quiet refs/remotes/origin/main; then
+                echo "--- Diff vs origin/main ---"
+                git diff --stat origin/main..HEAD || true
+              fi
+              echo "--- Worktree diff ---"
               git diff --stat
             fi'
           $st = git status --porcelain

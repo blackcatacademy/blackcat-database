@@ -518,7 +518,9 @@ Views:
         field_name,
         profile_id,
         effective_from,
-        notes
+        notes,
+        created_at,
+        updated_at
       FROM field_hash_policies;
   rate_limits:
     create: |-
@@ -633,7 +635,9 @@ Views:
         unit_price,
         quantity,
         tax_rate,
-        currency
+        currency,
+        created_at,
+        updated_at
       FROM order_items;
   payment_webhooks:
     create: |-
@@ -716,7 +720,9 @@ Views:
         unit_price,
         price_snapshot,
         currency,
-        meta
+        meta,
+        created_at,
+        updated_at
       FROM cart_items;
   user_consents:
     create: |-
@@ -908,7 +914,9 @@ Views:
         policy_id,
         kms_key_id,
         weight,
-        priority
+        priority,
+        created_at,
+        updated_at
       FROM policy_kms_keys;
   sync_batches:
     create: |-
@@ -1093,7 +1101,7 @@ Views:
       -- Contract view for [encryption_policy_bindings]
       CREATE OR REPLACE VIEW vw_encryption_policy_bindings AS
       SELECT
-        id, entity_table, field_name, policy_id, effective_from, notes
+        id, entity_table, field_name, policy_id, effective_from, notes, created_at, updated_at
       FROM encryption_policy_bindings;
   book_categories:
     create: |-
@@ -1102,7 +1110,9 @@ Views:
       SELECT
         book_id,
         tenant_id,
-        category_id
+        category_id,
+        created_at,
+        updated_at
       FROM book_categories;
   key_events:
     create: |-
@@ -1266,7 +1276,9 @@ Views:
         tax_rate,
         tax_amount,
         line_total,
-        currency
+        currency,
+        created_at,
+        updated_at
       FROM invoice_items;
   refunds:
     create: |-
@@ -1322,7 +1334,9 @@ Views:
         category,
         rate,
         valid_from,
-        valid_to
+        valid_to,
+        created_at,
+        updated_at
       FROM tax_rates;
   sync_batch_items:
     create: |-
@@ -1432,7 +1446,9 @@ Views:
         algo_id,
         role,
         weight,
-        priority
+        priority,
+        created_at,
+        updated_at
       FROM policy_algorithms;
   rbac_sync_cursors:
     create: |-
@@ -1490,7 +1506,9 @@ Views:
       CREATE OR REPLACE VIEW vw_countries AS
       SELECT
         iso2,
-        name
+        name,
+        created_at,
+        updated_at
       FROM countries;
   worker_locks:
     create: |-
@@ -1498,7 +1516,9 @@ Views:
       CREATE OR REPLACE VIEW vw_worker_locks AS
       SELECT
         name,
-        locked_until
+        locked_until,
+        created_at,
+        updated_at
       FROM worker_locks;
   audit_log:
     create: |-
@@ -1532,7 +1552,9 @@ Views:
         last_seen,
         last_ip_hash,
         UPPER(encode(last_ip_hash, 'hex')) AS last_ip_hash_hex,
-        last_ip_key_version
+        last_ip_key_version,
+        created_at,
+        updated_at
       FROM device_fingerprints;
   key_usage:
     create: |-

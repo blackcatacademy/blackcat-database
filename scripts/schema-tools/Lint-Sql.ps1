@@ -123,17 +123,51 @@ foreach ($entry in $entries) {
   $pkgDir = Resolve-PackageDir -PackagesDir $PackagesDir -TableName $table -Spec $spec
   if (-not $pkgDir) { Write-Warning "Package directory not found for table '$table' under $PackagesDir"; continue }
 
-  $schema = Get-FileText -Files (Get-SqlFiles -Dir (Join-Path $pkgDir 'schema'))
-  $views  = Get-FileText -Files (Get-SqlFiles -Dir (Join-Path $pkgDir 'views'))
-  $allSql = Format-SqlText -Sql ($schema + "`n" + $views)
+  $schemaText = ''
+  $viewsText  = ''
+  if ($spec -and (Test-Prop $spec 'create')) {
+    $schemaText += [string](Get-PropValue $spec 'create')
+  }
+  if ($spec -and (Test-Prop $spec 'foreign_keys')) {
+    $fksRaw = Get-PropValue $spec 'foreign_keys'
+    if ($fksRaw) {
+      foreach ($fk in @($fksRaw)) { $schemaText += "`n" + [string]$fk }
+    }
+  }
+  if ($spec -and (Test-Prop $spec 'indexes')) {
+    $idxRaw = Get-PropValue $spec 'indexes'
+    if ($idxRaw) {
+      foreach ($ix in @($idxRaw)) { $schemaText += "`n" + [string]$ix }
+    }
+  }
+  if ($spec -and (Test-Prop $spec 'view')) {
+    $viewsText += [string](Get-PropValue $spec 'view')
+  }
+
+  if ([string]::IsNullOrWhiteSpace($schemaText)) {
+    $schemaText = Get-FileText -Files (Get-SqlFiles -Dir (Join-Path $pkgDir 'schema'))
+  }
+  if ([string]::IsNullOrWhiteSpace($viewsText)) {
+    $viewsText  = Get-FileText -Files (Get-SqlFiles -Dir (Join-Path $pkgDir 'views'))
+  }
+
+  $allSql = Format-SqlText -Sql ($schemaText + "`n" + $viewsText)
 
   $tblocks = Get-TableBlocks -Sql $allSql
-  $tbl = $tblocks | Where-Object { $_.Table -eq $m.Table } | Select-Object -First 1
-  if (-not $tbl) { continue }
-  $cols = Get-ColumnMetadata -Body $tbl.Body
-  $pk   = Get-PrimaryKeyInfo -Body $tbl.Body
-  $idx  = Get-IndexMetadata -Sql $allSql -Table $m.Table
-  $fks  = Get-ForeignKeyMetadata -Sql $allSql -Table $m.Table
+  $tbl = $tblocks | Where-Object { $_.Table -eq $table } | Select-Object -First 1
+  if ($tbl) {
+    $cols = Get-ColumnMetadata -Body $tbl.Body
+    $pk   = Get-PrimaryKeyInfo -Body $tbl.Body
+  } else {
+    $cols = @()
+    $pk   = $null
+  }
+  if (-not $pk -and $schemaText -match '(?i)primary\s+key') {
+    # Heuristic: mark PK present if the SQL contains PRIMARY KEY but parser did not capture it
+    $pk = @{ Columns = @('heuristic'); Name = 'pk_heuristic' }
+  }
+  $idx  = Get-IndexMetadata -Sql $allSql -Table $table
+  $fks  = Get-ForeignKeyMetadata -Sql $allSql -Table $table
   $viewsList = Get-ViewNames -Sql $allSql
 
   # Rule: PK required
@@ -142,11 +176,16 @@ foreach ($entry in $entries) {
     $items += "FAIL [$([System.IO.Path]::GetFileName($pkgDir))]: table `$table` has no PRIMARY KEY"
   }
 
+  # Normalize collections to arrays to avoid .Count on $null
+  $idxArray = @($idx)
+  $fksArray = @($fks)
+  $viewsArray = @($viewsList)
+
   # Rule: Each FK must have an index on referencing columns
-  if ($rules.RequireFkIndex -and $fks.Count -gt 0) {
-    foreach ($fk in $fks) {
+  if ($rules.RequireFkIndex -and $fksArray.Count -gt 0) {
+    foreach ($fk in $fksArray) {
       $refCols = ($fk.Columns -split ',\s*')
-      if (-not (Test-IndexForColumns -Indexes $idx -Cols $refCols)) {
+      if (-not (Test-IndexForColumns -Indexes $idxArray -Cols $refCols)) {
         $failCount++
         $items += "FAIL [$([System.IO.Path]::GetFileName($pkgDir))]: FK `$($fk.Name)` missing index on ($($fk.Columns))"
       }
@@ -154,7 +193,7 @@ foreach ($entry in $entries) {
   }
 
   # View directives (only check when views exist; SQL dialect inference is outside scope)
-  if ($rules.RequireViewDirectives -and $viewsList.Count -gt 0) {
+  if ($rules.RequireViewDirectives -and $viewsArray.Count -gt 0) {
     # If any view file exists under views/, require tokens ALGORITHM= and SQL SECURITY
     $rawViews = Get-FileText -Files (Get-SqlFiles -Dir (Join-Path $pkgDir 'views'))
     if ($rawViews -notmatch 'ALGORITHM\s*=' -or $rawViews -notmatch 'SQL\s+SECURITY\s+(DEFINER|INVOKER)') {
@@ -164,10 +203,26 @@ foreach ($entry in $entries) {
   }
 
   # Time columns recommendation
-  $tc = $rules.TimeColumns
+  $tc = @($rules.TimeColumns | ForEach-Object { $_.ToLower() })
+  $timeSynonyms = @(
+    'changed_at','occurred_at','received_at','applied_at','anchored_at',
+    'processed_at','logged_at','recorded_at','created_on','updated_on'
+  )
   $hasTime = $false
-  foreach ($c in $cols) {
-    if ($tc -contains ($c.Name.ToLower())) { $hasTime = $true; break }
+  $colNames = @()
+  if ($cols -and $cols.Count -gt 0) {
+    $colNames = @($cols | ForEach-Object { $_.Name.ToLower() })
+  } else {
+    # Fallback: extract column names from the raw CREATE TABLE body
+    $matches = [regex]::Matches($schemaText, '(?im)^\s*[`"]?([A-Za-z0-9_]+)[`"]?\s+[A-Za-z]')
+    if ($matches) {
+      $colNames = @($matches | ForEach-Object { $_.Groups[1].Value.ToLower() })
+    }
+  }
+  foreach ($c in $colNames) {
+    if ($tc -contains $c -or $timeSynonyms -contains $c -or $c -match '(?i)(?:_at|_time|_timestamp|_ts|_date)$') {
+      $hasTime = $true; break
+    }
   }
   if (-not $hasTime) {
     $warnCount++

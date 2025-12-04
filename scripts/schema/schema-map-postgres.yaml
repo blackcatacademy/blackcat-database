@@ -934,6 +934,8 @@ Tables:
         profile_id   BIGINT NOT NULL,               -- hash_profiles
         effective_from TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         notes TEXT NULL,
+        created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         CONSTRAINT uq_fhp UNIQUE (entity_table, field_name, effective_from)
       );
     foreign_keys:
@@ -1175,6 +1177,8 @@ Tables:
         quantity INTEGER NOT NULL,
         tax_rate NUMERIC(5,2) NOT NULL,
         currency CHAR(3) NOT NULL,
+        created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         CONSTRAINT chk_order_items_qty CHECK (quantity > 0),
         CONSTRAINT chk_order_items_currency CHECK (currency ~ '^[A-Z]{3}$'),
         CONSTRAINT chk_order_items_tax_rate CHECK (tax_rate BETWEEN 0 AND 100),
@@ -1312,6 +1316,8 @@ Tables:
         price_snapshot NUMERIC(12,2) NOT NULL,
         currency CHAR(3) NOT NULL,
         meta JSONB NULL,
+        created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         CONSTRAINT chk_cart_currency CHECK (currency ~ '^[A-Z]{3}$'),
         CONSTRAINT chk_cart_qty CHECK (quantity > 0)
       );
@@ -1653,6 +1659,8 @@ Tables:
         kms_key_id BIGINT NOT NULL,
         weight INTEGER NOT NULL DEFAULT 1,
         priority INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         PRIMARY KEY (policy_id, kms_key_id)
       );
     foreign_keys:
@@ -2003,6 +2011,8 @@ Tables:
         policy_id    BIGINT NOT NULL,
         effective_from TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         notes TEXT NULL,
+        created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         CONSTRAINT uq_enc_policy_bind UNIQUE (entity_table, field_name, effective_from)
       );
     foreign_keys:
@@ -2024,6 +2034,8 @@ Tables:
         tenant_id  BIGINT NOT NULL,
         book_id    BIGINT NOT NULL,
         category_id BIGINT NOT NULL,
+        created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         PRIMARY KEY (tenant_id, book_id, category_id)
       );
     foreign_keys:
@@ -2291,6 +2303,8 @@ Tables:
         tax_amount NUMERIC(12,2) NOT NULL,
         line_total NUMERIC(12,2) NOT NULL,
         currency CHAR(3) NOT NULL,
+        created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         CONSTRAINT uq_invoice_line UNIQUE (invoice_id, line_no),
         CONSTRAINT chk_invoice_items_currency CHECK (currency ~ '^[A-Z]{3}$'),
         CONSTRAINT chk_invoice_items_qty CHECK (quantity > 0),
@@ -2427,6 +2441,8 @@ Tables:
         rate NUMERIC(5,2) NOT NULL,
         valid_from DATE NOT NULL,
         valid_to DATE NULL,
+        created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         CONSTRAINT chk_tax_category CHECK (category IN ('ebook','physical')),
         CONSTRAINT chk_tax_valid_span CHECK (valid_to IS NULL OR valid_to >= valid_from)
       );
@@ -2472,7 +2488,9 @@ Tables:
     create: |-
       CREATE TABLE IF NOT EXISTS worker_locks (
         name VARCHAR(191) NOT NULL PRIMARY KEY,
-        locked_until TIMESTAMPTZ(6) NOT NULL
+        locked_until TIMESTAMPTZ(6) NOT NULL,
+        created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
       );
     foreign_keys:
     indexes:
@@ -2645,6 +2663,8 @@ Tables:
         role TEXT NOT NULL,                        -- 'kem' | 'sig' | 'hash' | 'symmetric'
         weight INTEGER NOT NULL DEFAULT 1,
         priority INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         PRIMARY KEY (policy_id, algo_id, role),
         CONSTRAINT chk_pa_role CHECK (role IN ('kem','sig','hash','symmetric'))
       );
@@ -2752,6 +2772,8 @@ Tables:
       CREATE TABLE IF NOT EXISTS countries (
         iso2 CHAR(2) PRIMARY KEY,
         name VARCHAR(100) NOT NULL,
+        created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         CONSTRAINT chk_countries_iso2 CHECK (iso2 ~ '^[A-Z]{2}$')
       );
     foreign_keys:
@@ -2819,6 +2841,8 @@ Tables:
         last_seen  TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         last_ip_hash BYTEA NULL,
         last_ip_key_version VARCHAR(64) NULL,
+        created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         CONSTRAINT uq_device_fp UNIQUE (fingerprint_hash),
         CONSTRAINT chk_df_risk CHECK (risk_score IS NULL OR (risk_score BETWEEN 0 AND 100))
       );

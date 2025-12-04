@@ -903,6 +903,8 @@ Tables:
         profile_id BIGINT UNSIGNED NOT NULL,
         effective_from DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         notes TEXT NULL,
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
         UNIQUE KEY uq_fhp (entity_table, field_name, effective_from)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
     foreign_keys:
@@ -1132,6 +1134,8 @@ Tables:
         quantity INT UNSIGNED NOT NULL,
         tax_rate DECIMAL(5,2) NOT NULL,
         currency CHAR(3) NOT NULL,
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
         INDEX idx_order_items_order_id (order_id),
         INDEX idx_order_items_book_id (book_id),
         INDEX idx_order_items_tenant_order (tenant_id, order_id),
@@ -1268,6 +1272,8 @@ Tables:
         price_snapshot DECIMAL(12,2) NOT NULL,
         currency CHAR(3) NOT NULL,
         meta JSON NULL,
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
         PRIMARY KEY (id),
         UNIQUE KEY ux_cart_items (tenant_id, cart_id, book_id, sku),
         INDEX idx_cart_items_cart_id (cart_id),
@@ -1603,6 +1609,8 @@ Tables:
         kms_key_id BIGINT UNSIGNED NOT NULL,
         weight INT NOT NULL DEFAULT 1,
         priority INT NOT NULL DEFAULT 0,
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
         PRIMARY KEY (policy_id, kms_key_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
     foreign_keys:
@@ -1939,6 +1947,8 @@ Tables:
         policy_id BIGINT UNSIGNED NOT NULL,
         effective_from DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         notes TEXT NULL,
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
         UNIQUE KEY uq_enc_policy_bind (entity_table, field_name, effective_from)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
     foreign_keys:
@@ -1960,6 +1970,8 @@ Tables:
         tenant_id BIGINT UNSIGNED NOT NULL,
         book_id BIGINT UNSIGNED NOT NULL,
         category_id BIGINT UNSIGNED NOT NULL,
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
         PRIMARY KEY (tenant_id, book_id, category_id),
         INDEX idx_book_categories_category (category_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
@@ -2215,6 +2227,8 @@ Tables:
         tax_amount DECIMAL(12,2) NOT NULL,
         line_total DECIMAL(12,2) NOT NULL,
         currency CHAR(3) NOT NULL,
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
         UNIQUE KEY uq_invoice_line (invoice_id, line_no),
         INDEX idx_invoice_items_tenant_invoice (tenant_id, invoice_id),
         CONSTRAINT chk_invoice_items_currency CHECK (currency REGEXP '^[A-Z]{3}$'),
@@ -2347,7 +2361,9 @@ Tables:
         category ENUM('ebook','physical') NOT NULL,
         rate DECIMAL(5,2) NOT NULL,
         valid_from DATE NOT NULL,
-        valid_to DATE NULL
+        valid_to DATE NULL,
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
     foreign_keys:
       - ALTER TABLE tax_rates ADD CONSTRAINT fk_tax_rates_country FOREIGN KEY (country_iso2) REFERENCES countries(iso2) ON DELETE CASCADE
@@ -2391,6 +2407,8 @@ Tables:
       CREATE TABLE IF NOT EXISTS worker_locks (
         name VARCHAR(191) NOT NULL PRIMARY KEY,
         locked_until DATETIME(6) NOT NULL,
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
         INDEX idx_worker_locks_until (locked_until)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
     foreign_keys:
@@ -2555,6 +2573,8 @@ Tables:
         role ENUM('kem','sig','hash','symmetric') NOT NULL,
         weight INT NOT NULL DEFAULT 1,
         priority INT NOT NULL DEFAULT 0,
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
         PRIMARY KEY (policy_id, algo_id, role)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
     foreign_keys:
@@ -2657,6 +2677,8 @@ Tables:
       CREATE TABLE IF NOT EXISTS countries (
         iso2 CHAR(2) PRIMARY KEY,
         name VARCHAR(100) NOT NULL,
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
         CONSTRAINT chk_countries_iso2 CHECK (iso2 REGEXP '^[A-Z]{2}$')
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
     foreign_keys:
@@ -2721,6 +2743,8 @@ Tables:
         last_seen DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         last_ip_hash BINARY(32) NULL,
         last_ip_key_version VARCHAR(64) NULL,
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
         UNIQUE KEY uq_device_fp (fingerprint_hash),
         INDEX idx_df_user      (user_id),
         INDEX idx_df_last_seen (last_seen)
