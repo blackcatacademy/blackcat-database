@@ -80,8 +80,9 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          coverage: none
-          extensions: pdo_mysql, pdo_pgsql
+          coverage: pcov
+          ini-values: pcov.enabled=1, pcov.directory=.
+          extensions: pcov, pdo_mysql, pdo_pgsql
           tools: composer
 
       - name: Install dependencies

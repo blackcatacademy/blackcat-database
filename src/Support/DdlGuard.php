@@ -423,7 +423,9 @@ final class DdlGuard
             $msg = \strtolower((string)$e->getMessage());
             if (\str_contains($msg, 'get_lock timeout')) {
                 try { $this->db->exec('SELECT RELEASE_ALL_LOCKS()'); } catch (\Throwable) {}
-                return $this->db->withStatementTimeout(0, fn() => $this->db->withAdvisoryLock($key, $timeoutSec, $fn));
+                usleep(200_000); // short pause before retry
+                // One last retry with a slightly longer timeout; if it still fails, bubble up.
+                return $this->db->withStatementTimeout(0, fn() => $this->db->withAdvisoryLock($key, max($timeoutSec, 5), $fn));
             }
             throw $e;
         }

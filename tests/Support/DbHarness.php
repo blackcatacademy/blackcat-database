@@ -409,12 +409,16 @@ final class DbHarness
     public static function columns(string $table): array
     {
         static $cache = [];
+        static $missCounter = [];
         [$dial] = self::dialect(); /** @var SqlDialect $dial */
         $useCache = !self::cacheDisabled();
         $sfx = self::cacheSuffix();
         $db = Database::getInstance();
 
         $key = ($dial->isPg() ? 'pg:' . self::pgSchema() : 'mysql') . ':' . $table . ':' . $sfx;
+        $missKey = $dial->isPg()
+            ? 'pg:' . self::pgSchema() . ':' . strtolower($table)
+            : 'mysql:' . strtolower($table);
         if ($useCache && isset($cache[$key])) { return $cache[$key]; }
 
         self::dbg('columns(%s): query information_schema (dialect=%s)', $table, $dial->value);
@@ -444,6 +448,7 @@ final class DbHarness
                 if ($useCache) { $cache[$keyPhys] = $rows; }
                 return $rows;
             }
+            $missCounter[$missKey] = ($missCounter[$missKey] ?? 0) + 1;
 
             // nothing in I_S -> verify the table actually exists (avoid SHOW on non-existent tables)
             $curDb = (string)($db->fetchOne('SELECT DATABASE()') ?? '');
@@ -524,7 +529,11 @@ final class DbHarness
 
             // Exhausted options - stay quiet because this is expected before modules are installed
             self::dbg('columns(%s): MySQL fallbacks exhausted, returning empty meta', $table);
-            if ($useCache) { $cache[$keyPhys] = []; }
+            if (($missCounter[$missKey] ?? 0) >= 2) {
+                self::warnOnce("cols-miss:mysql:{$table}", 'columns(%s): no rows; schema=DATABASE(); attempts=%d', $table, $missCounter[$missKey]);
+            }
+            // cache empty only after the first miss to allow retry and warn
+            if ($useCache && ($missCounter[$missKey] ?? 0) >= 2) { $cache[$keyPhys] = []; }
             return [];
         }
 
@@ -546,14 +555,17 @@ final class DbHarness
                 LIMIT 1",
                 [':t'=>$table]
             );
-            self::warnOnce("pg-cols-miss:{$schema}:{$table}",
-                'columns(%s): no rows in schema=%s; foundInOtherSchema=%s',
-                $table, $schema, $found ? (string)$found : 'no'
-            );
+            $missCounter[$missKey] = ($missCounter[$missKey] ?? 0) + 1;
+            if ($missCounter[$missKey] >= 2) {
+                self::warnOnce("pg-cols-miss:{$schema}:{$table}",
+                    'columns(%s): no rows in schema=%s; foundInOtherSchema=%s; attempts=%d',
+                    $table, $schema, $found ? (string)$found : 'no', $missCounter[$missKey]
+                );
+            }
         } else {
             self::dbg('columns(%s): information_schema OK (schema=%s, %d cols)', $table, $schema, count($rows));
         }
-        if ($useCache) { $cache[$key] = $rows; }
+        if ($useCache && ($rows || ($missCounter[$missKey] ?? 0) >= 2)) { $cache[$key] = $rows; }
         return $rows;
     }
 
