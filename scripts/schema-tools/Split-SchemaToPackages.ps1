@@ -174,9 +174,20 @@ function Import-YamlFile {
   $null = Import-Module Microsoft.PowerShell.Utility -ErrorAction SilentlyContinue
   $cfy = Get-Command -Name ConvertFrom-Yaml -ErrorAction SilentlyContinue
     if (-not $cfy) {
-      throw "ConvertFrom-Yaml not available (requires PowerShell 7+ with Microsoft.PowerShell.Utility). Install a YAML parser, e.g.: " +
-        "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) { Register-PSRepository -Default }; " +
-        "Set-PSRepository -Name PSGallery -InstallationPolicy Trusted; Install-Module -Name powershell-yaml -Scope CurrentUser -Force"
+      Write-Host "ConvertFrom-Yaml missing – attempting to install powershell-yaml from PSGallery..." -ForegroundColor Yellow
+      try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) { Register-PSRepository -Default }
+        Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue
+        Install-Module -Name powershell-yaml -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+        Import-Module powershell-yaml -ErrorAction Stop
+        $cfy = Get-Command -Name ConvertFrom-Yaml -ErrorAction SilentlyContinue
+      } catch {
+        throw "ConvertFrom-Yaml not available (requires PowerShell 7+ or powershell-yaml). Attempted auto-install but failed: $($_.Exception.Message)"
+      }
+      if (-not $cfy) {
+        throw "ConvertFrom-Yaml still not available after install attempt."
+      }
     }
   try {
     return Get-Content -LiteralPath $Path -Raw | & $cfy
