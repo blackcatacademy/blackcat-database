@@ -21,17 +21,19 @@ jobs:
         shell: pwsh
         run: |
           $candidates = @(
-            'scripts/schema-map.psd1',
-            'scripts/schema/schema-map-postgres.psd1',
-            'scripts/schema/schema-map-mysql.psd1'
+            'scripts/schema/schema-map-postgres.yaml',
+            'scripts/schema/schema-map-mysql.yaml'
           )
-          $mapPath = $null
+          $found = @()
           foreach ($cand in $candidates) {
             $full = Join-Path (Get-Location).Path $cand
-            if (Test-Path -LiteralPath $full) { $mapPath = (Resolve-Path -LiteralPath $full).Path; break }
+            if (Test-Path -LiteralPath $full) { $found += (Resolve-Path -LiteralPath $full).Path }
           }
-          if (-not $mapPath) { throw "schema map file not found (looked in $candidates)" }
+          if ($found.Count -eq 0) { throw "schema map file not found (looked in $candidates)" }
 
-          pwsh ./scripts/schema-tools/Lint-Sql.ps1 `
-            -PackagesDir ./packages `
-            -MapPath $mapPath
+          foreach ($mapPath in $found) {
+            Write-Host "Linting map: $mapPath" -ForegroundColor Cyan
+            pwsh ./scripts/schema-tools/Lint-Sql.ps1 `
+              -PackagesDir ./packages `
+              -MapPath $mapPath
+          }

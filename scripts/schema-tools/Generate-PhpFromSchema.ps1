@@ -1569,7 +1569,7 @@ function Build-ViewOwnershipIndex {
 
 $templates = @( Get-Templates -Root $TemplatesRoot )
 # For optional submodule checks (.gitmodules)
-$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $subSet   = Get-SubmodulePathSet -repoRoot $repoRoot
 
 # Choose maps: explicit -MapPath or autodetect under -SchemaDir
