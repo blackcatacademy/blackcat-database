@@ -28,17 +28,10 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Sync submodules on dev
+      - name: Sync & init submodules
         run: |
           git submodule sync --recursive
           git submodule update --init --recursive
-          git submodule foreach --recursive '
-            git fetch origin +refs/heads/dev:refs/remotes/origin/dev
-            if git show-ref --verify --quiet refs/remotes/origin/dev; then
-              git checkout dev || git checkout -B dev origin/dev
-            else
-              echo "dev branch not found in $name" && exit 1
-            fi'
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -172,17 +165,10 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Sync submodules on dev
+      - name: Sync & init submodules
         run: |
           git submodule sync --recursive
           git submodule update --init --recursive
-          git submodule foreach --recursive '
-            git fetch origin +refs/heads/dev:refs/remotes/origin/dev
-            if git show-ref --verify --quiet refs/remotes/origin/dev; then
-              git checkout dev || git checkout -B dev origin/dev
-            else
-              echo "dev branch not found in $name" && exit 1
-            fi'
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -313,17 +299,10 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Sync submodules on dev
+      - name: Sync & init submodules
         run: |
           git submodule sync --recursive
           git submodule update --init --recursive
-          git submodule foreach --recursive '
-            git fetch origin +refs/heads/dev:refs/remotes/origin/dev
-            if git show-ref --verify --quiet refs/remotes/origin/dev; then
-              git checkout dev || git checkout -B dev origin/dev
-            else
-              echo "dev branch not found in $name" && exit 1
-            fi'
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
