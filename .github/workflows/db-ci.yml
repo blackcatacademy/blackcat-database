@@ -79,6 +79,13 @@ jobs:
             -EnginePreference auto `
             -StrictSubmodules `
             -Force
+          git submodule foreach --recursive '
+            st=$(git status --short)
+            if [ -n "$st" ]; then
+              echo "=== DIRTY SUBMODULE: $name ($path) ==="
+              git status --short
+              git diff --stat
+            fi'
           $st = git status --porcelain
           if ($st) {
             Write-Host "Repository not clean after codegen:`n$st" -ForegroundColor Red
@@ -202,6 +209,13 @@ jobs:
             -EnginePreference auto `
             -StrictSubmodules `
             -Force
+          git submodule foreach --recursive '
+            st=$(git status --short)
+            if [ -n "$st" ]; then
+              echo "=== DIRTY SUBMODULE: $name ($path) ==="
+              git status --short
+              git diff --stat
+            fi'
           $st = git status --porcelain
           if ($st) {
             Write-Host "Repository not clean after codegen:`n$st" -ForegroundColor Red
@@ -324,6 +338,13 @@ jobs:
             -EnginePreference auto `
             -StrictSubmodules `
             -Force
+          git submodule foreach --recursive '
+            st=$(git status --short)
+            if [ -n "$st" ]; then
+              echo "=== DIRTY SUBMODULE: $name ($path) ==="
+              git status --short
+              git diff --stat
+            fi'
           $st = git status --porcelain
           if ($st) {
             Write-Host "Repository not clean after codegen:`n$st" -ForegroundColor Red

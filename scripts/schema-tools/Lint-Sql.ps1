@@ -85,9 +85,9 @@ function Resolve-PackageDir {
   if ($Spec -and (Test-Prop $Spec 'Package')) { $candidates += (Get-PropValue $Spec 'Package') }
   if ($Spec -and (Test-Prop $Spec 'PackageDir')) { $candidates += (Get-PropValue $Spec 'PackageDir') }
   $candidates += @(
-    $TableName -replace '_','-',
-    $TableName,
-    ($TableName -replace '_','-') -replace '-','_'
+    ($TableName -replace '_','-')
+    $TableName
+    (($TableName -replace '_','-') -replace '-','_')
   )
   $candidates = $candidates | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
   foreach ($cand in $candidates) {
