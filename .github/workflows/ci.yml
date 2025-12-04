@@ -91,6 +91,7 @@ jobs:
 
       - name: Run PHPUnit (${{ matrix.db }})
         env:
+          BC_DB: ${{ matrix.db == 'postgres' && 'postgres' || 'mysql' }}
           MYSQL_DSN: ${{ matrix.db == 'mariadb' && 'mysql:host=127.0.0.1;port=3307;dbname=testdb;charset=utf8mb4' || 'mysql:host=127.0.0.1;port=3306;dbname=testdb;charset=utf8mb4' }}
           MYSQL_USER: root
           MYSQL_PASS: root
