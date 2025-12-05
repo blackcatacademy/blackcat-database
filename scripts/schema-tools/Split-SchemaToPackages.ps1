@@ -561,8 +561,8 @@ function Invoke-Split {
       Write-Host ("[{0}] join views: {1} ({2})" -f $eng, $joinsMap.Views.Keys.Count, $joinMapFile.Name)
       $joinsLeaf  = Split-Path -Leaf $joinMapFile.FullName
       $joinsStamp = Get-StableMapStamp -MapPath $joinMapFile.FullName
-      $joinsEntries = (ConvertTo-HashtableDeep $joinsMap.Views).GetEnumerator() | Sort-Object Key
-      foreach ($entry in $joinsEntries) {
+      $joinsHt = ConvertTo-HashtableDeep $joinsMap.Views
+      foreach ($entry in $joinsHt.GetEnumerator()) {
         $viewName = [string]$entry.Key
         $viewSql  = Get-ViewCreateValue $entry.Value
         if ([string]::IsNullOrWhiteSpace($viewName) -or [string]::IsNullOrWhiteSpace($viewSql)) {
