@@ -5,7 +5,6 @@
 [![Core CI](https://github.com/blackcatacademy/blackcat-database/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/ci.yml)
 [![Lint PHP](https://github.com/blackcatacademy/blackcat-database/actions/workflows/lint.yml/badge.svg?branch=dev)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/lint.yml)
 [![SQL Lint](https://github.com/blackcatacademy/blackcat-database/actions/workflows/sql-lint.yml/badge.svg?branch=dev)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/sql-lint.yml)
-[![TLS Matrix](https://github.com/blackcatacademy/blackcat-database/actions/workflows/tls-matrix.yml/badge.svg?branch=dev)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/tls-matrix.yml)
 ![MySQL](https://img.shields.io/badge/SQL-MySQL%208.0%2B-4479A1?logo=mysql&logoColor=white)
 ![MariaDB](https://img.shields.io/badge/SQL-MariaDB%2010.4.x-003545?logo=mariadb&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/SQL-PostgreSQL%2016-336791?logo=postgresql&logoColor=white)
@@ -80,7 +79,7 @@ composer install
 
 **Requirements**
 
-- PHP 8.2+ with PDO MySQL/PostgreSQL extensions (dev + runtime)
+- PHP 8.3+ with PDO MySQL/PostgreSQL extensions (dev + runtime)
 - PowerShell 7 (`pwsh`) for cross-platform generators
 - Databases:
   - MySQL 8.0+ (primary target)

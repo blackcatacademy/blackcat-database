@@ -25,6 +25,10 @@ final class DbHarness
 {
     /** @var array<string,array{ns:string,repo:?string,defs:string,view:?string}> */
     private static array $registry = [];
+    /** Track whether install cycle ran to completion (null = not finished). */
+    private static ?float $installFinishedAt = null;
+    /** Nesting depth while ensureInstalled() is running. */
+    private static int $installDepth = 0;
 
     // -------------------- DEBUG --------------------
 
@@ -155,6 +159,7 @@ final class DbHarness
     /** Installs all modules idempotently and builds the registry. Returns the module list. */
     public static function ensureInstalled(): array
     {
+        self::installStart();
         self::$bootstrapped = true; // so bootstrapOnce() does not re-run installation
         $db = Database::getInstance();
         $pdo = $db->getPdo();
@@ -223,6 +228,7 @@ final class DbHarness
         if (self::traceViewsEnabled()) {
             self::traceViewsSnapshot();
         }
+        self::verifySchemaPostInstall();
 
         // Smoke-check: ensure information_schema sees the tables
         try {
@@ -245,7 +251,19 @@ final class DbHarness
         }
         // After install/upgrade we want fresh introspection -> bump cache buster
         self::bumpCacheBuster();
+        self::installEnd();
         return $mods;
+    }
+
+    private static function installStart(): void
+    {
+        self::$installDepth++;
+    }
+
+    private static function installEnd(): void
+    {
+        self::$installDepth = max(0, self::$installDepth - 1);
+        self::$installFinishedAt = microtime(true);
     }
 
     /** Finds and instantiates all Module classes compatible with the dialect (toposort). */
@@ -403,11 +421,60 @@ final class DbHarness
     public static function rollback(): void { Database::getInstance()->rollBack(); }
 
     /**
+     * Post-install sanity: every registered table should be introspectable.
+     * Runs a second pass with a tiny delay to avoid transient races, and emits a
+     * clear warning if metadata stays empty (indicating a real install issue).
+     */
+    private static function verifySchemaPostInstall(): void
+    {
+        if (empty(self::$registry)) return;
+
+        self::dbg('verifySchemaPostInstall: checking %d tables', count(self::$registry));
+
+        foreach (array_keys(self::$registry) as $table) {
+            $cols = self::columns($table);
+            if ($cols) {
+                continue;
+            }
+            // small retry in case the engine lags in updating information_schema
+            usleep(150000); // 150ms
+            $cols = self::columns($table);
+            if (!$cols) {
+                self::warnOnce("postinstall-cols:{$table}",
+                    'columns(%s): empty after install; verify schema generation/installation.', $table);
+            }
+        }
+    }
+
+    /** Format first external caller (file:line or function) for diagnostics. */
+    private static function formatCaller(): string
+    {
+        $bt = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 8);
+        foreach ($bt as $f) {
+            $cls = $f['class'] ?? '';
+            if ($cls === __CLASS__) continue;
+            if (isset($f['file'], $f['line'])) {
+                return basename((string)$f['file']) . ':' . (string)$f['line'];
+            }
+            if (isset($f['function'])) {
+                return (string)$f['function'];
+            }
+        }
+        return 'unknown';
+    }
+
+    /**
      * Column metadata from information_schema (normalized). Logs reasons when nothing is found.
      * @return array<int,array<string,mixed>>
      */
     public static function columns(string $table): array
     {
+        if (self::$installFinishedAt === null && self::$installDepth === 0) {
+            self::warnOnce("preinstall-columns:{$table}",
+                'columns(%s) invoked before install completed (caller: %s)',
+                $table, self::formatCaller());
+        }
+
         static $cache = [];
         static $missCounter = [];
         [$dial] = self::dialect(); /** @var SqlDialect $dial */

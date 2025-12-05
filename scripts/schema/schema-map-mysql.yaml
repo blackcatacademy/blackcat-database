@@ -58,7 +58,7 @@ Tables:
         - component
         - version
   kms_routing_policies:
-    DefaultOrder: created_at DESC
+    DefaultOrder: priority DESC
     create: |-
       CREATE TABLE IF NOT EXISTS kms_routing_policies (
         id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -69,7 +69,7 @@ Tables:
         providers JSON NOT NULL,
         active BOOLEAN NOT NULL DEFAULT TRUE,
         created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-        CONSTRAINT uq_kms_route_name UNIQUE (name),
+        CONSTRAINT ux_kms_route_name UNIQUE (name),
         INDEX idx_kms_route_active (active, priority DESC)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
     foreign_keys:
@@ -107,10 +107,16 @@ Tables:
         INDEX idx_users_last_login_at (last_login_at),
         INDEX idx_users_is_active (is_active),
         INDEX idx_users_actor_role (actor_role),
-        INDEX idx_users_last_login_ip_hash (last_login_ip_hash)
+        INDEX idx_users_last_login_ip_hash (last_login_ip_hash),
+        UNIQUE KEY ux_users_email_hash (email_hash)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
     UpdatedAt: updated_at
     DefaultOrder: id DESC
+    indexes:
+      - CREATE INDEX idx_users_last_login_at ON users (last_login_at)
+      - CREATE INDEX idx_users_is_active ON users (is_active)
+      - CREATE INDEX idx_users_actor_role ON users (actor_role)
+      - CREATE INDEX idx_users_last_login_ip_hash ON users (last_login_ip_hash)
     Upsert:
       Update:
         - email_hash_key_version
@@ -128,8 +134,6 @@ Tables:
         - deleted_at
       Keys:
         - email_hash
-    indexes:
-      - CREATE UNIQUE INDEX ux_users_email_hash_live ON users (email_hash)
     SoftDelete: deleted_at
     foreign_keys:
   sync_errors:
@@ -164,6 +168,8 @@ Tables:
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
     UpdatedAt: updated_at
     DefaultOrder: id DESC
+    indexes:
+      - CREATE INDEX idx_encrypted_fields_field ON encrypted_fields (field_name)
     Upsert:
       Update:
         - ciphertext
@@ -173,8 +179,6 @@ Tables:
         - entity_table
         - entity_pk
         - field_name
-    indexes:
-      - CREATE INDEX idx_encrypted_fields_field ON encrypted_fields (field_name)
     foreign_keys:
   merkle_anchors:
     DefaultOrder: anchored_at DESC
@@ -186,7 +190,7 @@ Tables:
         anchor_ref VARCHAR(512) NOT NULL,
         anchored_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         meta JSON NULL,
-        UNIQUE KEY ux_anchor_triplet (merkle_root_id, anchor_type, anchor_ref),
+        UNIQUE KEY uq_merkle_anchor_ref (merkle_root_id, anchor_type, anchor_ref),
         INDEX idx_merkle_anchors_mrid (merkle_root_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
     foreign_keys:
@@ -488,6 +492,7 @@ Tables:
       Keys:
         - event_key
   notifications:
+    UpdatedAt: updated_at
     DefaultOrder: created_at DESC
     create: |-
       CREATE TABLE IF NOT EXISTS notifications (
@@ -514,14 +519,19 @@ Tables:
         INDEX idx_notifications_status_scheduled (status, scheduled_at),
         INDEX idx_notifications_tenant_status_sched (tenant_id, status, scheduled_at),
         INDEX idx_notifications_next_attempt (next_attempt_at),
-        INDEX idx_notifications_locked_until (locked_until)
+        INDEX idx_notifications_locked_until_active (locked_until)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
     foreign_keys:
       - ALTER TABLE notifications ADD CONSTRAINT fk_notifications_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       - ALTER TABLE notifications ADD CONSTRAINT fk_notifications_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT
       - ALTER TABLE notifications ADD CONSTRAINT chk_notifications_retries CHECK (retries >= 0 AND max_retries >= 0)
     indexes:
+      - CREATE INDEX idx_notifications_status_scheduled ON notifications (status, scheduled_at)
+      - CREATE INDEX idx_notifications_next_attempt ON notifications (next_attempt_at)
+      - CREATE INDEX idx_notifications_locked_until_active ON notifications (locked_until)
+      - CREATE INDEX idx_notifications_tenant_status_sched ON notifications (tenant_id, status, scheduled_at)
   retention_enforcement_jobs:
+    UpdatedAt: finished_at
     DefaultOrder: created_at DESC
     create: |-
       CREATE TABLE IF NOT EXISTS retention_enforcement_jobs (
@@ -624,6 +634,7 @@ Tables:
       - ALTER TABLE api_keys ADD CONSTRAINT fk_api_keys_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT
     indexes:
       - CREATE UNIQUE INDEX ux_api_keys_tenant_name ON api_keys (tenant_id, name_ci)
+      - CREATE UNIQUE INDEX ux_api_keys_tenant_id ON api_keys (tenant_id, id)
   key_rotation_jobs:
     DefaultOrder: created_at DESC
     create: |-
@@ -799,6 +810,8 @@ Tables:
     indexes:
       - CREATE UNIQUE INDEX ux_oid_tenant_triplet ON order_item_downloads (tenant_id, order_id, book_id, asset_id)
       - CREATE INDEX idx_oid_tenant_expires_active ON order_item_downloads (tenant_id, expires_at, is_active)
+      - CREATE INDEX idx_oid_download_token_hash ON order_item_downloads (download_token_hash)
+      - CREATE UNIQUE INDEX ux_oid_tenant_id ON order_item_downloads (tenant_id, id)
     Upsert:
       Update:
         - download_token_hash
@@ -1079,7 +1092,14 @@ Tables:
     foreign_keys:
       - ALTER TABLE sessions ADD CONSTRAINT fk_sessions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
     indexes:
+      - CREATE INDEX idx_sessions_user_created ON sessions (user_id, created_at)
+      - CREATE INDEX idx_sessions_user ON sessions (user_id)
+      - CREATE INDEX idx_sessions_expires_at ON sessions (expires_at)
+      - CREATE INDEX idx_sessions_last_seen ON sessions (last_seen_at)
+      - CREATE INDEX idx_sessions_token_hash_key ON sessions (token_hash_key_version)
       - CREATE INDEX idx_sessions_created_at ON sessions (created_at)
+      - CREATE INDEX idx_sessions_active ON sessions (revoked, expires_at, user_id)
+      - CREATE INDEX idx_sessions_user_revoked_seen ON sessions (user_id, revoked, last_seen_at DESC)
     Upsert:
       Update:
         - token_hash_key_version
@@ -1144,11 +1164,12 @@ Tables:
         CONSTRAINT chk_order_items_currency CHECK (currency REGEXP '^[A-Z]{3}$')
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
     foreign_keys:
-      - ALTER TABLE order_items ADD CONSTRAINT fk_order_items_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT
-      - ALTER TABLE order_items ADD CONSTRAINT fk_order_items_order FOREIGN KEY (tenant_id, order_id) REFERENCES orders(tenant_id, id) ON DELETE CASCADE
-      - ALTER TABLE order_items ADD CONSTRAINT fk_order_items_book FOREIGN KEY (tenant_id, book_id) REFERENCES books(tenant_id, id) ON DELETE RESTRICT
+      - ALTER TABLE order_items ADD CONSTRAINT fk_order_items_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT ON UPDATE RESTRICT
+      - ALTER TABLE order_items ADD CONSTRAINT fk_order_items_order FOREIGN KEY (tenant_id, order_id) REFERENCES orders(tenant_id, id) ON DELETE CASCADE ON UPDATE RESTRICT
+      - ALTER TABLE order_items ADD CONSTRAINT fk_order_items_book FOREIGN KEY (tenant_id, book_id) REFERENCES books(tenant_id, id) ON DELETE CASCADE ON UPDATE RESTRICT
       - ALTER TABLE order_items ADD CONSTRAINT chk_order_items_tax_rate CHECK (tax_rate BETWEEN 0 AND 100)
     indexes:
+      - CREATE UNIQUE INDEX ux_order_items_tenant_id ON order_items (tenant_id, id)
   payment_webhooks:
     DefaultOrder: created_at DESC
     create: |-
@@ -1346,6 +1367,7 @@ Tables:
         INDEX idx_orders_tenant (tenant_id),
         INDEX idx_orders_tenant_user (tenant_id, user_id),
         UNIQUE KEY ux_orders_uuid_bin (uuid_bin),
+        UNIQUE KEY ux_orders_tenant_uuid_bin (tenant_id, uuid_bin),
         UNIQUE KEY ux_orders_tenant_public_no (tenant_id, public_order_no),
         UNIQUE KEY ux_orders_tenant_id (tenant_id, id),
         CONSTRAINT chk_orders_nonneg CHECK (subtotal >= 0 AND discount_total >= 0 AND tax_total >= 0 AND total >= 0),
@@ -1420,6 +1442,7 @@ Tables:
     foreign_keys:
     indexes:
   deletion_jobs:
+    UpdatedAt: finished_at
     DefaultOrder: created_at DESC
     create: |-
       CREATE TABLE IF NOT EXISTS deletion_jobs (
@@ -1520,6 +1543,7 @@ Tables:
         - name
         - variant
   reviews:
+    UpdatedAt: updated_at
     DefaultOrder: created_at DESC
     create: |-
       CREATE TABLE IF NOT EXISTS reviews (
@@ -1541,7 +1565,7 @@ Tables:
       - ALTER TABLE reviews ADD CONSTRAINT fk_reviews_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
     indexes:
       - CREATE UNIQUE INDEX ux_reviews_tenant_book_user ON reviews (tenant_id, book_id, user_id)
-      - CREATE INDEX idx_reviews_user_id ON reviews (tenant_id, user_id)
+      - CREATE INDEX idx_reviews_user_id ON reviews (user_id)
       - CREATE INDEX idx_reviews_tenant_book ON reviews (tenant_id, book_id)
   idempotency_keys:
     DefaultOrder: created_at DESC
@@ -1695,7 +1719,7 @@ Tables:
         last_seen DATETIME(6) NULL,
         meta JSON NULL,
         created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-        CONSTRAINT uq_peer_nodes_name UNIQUE (name)
+        CONSTRAINT ux_peer_nodes_name UNIQUE (name)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
     foreign_keys:
     indexes:
@@ -1937,6 +1961,7 @@ Tables:
     foreign_keys:
       - ALTER TABLE payment_logs ADD CONSTRAINT fk_payment_logs_payment FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE CASCADE
     indexes:
+      - CREATE INDEX idx_payment_logs_payment ON payment_logs (payment_id, log_at DESC)
   encryption_policy_bindings:
     DefaultOrder: effective_from DESC
     create: |-
@@ -2019,7 +2044,7 @@ Tables:
         good_events BIGINT UNSIGNED NOT NULL DEFAULT 0,
         total_events BIGINT UNSIGNED NOT NULL DEFAULT 0,
         status ENUM('good','breach','unknown') NOT NULL DEFAULT 'unknown',
-        UNIQUE KEY ux_slo_status (window_id, computed_at),
+        UNIQUE KEY uq_slo_status_window (window_id, computed_at),
         INDEX idx_slo_status_window (window_id, computed_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
     foreign_keys:
@@ -2153,7 +2178,7 @@ Tables:
         last_synced_at DATETIME(6) NULL,
         last_commit VARCHAR(128) NULL,
         created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-        UNIQUE KEY uq_rbac_repositories_name (name)
+        UNIQUE KEY ux_rbac_repositories_name (name)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
     foreign_keys:
       - ALTER TABLE rbac_repositories ADD CONSTRAINT fk_rbac_repos_sign_key FOREIGN KEY (signing_key_id) REFERENCES signing_keys(id) ON DELETE SET NULL
@@ -2198,7 +2223,7 @@ Tables:
         params JSON NULL,
         status ENUM('active','deprecated') NOT NULL DEFAULT 'active',
         created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-        UNIQUE KEY uq_hash_profiles_name (name)
+        CONSTRAINT uq_hash_profiles UNIQUE (name)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
     foreign_keys:
       - ALTER TABLE hash_profiles ADD CONSTRAINT fk_hp_algo FOREIGN KEY (algo_id) REFERENCES crypto_algorithms(id) ON DELETE RESTRICT
@@ -2414,6 +2439,7 @@ Tables:
     foreign_keys:
     indexes:
   webhook_outbox:
+    UpdatedAt: updated_at
     DefaultOrder: created_at DESC
     create: |-
       CREATE TABLE IF NOT EXISTS webhook_outbox (
@@ -2441,7 +2467,7 @@ Tables:
         target_pct DECIMAL(5,2) NOT NULL,
         window_interval VARCHAR(64) NOT NULL,
         created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-        CONSTRAINT uq_slo_windows_name UNIQUE (name)
+        CONSTRAINT ux_slo_windows_name UNIQUE (name)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
     foreign_keys:
     indexes:
@@ -2540,6 +2566,7 @@ Tables:
       - CREATE INDEX idx_cr_tenant_order  ON coupon_redemptions (tenant_id, order_id)
       - CREATE UNIQUE INDEX ux_cr_tenant_order_coupon ON coupon_redemptions (tenant_id, order_id, coupon_id)
   system_jobs:
+    UpdatedAt: updated_at
     DefaultOrder: created_at DESC
     create: |-
       CREATE TABLE IF NOT EXISTS system_jobs (
@@ -2924,6 +2951,16 @@ Tables:
     foreign_keys:
       - ALTER TABLE session_audit ADD CONSTRAINT fk_session_audit_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
     indexes:
+      - CREATE INDEX idx_session_audit_token_hash ON session_audit (session_token_hash)
+      - CREATE INDEX idx_session_audit_session_id ON session_audit (session_id)
+      - CREATE INDEX idx_session_audit_user_id ON session_audit (user_id)
+      - CREATE INDEX idx_session_audit_created_at ON session_audit (created_at)
+      - CREATE INDEX idx_session_audit_event ON session_audit (event)
+      - CREATE INDEX idx_session_audit_ip_hash ON session_audit (ip_hash)
+      - CREATE INDEX idx_session_audit_event_time ON session_audit (event, created_at)
+      - CREATE INDEX idx_session_audit_user_event_time ON session_audit (user_id, event, created_at)
+      - CREATE INDEX idx_session_audit_token_time ON session_audit (session_token_hash, created_at)
+      - CREATE INDEX idx_session_audit_event_user_time ON session_audit (event, user_id, created_at DESC)
   data_retention_policies:
     DefaultOrder: created_at DESC
     create: |-
@@ -2936,7 +2973,7 @@ Tables:
         active BOOLEAN NOT NULL DEFAULT TRUE,
         notes TEXT NULL,
         created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-        UNIQUE KEY ux_drp (entity_table, field_name, action, keep_for),
+        UNIQUE KEY uq_drp_entity_scope (entity_table, field_name, action, keep_for),
         INDEX idx_drp_entity (entity_table, field_name),
         INDEX idx_drp_active (active)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;

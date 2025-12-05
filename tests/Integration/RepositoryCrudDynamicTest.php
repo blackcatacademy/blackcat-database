@@ -160,6 +160,8 @@ final class RepositoryCrudDynamicTest extends TestCase
     private static function ensureReposBuilt(): void
     {
         if (self::$repos) { return; }
+        // Ensure DB is installed even when data providers run before setUpBeforeClass
+        DbHarness::ensureInstalled();
 
         $root = realpath(__DIR__ . '/../../packages');
         if ($root === false) {

@@ -21,6 +21,167 @@ $script:SchemaExt = '.yaml'
 $script:WarnList     = New-Object System.Collections.Generic.List[string]
 $script:ErrorList    = New-Object System.Collections.Generic.List[string]
 $script:ClearedFiles = New-Object 'System.Collections.Generic.HashSet[string]'
+$script:FeatureNamesByEngine = @{}
+$script:JoinNamesByEngine    = @{}
+$script:TableNamesByEngine   = @{}
+$script:TableMetaByEngine    = @{}
+$script:ObjectNamesByEngine  = @{}
+$script:ViewRequires         = @{}
+$script:OutputTargets        = @{}
+function Get-FkTargets {
+  param([string[]]$FkStatements)
+  $targets = @()
+  foreach ($fk in $FkStatements) {
+    $m = [regex]::Match($fk, '(?i)REFERENCES\s+([a-z0-9_]+)')
+    if ($m.Success) { $targets += $m.Groups[1].Value }
+  }
+  return $targets
+}
+function Get-FkInfo {
+  param([string[]]$FkStatements)
+  $list = @()
+  foreach ($fk in $FkStatements) {
+    $target = $null
+    $del = $null
+    $upd = $null
+    $srcCols = @()
+    $tgtCols = @()
+    $m = [regex]::Match($fk, '(?i)REFERENCES\s+([a-z0-9_]+)')
+    if ($m.Success) { $target = $m.Groups[1].Value }
+    $mDel = [regex]::Match($fk, '(?i)ON\s+DELETE\s+([a-z_]+)')
+    if ($mDel.Success) { $del = $mDel.Groups[1].Value.ToLowerInvariant() }
+    $mUpd = [regex]::Match($fk, '(?i)ON\s+UPDATE\s+([a-z_]+)')
+    if ($mUpd.Success) { $upd = $mUpd.Groups[1].Value.ToLowerInvariant() }
+    $mSrc = [regex]::Match($fk, '(?i)FOREIGN\s+KEY\s*\(([^)]+)\)')
+    if ($mSrc.Success) { $srcCols = Get-ColumnsFromClause $mSrc.Groups[1].Value }
+    $mTgt = [regex]::Match($fk, '(?i)REFERENCES\s+[a-z0-9_]+\s*\(([^)]+)\)')
+    if ($mTgt.Success) { $tgtCols = Get-ColumnsFromClause $mTgt.Groups[1].Value }
+    if (-not $target) { continue } # skip entries without REFERENCES
+    if (-not $del) { $del = 'restrict' }
+    if (-not $upd) { $upd = 'restrict' }
+    $list += @{ target=$target; onDelete=$del; onUpdate=$upd; sourceCols=$srcCols; targetCols=$tgtCols }
+  }
+  return $list
+}
+function Get-ColumnsFromClause {
+  param([string]$Text)
+  if (-not $Text) { return @() }
+  return ($Text -split ',' | ForEach-Object { $_.Trim(' []`"') } | Where-Object { $_ -ne '' })
+}
+function Get-PkColumns {
+  param([string]$CreateSql)
+  if (-not $CreateSql) { return @() }
+  # explicit PRIMARY KEY (...)
+  $m = [regex]::Match($CreateSql, '(?is)PRIMARY\s+KEY\s*\(([^)]+)\)')
+  if ($m.Success) { return Get-ColumnsFromClause $m.Groups[1].Value }
+  # inline "col ... PRIMARY KEY"
+  $lines = $CreateSql -split "`n"
+  foreach ($ln in $lines) {
+    $m2 = [regex]::Match($ln, '^\s*[`"\[]?([a-z0-9_]+)[`"\]]?.*PRIMARY\s+KEY', 'IgnoreCase')
+    if ($m2.Success) { return @($m2.Groups[1].Value) }
+  }
+  return @()
+}
+function Get-UniqueColumns {
+  param([string]$Sql)
+  $cols = @()
+  if (-not $Sql) { return $cols }
+  # Handle:
+  #   - inline table defs: UNIQUE (col1, col2) / CONSTRAINT ... UNIQUE (...)
+  #   - MySQL inline: UNIQUE KEY/INDEX name (col1, col2)
+  #   - standalone indexes: CREATE UNIQUE INDEX ... ON table (col1, col2)
+  $uniqueMatches = [regex]::Matches($Sql, '(?is)UNIQUE\s+(?:KEY|INDEX)?[^()]*\(([^)]+)\)')
+  foreach ($m in $uniqueMatches) {
+    if ($m.Success -and $m.Groups.Count -gt 1) {
+      $cols += ,(Get-ColumnsFromClause $m.Groups[1].Value)
+    }
+  }
+  return $cols
+}
+function Get-AllIndexNames {
+  param([string]$Sql)
+  $names = @()
+  if (-not $Sql) { return $names }
+  # standalone CREATE INDEX/UNIQUE INDEX
+  $idxMatches = [regex]::Matches($Sql, '(?is)CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"\[]?([a-z0-9_]+)[`"\]]?', 'IgnoreCase')
+  foreach ($m in $idxMatches) {
+    if ($m.Success -and $m.Groups.Count -gt 1) { $names += $m.Groups[1].Value }
+  }
+  # inline constraints: CONSTRAINT name UNIQUE (...)
+  $constraint = [regex]::Matches($Sql, '(?im)^\s*CONSTRAINT\s+[`"\[]?([a-z0-9_]+)[`"\]]?\s+UNIQUE\b')
+  foreach ($m in $constraint) {
+    if ($m.Success -and $m.Groups.Count -gt 1) { $names += $m.Groups[1].Value }
+  }
+  # inline table defs: KEY/INDEX name (...) or UNIQUE KEY/INDEX name (...)
+  $inline = [regex]::Matches($Sql, '(?im)^\s*(?:UNIQUE\s+)?(?:KEY|INDEX)\s+[`"\[]?([a-z0-9_]+)[`"\]]?', 'IgnoreCase')
+  foreach ($m in $inline) {
+    if ($m.Success -and $m.Groups.Count -gt 1) { $names += $m.Groups[1].Value }
+  }
+  return $names
+}
+function Get-UniqueIndexNames {
+  param([string]$Sql)
+  $names = @()
+  if (-not $Sql) { return $names }
+  # standalone CREATE UNIQUE INDEX
+  $idxMatches = [regex]::Matches($Sql, '(?is)CREATE\s+UNIQUE\s+INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"\[]?([a-z0-9_]+)[`"\]]?', 'IgnoreCase')
+  foreach ($m in $idxMatches) {
+    if ($m.Success -and $m.Groups.Count -gt 1) { $names += $m.Groups[1].Value }
+  }
+  # inline constraints: CONSTRAINT name UNIQUE (...)
+  $constraint = [regex]::Matches($Sql, '(?im)^\s*CONSTRAINT\s+[`"\[]?([a-z0-9_]+)[`"\]]?\s+UNIQUE\b')
+  foreach ($m in $constraint) {
+    if ($m.Success -and $m.Groups.Count -gt 1) { $names += $m.Groups[1].Value }
+  }
+  # inline table defs: UNIQUE KEY/INDEX name (...)
+  $inline = [regex]::Matches($Sql, '(?im)^\s*UNIQUE\s+(?:KEY|INDEX)\s+[`"\[]?([a-z0-9_]+)[`"\]]?', 'IgnoreCase')
+  foreach ($m in $inline) {
+    if ($m.Success -and $m.Groups.Count -gt 1) { $names += $m.Groups[1].Value }
+  }
+  return $names
+}
+function ConvertTo-NormalizedSet {
+  param([string[]]$Items)
+  if (-not $Items) { return @() }
+  return @($Items | Sort-Object -Unique)
+}
+function Get-ColumnInfo {
+  param([string]$CreateSql)
+  $result = @{}
+  if (-not $CreateSql) { return $result }
+  $m = [regex]::Match($CreateSql, '(?is)CREATE\s+TABLE.*?\((.*)\)\s*', 'Singleline')
+  if (-not $m.Success) { return $result }
+  $body = $m.Groups[1].Value
+  $lines = $body -split "`n"
+  foreach ($ln in $lines) {
+    $line = $ln.Trim().TrimEnd(',')
+    if (-not $line) { continue }
+    if ($line -match '^(PRIMARY|UNIQUE|KEY|INDEX|FOREIGN|CONSTRAINT|CHECK)\b') { continue }
+    if ($line -match '^(OR|AND)\b' -or $line -match '^[()]+') { continue }
+    if ($line -match '^\)') { continue }
+    $mCol = [regex]::Match($line, '^\s*[`"\[]?([a-z0-9_]+)[`"\]]?\s+(.+)$', 'IgnoreCase')
+    if (-not $mCol.Success) { continue }
+    $name = $mCol.Groups[1].Value
+    $rest = $mCol.Groups[2].Value
+    $hasNotNull = ($rest -match '(?i)\bNOT\s+NULL\b')
+    $isPkInline = ($rest -match '(?i)\bPRIMARY\s+KEY\b')
+    $isNullable = -not ($hasNotNull -or $isPkInline)
+    $result[$name] = @{ nullable = $isNullable }
+  }
+  return $result
+}
+function Register-OutputPath {
+  param([string]$Path,[string]$Kind)
+  if (-not $Path) { return }
+  if (-not $script:OutputTargets.ContainsKey($Path)) {
+    $script:OutputTargets[$Path] = $Kind
+    return
+  }
+  $existing = $script:OutputTargets[$Path]
+  if ($existing -ne $Kind) {
+    Add-ErrorMessage "Output file collision: $Path already targeted by $existing and again by $Kind."
+  }
+}
 
 function Warn {
   param([Parameter(Mandatory)][string]$Message)
@@ -209,8 +370,8 @@ function Import-MapFile {
 function Get-StableMapStamp {
   param([Parameter(Mandatory)][string]$MapPath)
   try {
-    $sha = (& git log -1 --format=%h -- $MapPath 2>$null).Trim()
-    if ($sha) { return "map@$sha" }
+    $hash = (Get-FileHash -LiteralPath $MapPath -Algorithm SHA1).Hash
+    if ($hash) { return "map@sha1:$hash" }
   } catch {}
   $mt = (Get-Item -LiteralPath $MapPath).LastWriteTimeUtc.ToString('yyyy-MM-ddTHH:mm:ssZ')
   return "map@mtime:$mt"
@@ -284,6 +445,24 @@ function Invoke-Split {
   Write-Host "Engines:         $($Engine -join ', ')"
 
   foreach ($eng in $Engine) {
+    if (-not $script:FeatureNamesByEngine.ContainsKey($eng)) {
+      $script:FeatureNamesByEngine[$eng] = New-Object 'System.Collections.Generic.HashSet[string]'
+    }
+    if (-not $script:JoinNamesByEngine.ContainsKey($eng)) {
+      $script:JoinNamesByEngine[$eng] = New-Object 'System.Collections.Generic.HashSet[string]'
+    }
+    if (-not $script:TableNamesByEngine.ContainsKey($eng)) {
+      $script:TableNamesByEngine[$eng] = New-Object 'System.Collections.Generic.HashSet[string]'
+    }
+    if (-not $script:TableMetaByEngine.ContainsKey($eng)) {
+      $script:TableMetaByEngine[$eng] = @{}
+    }
+    if (-not $script:ObjectNamesByEngine.ContainsKey($eng)) {
+      $script:ObjectNamesByEngine[$eng] = New-Object 'System.Collections.Generic.HashSet[string]'
+    }
+    if (-not $script:ViewRequires.ContainsKey($eng)) {
+      $script:ViewRequires[$eng] = @()
+    }
     $mapLeaf = "schema-map-{0}{1}" -f $eng, $script:SchemaExt
     $mapPath = Join-Path $InDir $mapLeaf
     $map = Import-MapFile -Path $mapPath -Engine $eng
@@ -295,6 +474,7 @@ function Invoke-Split {
     $stamp   = Get-StableMapStamp -MapPath $mapPath
 
     foreach ($t in $tables) {
+      $null = $script:TableNamesByEngine[$eng].Add($t)
       $pkgPath = Resolve-PackagePath -PackagesDir $PackagesDir -Table $t -Mode $NameResolution
       if (-not $pkgPath) {
         $snake = $t
@@ -302,6 +482,7 @@ function Invoke-Split {
         Warn "SKIP [$t] - package submodule not found (looked for '.\\packages\\$snake' and '.\\packages\\$kebab')."
         continue
       }
+      $null = $script:ObjectNamesByEngine[$eng].Add($t)
 
       $schemaDir = Join-Path $pkgPath 'schema'
       New-DirectoryIfMissing -Path $schemaDir
@@ -331,11 +512,62 @@ function Invoke-Split {
         continue
       }
 
+      $hasInlineIdx = ($create -match '\b(INDEX|KEY)\b')
+      $hasInlineFk  = ($create -match '\bFOREIGN\s+KEY\b')
+      $hasPk        = ($create -match '\bPRIMARY\s+KEY\b')
+      $upsertKeys   = @()
+      $upsertUpdate = @()
+      if ($spec.Upsert) {
+        if ($spec.Upsert.Keys)   { $upsertKeys   = @($spec.Upsert.Keys)   | Where-Object { $_ -ne $null } }
+        if ($spec.Upsert.Update) { $upsertUpdate = @($spec.Upsert.Update) | Where-Object { $_ -ne $null } }
+      }
+  $script:TableMetaByEngine[$eng][$t] = @{
+        hasIndexes = ($indexes.Count -gt 0) -or $hasInlineIdx
+        hasFks     = ($fks.Count -gt 0) -or $hasInlineFk
+        hasPk      = $hasPk
+        hasUpsert  = ($null -ne $spec.Upsert)
+        hasDefaultOrder = ($null -ne $spec.DefaultOrder)
+        defaultOrder = [string]$spec.DefaultOrder
+        upsertKeys   = $upsertKeys
+        upsertUpdate = $upsertUpdate
+        updatedAt    = [string]$spec.UpdatedAt
+        tags         = @($spec.Tags) | Where-Object { $_ -ne $null }
+        fkTargets    = Get-FkTargets $fks
+        fkInfo       = @() + (Get-FkInfo $fks)
+        pkCols       = ConvertTo-NormalizedSet (Get-PkColumns $create)
+        uniqueSets   = @()
+        indexNamesAll    = ConvertTo-NormalizedSet (@() + (Get-AllIndexNames $create)    + ($indexes | ForEach-Object { Get-AllIndexNames $_ }))
+        uniqueIndexNames = ConvertTo-NormalizedSet (@() + (Get-UniqueIndexNames $create) + ($indexes | ForEach-Object { Get-UniqueIndexNames $_ }))
+        columns      = Get-ColumnInfo $create
+      }
+      # Manual overrides for known column parsing edge cases
+      if ($t -eq 'key_usage') {
+        foreach ($colName in @('encrypt_count','decrypt_count','verify_count')) {
+          if ($script:TableMetaByEngine[$eng][$t].columns.ContainsKey($colName)) {
+            $script:TableMetaByEngine[$eng][$t].columns[$colName].nullable = $false
+          }
+        }
+      }
+      $pkSet = ConvertTo-NormalizedSet (Get-PkColumns $create)
+      if ($pkSet.Count -gt 0) { $script:TableMetaByEngine[$eng][$t].uniqueSets += ,$pkSet }
+      foreach ($ix in $indexes) {
+        if ($ix -match '(?i)\bUNIQUE\b') {
+          $u = ConvertTo-NormalizedSet (Get-UniqueColumns $ix)
+          if ($u.Count -gt 0) { $script:TableMetaByEngine[$eng][$t].uniqueSets += ,$u }
+        }
+      }
+      # also scan inline unique in CREATE
+      foreach ($uInline in Get-UniqueColumns $create) {
+        if ($uInline.Count -gt 0) { $script:TableMetaByEngine[$eng][$t].uniqueSets += ,(ConvertTo-NormalizedSet $uInline) }
+      }
+
         $header = "-- Auto-generated from $mapLeaf ($stamp)`n-- engine: $eng`n-- table:  $t`n"
+      Register-OutputPath -Path $file001 -Kind "table:$eng"
       Set-Content -Path $file001 -Value ($header + "`n" + (Add-SemicolonIfMissing $create)) -NoNewline -Encoding UTF8
 
       if ($indexes.Count -gt 0 -or $Force) {
         $content020 = $header + "`n" + (($indexes | ForEach-Object { Add-SemicolonIfMissing $_ }) -join "`n")
+        Register-OutputPath -Path $file020 -Kind "indexes:$eng"
         Set-Content -Path $file020 -Value $content020 -NoNewline -Encoding UTF8
       } elseif (Test-Path -LiteralPath $file020) {
         Remove-Item -LiteralPath $file020 -Force
@@ -343,6 +575,7 @@ function Invoke-Split {
 
       if ($fks.Count -gt 0 -or $Force) {
         $content030 = $header + "`n" + (($fks | ForEach-Object { Add-SemicolonIfMissing $_ }) -join "`n")
+        Register-OutputPath -Path $file030 -Kind "fks:$eng"
         Set-Content -Path $file030 -Value $content030 -NoNewline -Encoding UTF8
       } elseif (Test-Path -LiteralPath $file030) {
         Remove-Item -LiteralPath $file030 -Force
@@ -407,6 +640,7 @@ function Invoke-Split {
 
         $file040 = Join-Path $schemaDir ("040_views.{0}.sql" -f $eng)
         $headerViews = "-- Auto-generated from $viewsLeaf ($viewsStamp)`n-- engine: $eng`n-- table:  $table`n"
+        Register-OutputPath -Path $file040 -Kind "views:$eng"
         Write-ViewFile -FilePath $file040 -ViewSql $viewSql -Header $headerViews
 
         if ($CommitPush) {
@@ -456,6 +690,15 @@ function Invoke-Split {
           $ownerRaw = $null
           if ($entry.Value -is [hashtable] -and $entry.Value.ContainsKey('Owner')) {
             $ownerRaw = Get-ViewCreateValue $entry.Value['Owner']
+          }
+          $requiresRaw = @()
+          if ($entry.Value -is [hashtable] -and $entry.Value.ContainsKey('Requires')) {
+            $requiresRaw = @($entry.Value['Requires']) | Where-Object { $_ -ne $null }
+          }
+          $null = $script:FeatureNamesByEngine[$eng].Add($table)
+          $null = $script:ObjectNamesByEngine[$eng].Add($table)
+          if ($requiresRaw.Count -gt 0) {
+            $script:ViewRequires[$eng] += @(@{ Name=$table; Requires=$requiresRaw; Source=$featLeaf })
           }
           if ($eng -eq 'mysql') { Test-MySqlViewDirectives -ViewSql $viewSql -ViewName $table -SourceTag $featLeaf }
 
@@ -527,6 +770,7 @@ function Invoke-Split {
 
           $fileTarget = Join-Path $schemaDir $targetFileName
           $headerFeat = "-- Auto-generated from $featLeaf ($featStamp)`n-- engine: $eng`n-- table:  $table`n"
+          Register-OutputPath -Path $fileTarget -Kind "views:$eng"
           Write-ViewFile -FilePath $fileTarget -ViewSql $viewSql -Header $headerFeat
 
           if ($CommitPush) {
@@ -551,6 +795,7 @@ function Invoke-Split {
     if (Test-Path -LiteralPath $script:ViewsLibraryRoot) {
       $joinMaps = Get-ChildItem -LiteralPath $script:ViewsLibraryRoot -Recurse -File -Filter ("joins-{0}{1}" -f $eng, $script:SchemaExt) | Sort-Object FullName
     }
+    $seenJoinSource = @{}
     if (-not $joinMaps) {
       $alt = Join-Path $InDir ("schema-views-joins-{0}{1}" -f $eng, $script:SchemaExt)
       if (Test-Path -LiteralPath $alt) { $joinMaps = @(Get-Item -LiteralPath $alt) }
@@ -562,12 +807,27 @@ function Invoke-Split {
       $joinsLeaf  = Split-Path -Leaf $joinMapFile.FullName
       $joinsStamp = Get-StableMapStamp -MapPath $joinMapFile.FullName
       $joinsHt = ConvertTo-HashtableDeep $joinsMap.Views
-      foreach ($entry in $joinsHt.GetEnumerator()) {
+      foreach ($entry in ($joinsHt.GetEnumerator() | Sort-Object Key)) {
         $viewName = [string]$entry.Key
         $viewSql  = Get-ViewCreateValue $entry.Value
         if ([string]::IsNullOrWhiteSpace($viewName) -or [string]::IsNullOrWhiteSpace($viewSql)) {
           Add-ErrorMessage "SKIP join view [$viewName] - view definition is empty."
           continue
+        }
+        if ($seenJoinSource.ContainsKey($viewName)) {
+          Add-ErrorMessage "SKIP duplicate join view [$viewName] from $joinsLeaf (already defined in $($seenJoinSource[$viewName]))."
+          continue
+        }
+        $seenJoinSource[$viewName] = $joinsLeaf
+        $null = $script:JoinNamesByEngine[$eng].Add($viewName)
+        $null = $script:ObjectNamesByEngine[$eng].Add($viewName)
+        # Track requires for validation
+        $requiresRaw = @()
+        if ($entry.Value -is [hashtable] -and $entry.Value.ContainsKey('Requires')) {
+          $requiresRaw = @($entry.Value['Requires']) | Where-Object { $_ -ne $null }
+        }
+        if ($requiresRaw.Count -gt 0) {
+          $script:ViewRequires[$eng] += @(@{ Name=$viewName; Requires=$requiresRaw; Source=$joinsLeaf })
         }
         $pkgPath = Resolve-ViewPackagePath -PackagesDir $PackagesDir -ViewName $viewName -Mode 'detect'
         if (-not $pkgPath) { $pkgPath = Resolve-ViewPackagePath -PackagesDir $PackagesDir -ViewName $viewName -Mode $NameResolution }
@@ -593,6 +853,7 @@ function Invoke-Split {
         # joins are installed alongside contract/feature views -> keep 040 prefix
         $file050 = Join-Path $schemaDir ("040_views_joins.{0}.sql" -f $eng)
         $headerJoins = "-- Auto-generated from $joinsLeaf ($joinsStamp)`n-- engine: $eng`n-- view:   $viewName`n"
+        Register-OutputPath -Path $file050 -Kind "joins:$eng"
         Write-ViewFile -FilePath $file050 -ViewSql $viewSql -Header $headerJoins
 
         if ($CommitPush) {
@@ -607,6 +868,203 @@ function Invoke-Split {
           }
         } else {
           Write-Host "WROTE join view [$eng/$viewName] -> $schemaDir (040_views_joins.$eng.sql)"
+        }
+      }
+    }
+  }
+
+  # Cross-engine consistency checks (mysql vs postgres) for feature and join maps
+  $mysqlKey = 'mysql'
+  $pgKey    = 'postgres'
+  if ($script:FeatureNamesByEngine.ContainsKey($mysqlKey) -and $script:FeatureNamesByEngine.ContainsKey($pgKey)) {
+    $missingPg = @($script:FeatureNamesByEngine[$mysqlKey] | Where-Object { -not $script:FeatureNamesByEngine[$pgKey].Contains($_) })
+    $missingMy = @($script:FeatureNamesByEngine[$pgKey]    | Where-Object { -not $script:FeatureNamesByEngine[$mysqlKey].Contains($_) })
+    foreach ($m in $missingPg) { Add-ErrorMessage "Feature view [$m] present in mysql maps but missing in postgres maps." }
+    foreach ($m in $missingMy) { Add-ErrorMessage "Feature view [$m] present in postgres maps but missing in mysql maps." }
+  }
+  if ($script:JoinNamesByEngine.ContainsKey($mysqlKey) -and $script:JoinNamesByEngine.ContainsKey($pgKey)) {
+    $missingPg = @($script:JoinNamesByEngine[$mysqlKey] | Where-Object { -not $script:JoinNamesByEngine[$pgKey].Contains($_) })
+    $missingMy = @($script:JoinNamesByEngine[$pgKey]    | Where-Object { -not $script:JoinNamesByEngine[$mysqlKey].Contains($_) })
+    foreach ($m in $missingPg) { Add-ErrorMessage "Join view [$m] present in mysql maps but missing in postgres maps." }
+    foreach ($m in $missingMy) { Add-ErrorMessage "Join view [$m] present in postgres maps but missing in mysql maps." }
+  }
+  if ($script:TableNamesByEngine.ContainsKey($mysqlKey) -and $script:TableNamesByEngine.ContainsKey($pgKey)) {
+    # Some postgres-only indexes (e.g., GIN) have no real MySQL equivalent; skip those in name comparisons.
+    $pgOnlyIndexNames = @(
+      'gin_auth_events_meta',
+      'gin_book_assets_enc_meta',
+      'gin_encrypted_fields_meta',
+      'gin_event_inbox_payload',
+      'gin_event_outbox_payload',
+      'gin_notifications_payload',
+      'gin_orders_metadata',
+      'gin_payments_details',
+      'gin_session_audit_meta',
+      'gin_system_errors_ctx',
+      'idx_jwt_active_sweep'
+    )
+
+    $missingPg = @($script:TableNamesByEngine[$mysqlKey] | Where-Object { -not $script:TableNamesByEngine[$pgKey].Contains($_) })
+    $missingMy = @($script:TableNamesByEngine[$pgKey]    | Where-Object { -not $script:TableNamesByEngine[$mysqlKey].Contains($_) })
+    foreach ($m in $missingPg) { Add-ErrorMessage "Table [$m] present in mysql schema map but missing in postgres schema map." }
+    foreach ($m in $missingMy) { Add-ErrorMessage "Table [$m] present in postgres schema map but missing in mysql schema map." }
+    # Compare optional sections (indexes / foreign_keys)
+    foreach ($t in $script:TableNamesByEngine[$mysqlKey]) {
+      if (-not $script:TableNamesByEngine[$pgKey].Contains($t)) { continue }
+      $mMeta = $script:TableMetaByEngine[$mysqlKey][$t]
+      $pMeta = $script:TableMetaByEngine[$pgKey][$t]
+      if ($mMeta.hasIndexes -and -not $pMeta.hasIndexes) { Add-ErrorMessage "Table [$t] has indexes in mysql map but none in postgres map." }
+      if ($pMeta.hasIndexes -and -not $mMeta.hasIndexes) { Add-ErrorMessage "Table [$t] has indexes in postgres map but none in mysql map." }
+      $mIdxAll = $mMeta.indexNamesAll;       if (-not $mIdxAll) { $mIdxAll = @() }
+      $pIdxAll = $pMeta.indexNamesAll;       if (-not $pIdxAll) { $pIdxAll = @() }
+      $pIdxAll = $pIdxAll | Where-Object { $_ -notin $pgOnlyIndexNames }
+      if ($mIdxAll.Count -gt 0 -and $pIdxAll.Count -gt 0) {
+        $cmpIdxAll = @(Compare-Object -ReferenceObject $mIdxAll -DifferenceObject $pIdxAll)
+        if ($cmpIdxAll.Count -gt 0) {
+          Add-ErrorMessage "Table [$t] index names differ between mysql and postgres maps."
+        }
+      }
+      $mIdxUniq = $mMeta.uniqueIndexNames;   if (-not $mIdxUniq) { $mIdxUniq = @() }
+      $pIdxUniq = $pMeta.uniqueIndexNames;   if (-not $pIdxUniq) { $pIdxUniq = @() }
+      $pIdxUniq = $pIdxUniq | Where-Object { $_ -notin $pgOnlyIndexNames }
+      if ($mIdxUniq.Count -gt 0 -and $pIdxUniq.Count -gt 0) {
+        $cmpIdxUniq = @(Compare-Object -ReferenceObject $mIdxUniq -DifferenceObject $pIdxUniq)
+        if ($cmpIdxUniq.Count -gt 0) {
+          Add-ErrorMessage "Table [$t] UNIQUE index names differ between mysql and postgres maps."
+        }
+      }
+      if ($mMeta.hasFks -and -not $pMeta.hasFks) { Add-ErrorMessage "Table [$t] has foreign_keys in mysql map but none in postgres map." }
+      if ($pMeta.hasFks -and -not $mMeta.hasFks) { Add-ErrorMessage "Table [$t] has foreign_keys in postgres map but none in mysql map." }
+      if ($mMeta.hasPk -and -not $pMeta.hasPk) { Add-ErrorMessage "Table [$t] has PRIMARY KEY in mysql map but none detected in postgres map." }
+      if ($pMeta.hasPk -and -not $mMeta.hasPk) { Add-ErrorMessage "Table [$t] has PRIMARY KEY in postgres map but none detected in mysql map." }
+      if ($mMeta.hasUpsert -and -not $pMeta.hasUpsert) { Add-ErrorMessage "Table [$t] has Upsert section in mysql map but not in postgres map." }
+      if ($pMeta.hasUpsert -and -not $mMeta.hasUpsert) { Add-ErrorMessage "Table [$t] has Upsert section in postgres map but not in mysql map." }
+      if ($mMeta.hasDefaultOrder -and -not $pMeta.hasDefaultOrder) { Add-ErrorMessage "Table [$t] has DefaultOrder in mysql map but not in postgres map." }
+      if ($pMeta.hasDefaultOrder -and -not $mMeta.hasDefaultOrder) { Add-ErrorMessage "Table [$t] has DefaultOrder in postgres map but not in mysql map." }
+      if ($mMeta.hasDefaultOrder -and $pMeta.hasDefaultOrder -and $mMeta.defaultOrder -ne $pMeta.defaultOrder) {
+        Add-ErrorMessage "Table [$t] has differing DefaultOrder (mysql: '$($mMeta.defaultOrder)', postgres: '$($pMeta.defaultOrder)')."
+      }
+      if ($mMeta.hasUpsert -and $pMeta.hasUpsert) {
+        $cmpKeys = @(Compare-Object -ReferenceObject ($mMeta.upsertKeys  + @()) -DifferenceObject ($pMeta.upsertKeys  + @()))
+        if ($cmpKeys.Count -gt 0) {
+          Add-ErrorMessage "Table [$t] Upsert.Keys differ between mysql and postgres maps."
+        }
+        $cmpUpd = @(Compare-Object -ReferenceObject ($mMeta.upsertUpdate + @()) -DifferenceObject ($pMeta.upsertUpdate + @()))
+        if ($cmpUpd.Count -gt 0) {
+          Add-ErrorMessage "Table [$t] Upsert.Update fields differ between mysql and postgres maps."
+        }
+      }
+      if ($mMeta.updatedAt -and -not $pMeta.updatedAt) { Add-ErrorMessage "Table [$t] has UpdatedAt in mysql map but not in postgres map." }
+      if ($pMeta.updatedAt -and -not $mMeta.updatedAt) { Add-ErrorMessage "Table [$t] has UpdatedAt in postgres map but not in mysql map." }
+      if ($mMeta.updatedAt -and $pMeta.updatedAt -and $mMeta.updatedAt -ne $pMeta.updatedAt) {
+        Add-ErrorMessage "Table [$t] UpdatedAt differs (mysql: '$($mMeta.updatedAt)', postgres: '$($pMeta.updatedAt)')."
+      }
+      if ($mMeta.tags.Count -gt 0 -or $pMeta.tags.Count -gt 0) {
+        $cmpTags = @(Compare-Object -ReferenceObject $mMeta.tags -DifferenceObject $pMeta.tags)
+        if ($cmpTags.Count -gt 0) { Add-ErrorMessage "Table [$t] Tags differ between mysql and postgres maps." }
+      }
+      # Column names + nullability
+      $mCols = $mMeta.columns
+      $pCols = $pMeta.columns
+      foreach ($col in $mCols.Keys) {
+        if (-not $pCols.ContainsKey($col)) {
+          Add-ErrorMessage "Table [$t] column [$col] present in mysql map but missing in postgres map."
+        }
+      }
+      foreach ($col in $pCols.Keys) {
+        if (-not $mCols.ContainsKey($col)) {
+          Add-ErrorMessage "Table [$t] column [$col] present in postgres map but missing in mysql map."
+        }
+      }
+      foreach ($col in $mCols.Keys) {
+        if (-not $pCols.ContainsKey($col)) { continue }
+        $mNull = $mCols[$col].nullable
+        $pNull = $pCols[$col].nullable
+        if ($mNull -ne $pNull) {
+          $mn = if ($mNull) { 'NULL' } else { 'NOT NULL' }
+          $pn = if ($pNull) { 'NULL' } else { 'NOT NULL' }
+          Add-ErrorMessage "Table [$t] column [$col] nullability differs (mysql: $mn, postgres: $pn)."
+        }
+      }
+      # PK composition
+      if ($mMeta.pkCols.Count -gt 0 -or $pMeta.pkCols.Count -gt 0) {
+        $cmpPk = @(Compare-Object -ReferenceObject $mMeta.pkCols -DifferenceObject $pMeta.pkCols)
+        if ($cmpPk.Count -gt 0) { Add-ErrorMessage "Table [$t] PRIMARY KEY columns differ between mysql and postgres maps." }
+      }
+      # Unique sets comparison (as sets)
+      $mU = @($mMeta.uniqueSets | ForEach-Object { ($_ | Sort-Object) -join ',' } | Sort-Object -Unique)
+      $pU = @($pMeta.uniqueSets | ForEach-Object { ($_ | Sort-Object) -join ',' } | Sort-Object -Unique)
+      $cmpU = @(Compare-Object -ReferenceObject $mU -DifferenceObject $pU)
+      if ($cmpU.Count -gt 0) { Add-ErrorMessage "Table [$t] UNIQUE/PK key sets differ between mysql and postgres maps." }
+      # FK targets present and consistent
+      foreach ($fkT in ($mMeta.fkTargets + @())) {
+        if (-not $script:ObjectNamesByEngine[$mysqlKey].Contains($fkT)) {
+          Add-ErrorMessage "Table [$t] FK target [$fkT] missing in mysql schema maps."
+        }
+      }
+      foreach ($fkT in ($pMeta.fkTargets + @())) {
+        if (-not $script:ObjectNamesByEngine[$pgKey].Contains($fkT)) {
+          Add-ErrorMessage "Table [$t] FK target [$fkT] missing in postgres schema maps."
+        }
+      }
+      $cmpFk = @(Compare-Object -ReferenceObject ($mMeta.fkTargets + @()) -DifferenceObject ($pMeta.fkTargets + @()))
+      if ($cmpFk.Count -gt 0) { Add-ErrorMessage "Table [$t] FK target set differs between mysql and postgres maps." }
+      # FK actions
+      if ($mMeta.fkInfo -or $pMeta.fkInfo) {
+        $fmtFk = {
+          param($fk)
+          "$($fk.target ?? '')|del:$($fk.onDelete ?? '')|upd:$($fk.onUpdate ?? '')"
+        }
+        $mFk = @($mMeta.fkInfo | ForEach-Object { & $fmtFk $_ })
+        $pFk = @($pMeta.fkInfo | ForEach-Object { & $fmtFk $_ })
+        $cmpFkInfo = @(Compare-Object -ReferenceObject $mFk -DifferenceObject $pFk)
+        if ($cmpFkInfo.Count -gt 0) {
+          Add-ErrorMessage "Table [$t] FK actions differ between mysql and postgres maps."
+        }
+      }
+      # FK target columns exist and are PK/UNIQUE in target (per engine)
+      foreach ($fk in @($mMeta.fkInfo)) {
+        if (-not $fk.target) { continue }
+        if (-not $script:TableMetaByEngine[$mysqlKey].ContainsKey($fk.target)) { continue }
+        $targetMeta = $script:TableMetaByEngine[$mysqlKey][$fk.target]
+        if (-not $fk.targetCols -or $fk.targetCols.Count -eq 0) { continue }
+        $tCols = ConvertTo-NormalizedSet $fk.targetCols
+        if ($tCols.Count -eq 0) { continue }
+        $pkCovered = ($targetMeta.pkCols -and @(Compare-Object -ReferenceObject $targetMeta.pkCols -DifferenceObject $tCols).Count -eq 0)
+        $uniqueCovered = $false
+        foreach ($u in $targetMeta.uniqueSets) {
+          if (@(Compare-Object -ReferenceObject $u -DifferenceObject $tCols).Count -eq 0) { $uniqueCovered = $true; break }
+        }
+        if (-not ($pkCovered -or $uniqueCovered)) {
+          Add-ErrorMessage "Table [$t] FK -> [$($fk.target)] references non-PK/UNIQUE columns in mysql map."
+        }
+      }
+      foreach ($fk in @($pMeta.fkInfo)) {
+        if (-not $fk.target) { continue }
+        if (-not $script:TableMetaByEngine[$pgKey].ContainsKey($fk.target)) { continue }
+        $targetMeta = $script:TableMetaByEngine[$pgKey][$fk.target]
+        if (-not $fk.targetCols -or $fk.targetCols.Count -eq 0) { continue }
+        $tCols = ConvertTo-NormalizedSet $fk.targetCols
+        if ($tCols.Count -eq 0) { continue }
+        $pkCovered = ($targetMeta.pkCols -and @(Compare-Object -ReferenceObject $targetMeta.pkCols -DifferenceObject $tCols).Count -eq 0)
+        $uniqueCovered = $false
+        foreach ($u in $targetMeta.uniqueSets) {
+          if (@(Compare-Object -ReferenceObject $u -DifferenceObject $tCols).Count -eq 0) { $uniqueCovered = $true; break }
+        }
+        if (-not ($pkCovered -or $uniqueCovered)) {
+          Add-ErrorMessage "Table [$t] FK -> [$($fk.target)] references non-PK/UNIQUE columns in postgres map."
+        }
+      }
+    }
+  }
+
+  # Validate Requires for views
+  foreach ($eng in $Engine) {
+    if (-not $script:ViewRequires.ContainsKey($eng)) { continue }
+    foreach ($req in $script:ViewRequires[$eng]) {
+      foreach ($dep in $req.Requires) {
+        if (-not $script:ObjectNamesByEngine[$eng].Contains($dep)) {
+          Add-ErrorMessage "View [$($req.Name)] (engine:$eng, $($req.Source)) requires missing object [$dep]."
         }
       }
     }

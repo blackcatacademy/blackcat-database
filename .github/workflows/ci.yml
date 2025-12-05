@@ -8,12 +8,14 @@ jobs:
   phpstan:
     name: phpstan
     runs-on: ubuntu-latest
+    permissions: { contents: read }
     steps:
       - name: Checkout (with submodules)
         uses: actions/checkout@v6
         with:
           submodules: recursive
           fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -35,6 +37,7 @@ jobs:
 
   phpunit:
     runs-on: ubuntu-latest
+    permissions: { contents: read }
     strategy:
       fail-fast: false
       matrix:
@@ -75,6 +78,7 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2

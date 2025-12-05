@@ -2,19 +2,28 @@ name: SQL Lint (diff)
 
 on:
   pull_request:
-    paths:
-      - '**/*.sql'
+    paths: ['**/*.sql']
+  push:
+    paths: ['**/*.sql']
+  workflow_dispatch:
 
 jobs:
   lint:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
     steps:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
           fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
       - uses: actions/setup-python@v6
         with: { python-version: '3.x' }
+      - name: Install sqlfluff
+        run: python -m pip install --upgrade pip sqlfluff
       - name: Run sqlfluff on changed files
         run: bash ./scripts/quality/SqlLint-Diff.sh
       - name: Comment PR with lint summary

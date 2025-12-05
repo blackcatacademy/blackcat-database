@@ -8,6 +8,7 @@ jobs:
   test-mysql:
     name: php-8.3 • mysql
     runs-on: ubuntu-latest
+    permissions: { contents: read }
     strategy:
       fail-fast: false
     services:
@@ -27,11 +28,7 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
-
-      - name: Sync & init submodules
-        run: |
-          git submodule sync --recursive
-          git submodule update --init --recursive
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -80,15 +77,10 @@ jobs:
             -StrictSubmodules `
             -Force
           git submodule foreach --recursive '
-            git fetch --quiet origin +refs/heads/dev:refs/remotes/origin/dev || true
             st=$(git status --short)
             if [ -n "$st" ]; then
               echo "=== DIRTY SUBMODULE: $name ($path) ==="
               git status --short
-              if git show-ref --verify --quiet refs/remotes/origin/dev; then
-                echo "--- Diff vs origin/dev ---"
-                git diff --stat origin/dev..HEAD || true
-              fi
               echo "--- Worktree diff ---"
               git diff --stat
             fi'
@@ -145,6 +137,7 @@ jobs:
   test-postgres:
     name: php-8.3 • postgres
     runs-on: ubuntu-latest
+    permissions: { contents: read }
     strategy:
       fail-fast: false
     services:
@@ -164,11 +157,7 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
-
-      - name: Sync & init submodules
-        run: |
-          git submodule sync --recursive
-          git submodule update --init --recursive
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -216,15 +205,10 @@ jobs:
             -StrictSubmodules `
             -Force
           git submodule foreach --recursive '
-            git fetch --quiet origin +refs/heads/dev:refs/remotes/origin/dev || true
             st=$(git status --short)
             if [ -n "$st" ]; then
               echo "=== DIRTY SUBMODULE: $name ($path) ==="
               git status --short
-              if git show-ref --verify --quiet refs/remotes/origin/dev; then
-                echo "--- Diff vs origin/dev ---"
-                git diff --stat origin/dev..HEAD || true
-              fi
               echo "--- Worktree diff ---"
               git diff --stat
             fi'
@@ -281,6 +265,7 @@ jobs:
   test-mariadb:
     name: php-8.3 • mariadb
     runs-on: ubuntu-latest
+    permissions: { contents: read }
     services:
       mariadb:
         image: mariadb:10.4
@@ -298,11 +283,7 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
-
-      - name: Sync & init submodules
-        run: |
-          git submodule sync --recursive
-          git submodule update --init --recursive
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -351,15 +332,10 @@ jobs:
             -StrictSubmodules `
             -Force
           git submodule foreach --recursive '
-            git fetch --quiet origin +refs/heads/dev:refs/remotes/origin/dev || true
             st=$(git status --short)
             if [ -n "$st" ]; then
               echo "=== DIRTY SUBMODULE: $name ($path) ==="
               git status --short
-              if git show-ref --verify --quiet refs/remotes/origin/dev; then
-                echo "--- Diff vs origin/dev ---"
-                git diff --stat origin/dev..HEAD || true
-              fi
               echo "--- Worktree diff ---"
               git diff --stat
             fi'
