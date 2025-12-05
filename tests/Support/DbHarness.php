@@ -456,8 +456,8 @@ final class DbHarness
             if (isset($f['file'], $f['line'])) {
                 return basename((string)$f['file']) . ':' . (string)$f['line'];
             }
-            $fn = $f['function'] ?? null;
-            if ($fn !== null) return (string)$fn;
+            // debug_backtrace always carries 'function'; keep simple cast
+            return (string)$f['function'];
         }
         return 'unknown';
     }

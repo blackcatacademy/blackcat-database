@@ -9,8 +9,6 @@ jobs:
     name: php-8.3 • mysql
     runs-on: ubuntu-latest
     permissions: { contents: read }
-    strategy:
-      fail-fast: false
     services:
       mysql:
         image: mysql:8.0
@@ -45,9 +43,7 @@ jobs:
       - name: Split schema to packages (MySQL)
         shell: pwsh
         run: |
-          pwsh ./scripts/schema-tools/Split-SchemaToPackages.ps1 `
-            -InDir ./scripts/schema `
-            -PackagesDir ./packages
+          pwsh -NoLogo -NoProfile -File scripts/schema-tools/Split-SchemaToPackages.ps1
 
       - name: List detected schema maps (debug)
         shell: pwsh
@@ -136,8 +132,6 @@ jobs:
     name: php-8.3 • postgres
     runs-on: ubuntu-latest
     permissions: { contents: read }
-    strategy:
-      fail-fast: false
     services:
       postgres:
         image: postgres:16
@@ -178,9 +172,7 @@ jobs:
       - name: Split schema to packages
         shell: pwsh
         run: |
-          pwsh ./scripts/schema-tools/Split-SchemaToPackages.ps1 `
-            -InDir ./scripts/schema `
-            -PackagesDir ./packages
+          pwsh -NoLogo -NoProfile -File scripts/schema-tools/Split-SchemaToPackages.ps1
       - name: Validate codegen (WhatIf, autodetect)
         shell: pwsh
         run: |
@@ -296,9 +288,7 @@ jobs:
       - name: Split schema to packages (MariaDB)
         shell: pwsh
         run: |
-          pwsh ./scripts/schema-tools/Split-SchemaToPackages.ps1 `
-            -InDir ./scripts/schema `
-            -PackagesDir ./packages
+          pwsh -NoLogo -NoProfile -File scripts/schema-tools/Split-SchemaToPackages.ps1
 
       - name: List detected schema maps (debug)
         shell: pwsh
