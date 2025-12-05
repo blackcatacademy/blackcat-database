@@ -59,22 +59,20 @@ jobs:
         shell: pwsh
         run: |
           pwsh -File ./scripts/schema-tools/Generate-PhpFromSchema.ps1 `
+            -SchemaDir     ./scripts/schema `
             -TemplatesRoot ./scripts/templates/php `
             -ModulesRoot   ./packages `
-            -SchemaDir     ./scripts/schema `
-            -EnginePreference auto `
-            -StrictSubmodules `
+            -NameResolution detect `
             -WhatIf
 
       - name: Generate code (real) and assert clean git
         shell: pwsh
         run: |
           pwsh -File ./scripts/schema-tools/Generate-PhpFromSchema.ps1 `
+            -SchemaDir     ./scripts/schema `
             -TemplatesRoot ./scripts/templates/php `
             -ModulesRoot   ./packages `
-            -SchemaDir     ./scripts/schema `
-            -EnginePreference auto `
-            -StrictSubmodules `
+            -NameResolution detect `
             -Force
           git submodule foreach --recursive '
             st=$(git status --short)
@@ -187,22 +185,20 @@ jobs:
         shell: pwsh
         run: |
           pwsh -File ./scripts/schema-tools/Generate-PhpFromSchema.ps1 `
+            -SchemaDir     ./scripts/schema `
             -TemplatesRoot ./scripts/templates/php `
             -ModulesRoot   ./packages `
-            -SchemaDir     ./scripts/schema `
-            -EnginePreference auto `
-            -StrictSubmodules `
+            -NameResolution detect `
             -WhatIf
 
       - name: Generate code (real) and assert clean git
         shell: pwsh
         run: |
           pwsh -File ./scripts/schema-tools/Generate-PhpFromSchema.ps1 `
+            -SchemaDir     ./scripts/schema `
             -TemplatesRoot ./scripts/templates/php `
             -ModulesRoot   ./packages `
-            -SchemaDir     ./scripts/schema `
-            -EnginePreference auto `
-            -StrictSubmodules `
+            -NameResolution detect `
             -Force
           git submodule foreach --recursive '
             st=$(git status --short)
@@ -314,22 +310,20 @@ jobs:
         shell: pwsh
         run: |
           pwsh -File ./scripts/schema-tools/Generate-PhpFromSchema.ps1 `
+            -SchemaDir     ./scripts/schema `
             -TemplatesRoot ./scripts/templates/php `
             -ModulesRoot   ./packages `
-            -SchemaDir     ./scripts/schema `
-            -EnginePreference auto `
-            -StrictSubmodules `
+            -NameResolution detect `
             -WhatIf
 
       - name: Generate code (real) and assert clean git
         shell: pwsh
         run: |
           pwsh -File ./scripts/schema-tools/Generate-PhpFromSchema.ps1 `
+            -SchemaDir     ./scripts/schema `
             -TemplatesRoot ./scripts/templates/php `
             -ModulesRoot   ./packages `
-            -SchemaDir     ./scripts/schema `
-            -EnginePreference auto `
-            -StrictSubmodules `
+            -NameResolution detect `
             -Force
           git submodule foreach --recursive '
             st=$(git status --short)

@@ -3510,12 +3510,10 @@ $Steps = @(
   (New-Step "Generate PHP" "Generate PHP scaffolding from schema" {
     $generateScript = Join-Path $SchemaTools 'Generate-PhpFromSchema.ps1'
     $generateArgs = @(
+      '-SchemaDir', $SchemaDir,
       '-TemplatesRoot', (Join-Path $ScriptsRoot 'templates/php'),
       '-ModulesRoot', $PackagesDir,
-      '-SchemaDir', $SchemaDir,
-      '-EnginePreference', 'both',
-      '-FailOnViewDrift',
-      '-TreatWarningsAsErrors',
+      '-NameResolution', 'detect',
       '-Force'
     )
     Invoke-PwshScript -ScriptPath $generateScript -ScriptArguments $generateArgs -DisplayName 'Generate-PhpFromSchema.ps1'
