@@ -414,7 +414,7 @@ Tables:
           - compromised
           - archived
       usage:
-        Description: Allowed operations (set/array of values: encrypt,decrypt,sign,verify,wrap,unwrap).
+        Description: "Allowed operations (set/array of values: encrypt,decrypt,sign,verify,wrap,unwrap)."
         Enum:
           - encrypt
           - decrypt
