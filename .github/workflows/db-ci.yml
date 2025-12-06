@@ -87,7 +87,7 @@ jobs:
 
       - name: PHP lint
         run: |
-          find . -type f -name "*.php" -print0 | xargs -0 -n1 -P4 php -l
+          find . \( -path "./phpstan/stubs" -o -path "./vendor" \) -prune -o -type f -name "*.php" -print0 | xargs -0 -n1 -P4 php -l
 
       - name: Run DB integration (MySQL) — pass 1 (install/upgrade)
         env:
@@ -209,7 +209,7 @@ jobs:
 
       - name: PHP lint
         run: |
-          find . -type f -name "*.php" -print0 | xargs -0 -n1 -P4 php -l
+          find . \( -path "./phpstan/stubs" -o -path "./vendor" \) -prune -o -type f -name "*.php" -print0 | xargs -0 -n1 -P4 php -l
 
       - name: Run DB integration (Postgres) — pass 1 (install/upgrade)
         env:
@@ -332,7 +332,7 @@ jobs:
 
       - name: PHP lint
         run: |
-          find . -type f -name "*.php" -print0 | xargs -0 -n1 -P4 php -l
+          find . \( -path "./phpstan/stubs" -o -path "./vendor" \) -prune -o -type f -name "*.php" -print0 | xargs -0 -n1 -P4 php -l
 
       - name: Run DB integration (MariaDB) — pass 1 (install/upgrade)
         env:
