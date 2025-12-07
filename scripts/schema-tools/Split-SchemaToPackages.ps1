@@ -900,8 +900,7 @@ function Invoke-Split {
       'gin_orders_metadata',
       'gin_payments_details',
       'gin_session_audit_meta',
-      'gin_system_errors_ctx',
-      'idx_jwt_active_sweep'
+      'gin_system_errors_ctx'
     )
 
     $missingPg = @($script:TableNamesByEngine[$mysqlKey] | Where-Object { -not $script:TableNamesByEngine[$pgKey].Contains($_) })

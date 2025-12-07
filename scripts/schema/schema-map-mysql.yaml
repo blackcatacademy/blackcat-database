@@ -1509,7 +1509,7 @@ Tables:
       - CREATE UNIQUE INDEX ux_categories_tenant_slug_live_ci ON categories (tenant_id, slug_ci, is_live)
       - CREATE UNIQUE INDEX ux_categories_tenant_id ON categories (tenant_id, id)
       - CREATE INDEX idx_categories_tenant_parent ON categories (tenant_id, parent_id)
-      - CREATE INDEX idx_categories_name_ci ON categories (tenant_id, (LOWER(name)))
+      - CREATE INDEX idx_categories_name_ci ON categories (tenant_id, lower(name))
     SoftDelete: deleted_at
     foreign_keys:
       - ALTER TABLE categories ADD CONSTRAINT fk_categories_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT
@@ -2373,7 +2373,7 @@ Tables:
     indexes:
       - CREATE UNIQUE INDEX ux_authors_tenant_slug_live_ci ON authors (tenant_id, slug_ci, is_live)
       - CREATE UNIQUE INDEX ux_authors_tenant_id ON authors (tenant_id, id)
-      - CREATE INDEX idx_authors_name_ci ON authors (tenant_id, (LOWER(name)))
+      - CREATE INDEX idx_authors_name_ci ON authors (tenant_id, lower(name))
     SoftDelete: deleted_at
     foreign_keys:
       - ALTER TABLE authors ADD CONSTRAINT fk_authors_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT
@@ -2869,7 +2869,12 @@ Tables:
       - ALTER TABLE jwt_tokens ADD CONSTRAINT fk_jwt_tokens_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
       - ALTER TABLE jwt_tokens ADD CONSTRAINT fk_jwt_tokens_replaced_by FOREIGN KEY (replaced_by) REFERENCES jwt_tokens(id) ON DELETE SET NULL
     indexes:
+      - CREATE INDEX idx_jwt_user ON jwt_tokens (user_id)
+      - CREATE INDEX idx_jwt_expires ON jwt_tokens (expires_at)
+      - CREATE INDEX idx_jwt_revoked_user ON jwt_tokens (revoked, user_id)
+      - CREATE INDEX idx_jwt_last_used ON jwt_tokens (last_used_at)
       - CREATE INDEX idx_jwt_replaced_by ON jwt_tokens (replaced_by)
+      - CREATE INDEX idx_jwt_active_sweep ON jwt_tokens (revoked, expires_at)
     Upsert:
       Update:
         - jti
