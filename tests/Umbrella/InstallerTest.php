@@ -12,6 +12,13 @@ use BlackCat\Database\Tests\Util\DbUtil;
 
 final class InstallerTest extends TestCase
 {
+    public static function setUpBeforeClass(): void
+    {
+        DbUtil::wipeDatabase();
+        $db = DbUtil::db();
+        $db->configureCircuit(1000000, 1);
+    }
+
     public function test_registry_created_and_upsert(): void
     {
         $ins = new Installer(DbUtil::db(), DbUtil::dialect());
@@ -38,7 +45,7 @@ final class InstallerTest extends TestCase
 
         // simulate upgrade
         $m2 = new class($m) implements ModuleInterface {
-            public function __construct(private $base) {}
+            public function __construct(private ModuleInterface $base) {}
             public function name(): string { return $this->base->name(); }
             public function table(): string { return '__fake'; }
             public function version(): string { return '1.1.0'; }
@@ -63,8 +70,7 @@ final class InstallerTest extends TestCase
         $d = DbUtil::dialect();
         $db = DbUtil::db();
 
-        $A = new class($db,$d) implements ModuleInterface {
-            public function __construct(private Database $db, private SqlDialect $d) {}
+        $A = new class implements ModuleInterface {
             public function name(): string { return 'table-A'; }
             public function table(): string { return 'A'; }
             public function version(): string { return '1.0.0'; }
@@ -77,8 +83,7 @@ final class InstallerTest extends TestCase
             public function status(Database $db, SqlDialect $d): array { return ['table'=>true,'view'=>true]; }
             public function info(): array { return []; }
         };
-        $B = new class($db,$d) implements ModuleInterface {
-            public function __construct(private Database $db, private SqlDialect $d) {}
+        $B = new class implements ModuleInterface {
             public function name(): string { return 'table-B'; }
             public function table(): string { return 'B'; }
             public function version(): string { return '1.0.0'; }
@@ -91,8 +96,7 @@ final class InstallerTest extends TestCase
             public function status(Database $db, SqlDialect $d): array { return ['table'=>true,'view'=>true]; }
             public function info(): array { return []; }
         };
-        $C = new class($db,$d) implements ModuleInterface {
-            public function __construct(private Database $db, private SqlDialect $d) {}
+        $C = new class implements ModuleInterface {
             public function name(): string { return 'table-C'; }
             public function table(): string { return 'C'; }
             public function version(): string { return '1.0.0'; }

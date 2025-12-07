@@ -1,5 +1,3 @@
-BEGIN;
-
 -- === app_settings ===
 -- Operational defaults (no real secrets)
 INSERT INTO app_settings
@@ -101,5 +99,4 @@ ON CONFLICT (country_iso2, category, valid_from) DO UPDATE
   SET rate     = EXCLUDED.rate,
       valid_to = EXCLUDED.valid_to;
 
-COMMIT;
 

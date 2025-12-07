@@ -6,9 +6,9 @@ The schema that powers every module lives under `./scripts/schema/`. We keep dia
 
 | File | Purpose |
 | --- | --- |
-| `schema-map-postgres.psd1`, `schema-map-mysql.psd1` | Master table/view definitions per dialect. |
-| `schema-defs-*.psd1`, `schema-seed-*.psd1`, `schema-views-*.psd1` | Column metadata, seed data and view directives consumed by the generators. |
-| `templates/php/*.psd1` | PHP scaffolding templates for repositories, services, DTOs, installers, joins, etc. |
+| `schema-map-postgres.yaml`, `schema-map-mysql.yaml` | Master table/view definitions per dialect. |
+| `schema-defs-*.yaml`, `schema-seed-*.yaml`, `schema-views-*.yaml` | Column metadata, seed data and view directives consumed by the generators. |
+| `templates/php/*.yaml` | PHP scaffolding templates for repositories, services, DTOs, installers, joins, etc. |
 
 > Tip: keep both dialect maps in sync – most scripts accept `-MapPath` / `-DefsPath` so you can pass either Postgres or MySQL inputs explicitly.
 
@@ -27,29 +27,29 @@ Run the following for each dialect (replace the `-MapPath` / `-DefsPath` argumen
 
 ```powershell
 pwsh ./scripts/schema-tools/Split-SchemaToPackages.ps1 `
-  -MapPath ./scripts/schema/schema-map-postgres.psd1 `
+  -MapPath ./scripts/schema/schema-map-postgres.yaml `
   -PackagesDir ./packages
 
 pwsh ./scripts/docs/New-PackageReadmes.ps1 `
-  -MapPath ./scripts/schema/schema-map-postgres.psd1 `
+  -MapPath ./scripts/schema/schema-map-postgres.yaml `
   -PackagesDir ./packages -Force
 
 pwsh ./scripts/schema-tools/Build-Definitions.ps1 `
-  -MapPath ./scripts/schema/schema-map-postgres.psd1 `
-  -DefsPath ./scripts/schema/schema-defs-postgres.psd1 `
+  -MapPath ./scripts/schema/schema-map-postgres.yaml `
+  -DefsPath ./scripts/schema/schema-defs-postgres.yaml `
   -PackagesDir ./packages -Force
 
 pwsh ./scripts/docs/New-PackageChangelogs.ps1 `
-  -MapPath ./scripts/schema/schema-map-postgres.psd1 `
+  -MapPath ./scripts/schema/schema-map-postgres.yaml `
   -PackagesDir ./packages -Force
 
 pwsh ./scripts/docs/New-DocsIndex.ps1 `
-  -MapPath ./scripts/schema/schema-map-postgres.psd1 `
+  -MapPath ./scripts/schema/schema-map-postgres.yaml `
   -PackagesDir ./packages `
   -OutPath ./PACKAGES.md -Force
 ```
 
-Repeat the same block with `schema-map-mysql.psd1` / `schema-defs-mysql.psd1` to refresh MySQL/MariaDB artifacts. When both vendors are up-to-date, rerun `PACKAGES.md` once more to include every module.
+Repeat the same block with `schema-map-mysql.yaml` / `schema-defs-mysql.yaml` to refresh MySQL/MariaDB artifacts. When both vendors are up-to-date, rerun `PACKAGES.md` once more to include every module.
 
 ## 4. Generate PHP from schema
 

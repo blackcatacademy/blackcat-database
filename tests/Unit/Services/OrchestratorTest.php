@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Unit\Services;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Orchestrator;
 use BlackCat\Database\SqlDialect;
@@ -22,7 +24,8 @@ final class OrchestratorTest extends TestCase
     public function testRunDryAndApply(): void
     {
         $db = Database::getInstance();
-        $rt = new Runtime($db, SqlDialect::mysql, new NullLogger());
+        $dialect = $db->isPg() ? SqlDialect::postgres : SqlDialect::mysql;
+        $rt = new Runtime($db, $dialect, new NullLogger());
         $orc = new Orchestrator($rt);
 
         $orc->run(['CREATE TABLE IF NOT EXISTS x(a INT)'], true, ['op'=>'test']);
@@ -34,7 +37,22 @@ final class OrchestratorTest extends TestCase
     public function testStatusAndInstallers(): void
     {
         $db = Database::getInstance();
-        $rt = new Runtime($db, SqlDialect::mysql, new NullLogger());
+        // Point installer to an empty schema dir (unit test — no real DDL)
+        $oldSchemaDir = getenv('BC_SCHEMA_DIR') ?: null;
+        $tmpSchema = sys_get_temp_dir() . '/bc-schema-empty';
+        if (!is_dir($tmpSchema)) { @mkdir($tmpSchema, 0777, true); }
+        putenv("BC_SCHEMA_DIR={$tmpSchema}");
+        $_ENV['BC_SCHEMA_DIR'] = $tmpSchema;
+
+        $dialect = $db->isPg() ? SqlDialect::postgres : SqlDialect::mysql;
+        $inst = new \BlackCat\Database\Installer($db, $dialect);
+        $inst->ensureRegistry();
+        // ensure no stale installer lock and tag this run
+        putenv('BC_ORCH_LOCK_EXTRA=test');
+        $_ENV['BC_ORCH_LOCK_EXTRA'] = 'test';
+        try { $db->exec('SELECT RELEASE_LOCK(:n)', [':n'=>'blackcat:orch:' . $db->id() . ':test']); } catch (\Throwable) {}
+
+        $rt = new Runtime($db, $dialect, new NullLogger());
         $orc = new Orchestrator($rt);
 
         $mods = [
@@ -42,7 +60,7 @@ final class OrchestratorTest extends TestCase
                 public function name(): string { return 'A'; }
                 public function table(): string { return 'a'; }
                 public function version(): string { return '1.0.0'; }
-                public function dialects(): array { return [ModuleInterface::DIALECT_MYSQL]; }
+                public function dialects(): array { return [ModuleInterface::DIALECT_MYSQL, ModuleInterface::DIALECT_POSTGRES]; }
                 public function dependencies(): array { return []; }
                 public function install(Database $db, SqlDialect $d): void {}
                 public function upgrade(Database $db, SqlDialect $d, string $from): void {}
@@ -55,7 +73,7 @@ final class OrchestratorTest extends TestCase
                 public function name(): string { return 'B'; }
                 public function table(): string { return 'b'; }
                 public function version(): string { return '1.0.0'; }
-                public function dialects(): array { return [ModuleInterface::DIALECT_MYSQL]; }
+                public function dialects(): array { return [ModuleInterface::DIALECT_MYSQL, ModuleInterface::DIALECT_POSTGRES]; }
                 public function dependencies(): array { return []; }
                 public function install(Database $db, SqlDialect $d): void {}
                 public function upgrade(Database $db, SqlDialect $d, string $from): void {}
@@ -72,5 +90,14 @@ final class OrchestratorTest extends TestCase
 
         $orc->installOrUpgradeOne($mods[0]);
         $this->assertTrue(true);
+
+        // restore env
+        if ($oldSchemaDir === null) {
+            putenv('BC_SCHEMA_DIR');
+            unset($_ENV['BC_SCHEMA_DIR']);
+        } else {
+            putenv("BC_SCHEMA_DIR={$oldSchemaDir}");
+            $_ENV['BC_SCHEMA_DIR'] = $oldSchemaDir;
+        }
     }
 }

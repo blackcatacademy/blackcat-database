@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Integration\Outbox;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Core\Database;
 use BlackCat\Database\Outbox\OutboxRepository;
@@ -90,6 +92,7 @@ final class OutboxConsumerTest extends TestCase
         $repo->insert($record);
 
         $dispatcher = new class implements CrudEventDispatcher {
+            /** @throws RuntimeException */
             public function dispatch(CrudEvent $event): void { throw new RuntimeException('boom'); }
         };
 
@@ -97,6 +100,7 @@ final class OutboxConsumerTest extends TestCase
         $acked = $consumer->runOnce(5);
         $this->assertSame(0, $acked);
         $row = self::$db->fetch('SELECT fail_count FROM bc_outbox_events LIMIT 1');
+        $this->assertIsArray($row);
         $this->assertSame(1, (int)$row['fail_count']);
     }
 }

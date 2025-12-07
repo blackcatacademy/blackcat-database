@@ -143,8 +143,9 @@ final class Telemetry
         ];
         $fields['code'] = $e->getCode();
 
-        if ($e instanceof \PDOException) {
-            $ei = $e->errorInfo;
+        $pdoSrc = $e instanceof \PDOException ? $e : ($e->getPrevious() instanceof \PDOException ? $e->getPrevious() : null);
+        if ($pdoSrc instanceof \PDOException) {
+            $ei = $pdoSrc->errorInfo;
             if (is_array($ei)) {
                 $sqlState = $ei[0] ?? null;
                 $driverCode = $ei[1] ?? null;

@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Unit\Support;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Support\OrderCompiler;
 
@@ -21,7 +23,7 @@ final class OrderCompilerTest extends TestCase
         $items = [['expr'=>'name','dir'=>'DESC','nulls'=>'AUTO']];
         $sql = OrderCompiler::compile($items, 'postgres', alias: 't', tiePk: 'id', stable: true);
         $this->assertStringContainsString('ORDER BY', $sql);
-        $this->assertStringContainsString('"t"."id"', $sql);
+        $this->assertStringContainsString('t.id', $sql);
     }
 
     public function testParseItemsStripsOrderBy(): void

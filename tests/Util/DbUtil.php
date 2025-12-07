@@ -23,6 +23,8 @@ final class DbUtil
     public static function wipeDatabase(): void
     {
         $db = self::db();
+        self::resetCircuit($db);
+        $db->configureCircuit(1000000, 1);
         if ($db->isMysql()) {
             // drop+create the current DB selected by DATABASE()
             $dbName = (string)$db->fetchValue("SELECT DATABASE()", [], '');
@@ -42,6 +44,23 @@ final class DbUtil
         }
     }
 
+    /** Reset the Database circuit-breaker state (avoid leftovers between tests). */
+    private static function resetCircuit(Database $db): void
+    {
+        $setter = \Closure::bind(
+            function(string $prop, $val): void {
+                if (property_exists($this, $prop)) {
+                    $this->{$prop} = $val;
+                }
+            },
+            $db,
+            Database::class
+        );
+        foreach (['cbFails' => 0, 'cbOpenUntil' => null] as $prop => $val) {
+            $setter($prop, $val);
+        }
+    }
+
     /** Discover all Module classes that support the current dialect. */
     public static function discoverModules(?string $packagesDir = null): array
     {
@@ -58,10 +77,10 @@ final class DbUtil
             if (!preg_match('~/packages/([^/]+)/src/([A-Za-z0-9_]+)Module\.php$~', $path, $m)) continue;
 
             $pkgDir = $m[1];
-            $pkgPascal = implode('', array_map(fn($x)=>ucfirst($x), preg_split('/[_-]/', $pkgDir)));
+            $parts = preg_split('/[_-]/', $pkgDir) ?: [];
+            $pkgPascal = implode('', array_map(fn($x)=>ucfirst($x), $parts));
             $class = "BlackCat\\Database\\Packages\\{$pkgPascal}\\{$pkgPascal}Module";
 
-            require_once $path; // ensure autoload kicks in
             if (!class_exists($class)) continue;
 
             /** @var ModuleInterface $obj */

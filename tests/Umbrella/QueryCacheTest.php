@@ -16,6 +16,7 @@ final class QueryCacheTest extends TestCase
     public static function setUpBeforeClass(): void
     {
         DbUtil::wipeDatabase();
+        DbUtil::db()->configureCircuit(1000000, 1);
         $db = DbUtil::db();
         $db->exec("CREATE TABLE q (id INT PRIMARY KEY, name VARCHAR(50))");
         $db->execute("INSERT INTO q (id,name) VALUES (1,'A'),(2,'B'),(3,'C')");

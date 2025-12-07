@@ -1,10 +1,11 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Integration\Idempotency;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Idempotency\PdoIdempotencyStore;
 use BlackCat\Core\Database;
-use DateInterval;
 
 final class PdoIdempotencyStoreTest extends TestCase
 {
@@ -47,11 +48,15 @@ final class PdoIdempotencyStoreTest extends TestCase
         $this->assertFalse($store->begin('op-1'));
         $store->commit('op-1', ['ok' => true]);
         $rec = $store->get('op-1');
+        $this->assertIsArray($rec);
         $this->assertSame('success', $rec['status']);
+        $this->assertArrayHasKey('result', $rec);
         $this->assertSame(['ok' => true], $rec['result']);
 
+        $this->assertTrue($store->begin('op-2'));
         $store->fail('op-2', 'boom');
         $rec2 = $store->get('op-2');
+        $this->assertIsArray($rec2);
         $this->assertSame('failed', $rec2['status']);
 
         // make op-2 older than threshold
@@ -61,7 +66,7 @@ final class PdoIdempotencyStoreTest extends TestCase
             self::$db->exec("UPDATE bc_idempotency SET updated_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 10 DAY)");
         }
 
-        $purged = $store->purgeOlderThan(new DateInterval('P5D'));
+        $purged = $store->purgeOlderThan(new \DateInterval('P5D'));
         $this->assertGreaterThanOrEqual(1, $purged);
     }
 }

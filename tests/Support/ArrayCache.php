@@ -6,7 +6,7 @@ namespace BlackCat\Database\Tests\Support;
 use Psr\SimpleCache\CacheInterface;
 use Psr\SimpleCache\InvalidArgumentException;
 
-final class ArrayCache implements CacheInterface
+class ArrayCache implements CacheInterface
 {
     /** @var array<string,array{value:mixed,expires:?int}> */
     private array $store = [];

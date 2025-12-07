@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Integration\Database;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Core\Database;
 
@@ -38,8 +40,10 @@ final class JsonAndLikeParityTest extends TestCase
 
         $needle = 'foo%bar_';
         $like = '%' . strtr($needle, ['\\'=>'\\\\','%'=>'\\%','_'=>'\\_']) . '%';
-        $sql = $db->isPg() ? "SELECT COUNT(*) FROM t WHERE v ILIKE :q ESCAPE '\\\\'"
-                           : "SELECT COUNT(*) FROM t WHERE v LIKE :q ESCAPE '\\\\'";
+        // PG default escape is backslash, so omit ESCAPE clause to avoid invalid multi-char escapes in driver params.
+        $sql = $db->isPg()
+            ? "SELECT COUNT(*) FROM t WHERE v ILIKE :q"
+            : "SELECT COUNT(*) FROM t WHERE v LIKE :q ESCAPE '\\\\'";
         $cnt = (int)$db->fetchOne($sql, [':q'=>$like]);
         $this->assertGreaterThanOrEqual(1, $cnt);
     }

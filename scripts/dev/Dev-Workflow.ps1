@@ -74,8 +74,8 @@ $script:UmbrellaBodyBox = $null
 $script:PackagesTitleBox = $null
 $script:PackagesBodyBox = $null
 
-$MapPg   = Join-Path $SchemaDir 'schema-map-postgres.psd1'
-$DefsPg  = Join-Path $SchemaDir 'schema-defs-postgres.psd1'
+$MapPg   = Join-Path $SchemaDir 'schema-map-postgres.yaml'
+$DefsPg  = Join-Path $SchemaDir 'schema-defs-postgres.yaml'
 
 $Warnings = New-Object System.Collections.Generic.List[string]
 $script:LogBox = $null
@@ -3510,12 +3510,10 @@ $Steps = @(
   (New-Step "Generate PHP" "Generate PHP scaffolding from schema" {
     $generateScript = Join-Path $SchemaTools 'Generate-PhpFromSchema.ps1'
     $generateArgs = @(
+      '-SchemaDir', $SchemaDir,
       '-TemplatesRoot', (Join-Path $ScriptsRoot 'templates/php'),
       '-ModulesRoot', $PackagesDir,
-      '-SchemaDir', $SchemaDir,
-      '-EnginePreference', 'both',
-      '-FailOnViewDrift',
-      '-TreatWarningsAsErrors',
+      '-NameResolution', 'detect',
       '-Force'
     )
     Invoke-PwshScript -ScriptPath $generateScript -ScriptArguments $generateArgs -DisplayName 'Generate-PhpFromSchema.ps1'

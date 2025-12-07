@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Unit\Events;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Events\CrudEvent;
 use BlackCat\Database\Events\NullCrudEventDispatcher;

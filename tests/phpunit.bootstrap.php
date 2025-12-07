@@ -6,6 +6,11 @@ use BlackCat\Database\Support\PgCompat;
 
 require __DIR__ . '/../vendor/autoload.php';
 
+// Gentle notice when neither pcov nor xdebug is loaded (helps avoid empty coverage runs).
+if (!extension_loaded('pcov') && !extension_loaded('xdebug')) {
+    fwrite(STDERR, "[phpunit] No code coverage driver detected (pcov/xdebug). Enable one for coverage reports.\n");
+}
+
 /**
  * 1) Deterministically choose the target backend.
  *    - respect BC_DB (normalize it)
@@ -19,7 +24,7 @@ $resolveBackend = static function (): string {
         return match ($v) {
             'mysql', 'mariadb'         => 'mysql',
             'pg', 'pgsql', 'postgres', 'postgresql' => 'pg',
-            '', null                   => null,
+            ''                         => null,
             default                    => null,
         };
     })(getenv('BC_DB') ?: '');
@@ -46,6 +51,43 @@ $resolveBackend = static function (): string {
 $which = $resolveBackend();
 
 /**
+ * Normalize DSN host for containerized runs: if the DSN points to localhost/127.0.0.1
+ * replace it with a container-reachable host (e.g., service name or host.docker.internal).
+ */
+$rewriteDsnHost = static function (string $dsn, array $candidates): string {
+    $isContainer = file_exists('/.dockerenv') || getenv('BC_IN_CONTAINER') !== false;
+    $force       = getenv('BC_FORCE_DSN_REWRITE') === '1';
+    if (!$isContainer && !$force) {
+        return $dsn; // on host runners (e.g., GitHub) keep the original localhost
+    }
+
+    if (!preg_match('/host=([^;]+)/i', $dsn, $m)) {
+        return $dsn;
+    }
+    $host = strtolower(trim($m[1]));
+    if ($host !== 'localhost' && $host !== '127.0.0.1') {
+        return $dsn;
+    }
+
+    $isResolvable = static function (string $h): bool {
+        if ($h === '') return false;
+        $ip = @gethostbyname($h);
+        return is_string($ip) && $ip !== $h && filter_var($ip, FILTER_VALIDATE_IP) !== false;
+    };
+
+    $replacement = '';
+    foreach ($candidates as $h) {
+        if ($isResolvable($h)) { $replacement = $h; break; }
+    }
+    if ($replacement === '') {
+        return $dsn; // keep original localhost if no candidate works (e.g., GitHub runner)
+    }
+
+    $rewritten = preg_replace('/host=[^;]+/i', 'host=' . $replacement, $dsn, 1);
+    return is_string($rewritten) ? $rewritten : $dsn;
+};
+
+/**
  * 2) If the DB is already initialized, do not init again - only validate the match
  *    and set session GUCs (primarily on PG).
  */
@@ -61,6 +103,17 @@ if (Database::isInitialized()) {
     if ($mismatch) {
         throw new RuntimeException("bootstrap: Driver mismatch: BC_DB='{$which}', PDO='{$drv}'.");
     }
+
+    // Keep circuit-breaker relaxed for test suites to avoid cascading skips.
+    $db->configureCircuit(1000000, 1);
+    (function(Database $db) {
+        $setter = \Closure::bind(
+            function(string $prop, $val): void { if (property_exists($this, $prop)) { $this->{$prop} = $val; } },
+            $db,
+            Database::class
+        );
+        foreach (['cbFails'=>0,'cbOpenUntil'=>null] as $k=>$v) { $setter($k, $v); }
+    })($db);
 
     // session tuning without re-init
     if ($which === 'pg') {
@@ -78,6 +131,9 @@ if (Database::isInitialized()) {
     /**
      * 3) Initial init based on the resolved backend
      */
+    $fakeReplicaVal = getenv('BC_FAKE_REPLICA');
+    $fakeReplicaAllowed = $fakeReplicaVal === false ? true : ($fakeReplicaVal !== '0' && strcasecmp((string)$fakeReplicaVal, 'false') !== 0);
+
     if ($which === 'mysql') {
         $dsn  = getenv('MYSQL_DSN')
             ?: getenv('MARIADB_DSN')
@@ -91,6 +147,32 @@ if (Database::isInitialized()) {
             ?: getenv('MARIADB_PASS')
             ?: 'root';
 
+        // Provide a synthetic replica (same DSN) when none is configured to allow replica-sensitive tests to run.
+        if ($fakeReplicaAllowed && !getenv('BC_REPLICA_DSN')) {
+            putenv("BC_REPLICA_DSN={$dsn}");
+            putenv("BC_REPLICA_USER={$user}");
+            putenv("BC_REPLICA_PASS={$pass}");
+        }
+
+        // Rewrite localhost -> container-reachable host for dockerized phpunit runs.
+        $dsn = $rewriteDsnHost($dsn, ['host.docker.internal', 'mysql']);
+        putenv("MYSQL_DSN={$dsn}");
+        if (getenv('BC_REPLICA_DSN')) {
+            $replica = $rewriteDsnHost((string)getenv('BC_REPLICA_DSN'), ['host.docker.internal', 'mysql']);
+            putenv("BC_REPLICA_DSN={$replica}");
+        }
+
+        $replicaCfg = null;
+        if ($fakeReplicaAllowed && (getenv('BC_REPLICA_DSN') ?: '') !== '') {
+            $replicaCfg = [
+                'dsn' => getenv('BC_REPLICA_DSN'),
+                'user'=> getenv('BC_REPLICA_USER') ?: $user,
+                'pass'=> getenv('BC_REPLICA_PASS') ?: $pass,
+                'options' => [],
+                'init_commands' => [],
+            ];
+        }
+
         Database::init([
             'dsn'    => $dsn,
             'user'   => $user,
@@ -98,7 +180,24 @@ if (Database::isInitialized()) {
             'init_commands' => [
                 "SET time_zone = '+00:00'",
             ],
+            'replica' => $replicaCfg,
+            'replicaStickMs' => 200,
         ]);
+
+        /** @var Database $db */
+        $db = Database::getInstance();
+        assert($db instanceof Database);
+        /** @var Database $db */
+        $db = $db;
+        $db->configureCircuit(1000000, 1);
+        (function(Database $db) {
+            $setter = \Closure::bind(
+                function(string $prop, $val): void { if (property_exists($this, $prop)) { $this->{$prop} = $val; } },
+                $db,
+                Database::class
+            );
+            foreach (['cbFails'=>0,'cbOpenUntil'=>null] as $k=>$v) { $setter($k, $v); }
+        })($db);
 
         $pdo = Database::getInstance()->getPdo();
         $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
@@ -109,10 +208,37 @@ if (Database::isInitialized()) {
         if (defined('PDO::MYSQL_ATTR_FOUND_ROWS')) {
             $pdo->setAttribute(PDO::MYSQL_ATTR_FOUND_ROWS, true);
         }
+        // Avoid MySQL session-level query timeouts during heavier DDL/view creation.
+        try { $db->exec('SET SESSION max_execution_time = 0'); } catch (\Throwable $_) {}
+        try { $db->exec('SET SESSION max_statement_time = 0'); } catch (\Throwable $_) {}
     } else { // 'pg'
         $dsn  = getenv('PG_DSN')  ?: 'pgsql:host=127.0.0.1;port=5432;dbname=test';
         $user = getenv('PG_USER') ?: 'postgres';
         $pass = getenv('PG_PASS') ?: 'postgres';
+
+        if ($fakeReplicaAllowed && !getenv('BC_REPLICA_DSN')) {
+            putenv("BC_REPLICA_DSN={$dsn}");
+            putenv("BC_REPLICA_USER={$user}");
+            putenv("BC_REPLICA_PASS={$pass}");
+        }
+
+        // Rewrite localhost -> container-reachable host for dockerized phpunit runs.
+        $dsn = $rewriteDsnHost($dsn, ['host.docker.internal', 'postgres']);
+        putenv("PG_DSN={$dsn}");
+        if (getenv('BC_REPLICA_DSN')) {
+            $replica = $rewriteDsnHost((string)getenv('BC_REPLICA_DSN'), ['host.docker.internal', 'postgres']);
+            putenv("BC_REPLICA_DSN={$replica}");
+        }
+        $replicaCfg = null;
+        if ($fakeReplicaAllowed && (getenv('BC_REPLICA_DSN') ?: '') !== '') {
+            $replicaCfg = [
+                'dsn' => getenv('BC_REPLICA_DSN'),
+                'user'=> getenv('BC_REPLICA_USER') ?: $user,
+                'pass'=> getenv('BC_REPLICA_PASS') ?: $pass,
+                'options' => [],
+                'init_commands' => [],
+            ];
+        }
 
         Database::init([
             'dsn'    => $dsn,
@@ -123,9 +249,20 @@ if (Database::isInitialized()) {
                 "SET client_encoding TO 'UTF8'",
                 // adjust search_path later after the optional bc_compat install
             ],
+            'replica' => $replicaCfg,
+            'replicaStickMs' => 200,
         ]);
 
         $db = Database::getInstance();
+        $db->configureCircuit(1000000, 1);
+        (function(Database $db) {
+            $setter = \Closure::bind(
+                function(string $prop, $val): void { if (property_exists($this, $prop)) { $this->{$prop} = $val; } },
+                $db,
+                Database::class
+            );
+            foreach (['cbFails'=>0,'cbOpenUntil'=>null] as $k=>$v) { $setter($k, $v); }
+        })($db);
         // set timeouts/search_path immediately after connecting (helps parallel runs)
         $db->exec("SET lock_timeout TO '5s'");
         $db->exec("SET statement_timeout TO '30s'");
@@ -158,6 +295,6 @@ if (Database::isInitialized()) {
 /**
  * 4) Shared helpers
  */
-require __DIR__ . '/support/DbHarness.php';
-require __DIR__ . '/support/RowFactory.php';
-require __DIR__ . '/support/AssertSql.php';
+require __DIR__ . '/Support/DbHarness.php';
+require __DIR__ . '/Support/RowFactory.php';
+require __DIR__ . '/Support/AssertSql.php';

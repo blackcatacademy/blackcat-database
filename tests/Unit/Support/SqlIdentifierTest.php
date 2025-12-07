@@ -1,8 +1,11 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Unit\Support;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Support\SqlIdentifier;
+use InvalidArgumentException;
 use BlackCat\Core\Database;
 
 final class SqlIdentifierTest extends TestCase
@@ -19,8 +22,8 @@ final class SqlIdentifierTest extends TestCase
 
     public function testQiQualifiesMultiPartIdentifiers(): void
     {
-        $this->assertSame('"t"."id"', SqlIdentifier::qi(self::$db, 't.id'));
-        $this->assertSame('"t".*', SqlIdentifier::tableStar(self::$db, 't'));
+        $this->assertSame(self::$db->quoteIdent('t.id'), SqlIdentifier::qi(self::$db, 't.id'));
+        $this->assertSame(self::$db->quoteIdent('t') . '.*', SqlIdentifier::tableStar(self::$db, 't'));
     }
 
     public function testQualifySkipsExpressions(): void
@@ -32,7 +35,7 @@ final class SqlIdentifierTest extends TestCase
     public function testQLIstAndAs(): void
     {
         $list = SqlIdentifier::qList(self::$db, ['id','name']);
-        $this->assertStringContainsString('"id"', $list);
+        $this->assertStringContainsString(self::$db->quoteIdent('id'), $list);
         $as = SqlIdentifier::qAs(self::$db, 'name', 'alias');
         $this->assertStringContainsString('AS', $as);
     }

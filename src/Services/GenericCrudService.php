@@ -64,7 +64,7 @@ class GenericCrudService
     use ServiceHelpers;
 
     /** @phpstan-var RepoContract&GenericCrudRepositoryShape */
-    private RepoContract $repository;
+    protected RepoContract $repository;
 
     /** @var array<string,bool>|null map of whitelisted columns for update/upsert */
     private ?array $updatableColsWhitelist = null;
@@ -608,24 +608,29 @@ class GenericCrudService
                     // MySQL/MariaDB – alias variant (MySQL ≥ 8.0.20) + fallback to VALUES() (MariaDB, older MySQL)
                     $params = [':k' => $key, ':ttl' => $ttlSec, ':p' => $payload];
 
+                    $ver     = $this->db()->serverVersion();
+                    $useAlias = $ver !== null && version_compare($ver, '8.0.20', '>=');
+
                     $sqlAlias = "INSERT INTO {$tbl}(k, expires_at, payload)
-                                VALUES (:k, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL :ttl SECOND), :p)
-                                ON DUPLICATE KEY UPDATE
-                                    expires_at = VALUES(expires_at),  -- placeholder; overwritten below if the alias path works
-                                    payload    = payload";
+                                 VALUES (:k, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL :ttl SECOND), :p) AS new
+                                 ON DUPLICATE KEY UPDATE
+                                     expires_at = new.expires_at,
+                                     payload    = payload";
 
-                    $sqlNewAlias = "INSERT INTO {$tbl} AS new (k, expires_at, payload)
-                                    VALUES (:k, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL :ttl SECOND), :p)
-                                    ON DUPLICATE KEY UPDATE
-                                    expires_at = new.expires_at,
-                                    payload    = payload";
+                    $sqlValues = "INSERT INTO {$tbl}(k, expires_at, payload)
+                                  VALUES (:k, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL :ttl SECOND), :p)
+                                  ON DUPLICATE KEY UPDATE
+                                      expires_at = VALUES(expires_at),
+                                      payload    = payload";
 
-                    try {
-                        // Prefer the alias syntax when possible (works on MySQL ≥ 8.0.20).
-                        $this->db()->execute($sqlNewAlias, $params);
-                    } catch (\Throwable $e) {
-                        // Fallback for MariaDB / older MySQL – VALUES() is supported there.
-                        $this->db()->execute($sqlAlias, $params);
+                    if ($useAlias) {
+                        try {
+                            $this->db()->execute($sqlAlias, $params);
+                        } catch (\Throwable) {
+                            $this->db()->execute($sqlValues, $params); // fallback for MariaDB/older MySQL
+                        }
+                    } else {
+                        $this->db()->execute($sqlValues, $params);
                     }
                 }
 

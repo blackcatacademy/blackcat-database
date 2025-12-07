@@ -63,8 +63,6 @@ final class Installer
 
     /** One-time guard for PgCompat.install() */
     private bool $pgCompatEnsured = false;
-    /** Cache for mysql version number (saves round-trips) */
-    private ?string $mysqlVerCache = null;
 
     private function pdoErrorCode(\Throwable $e): ?int
     {
@@ -245,6 +243,51 @@ final class Installer
         $this->verbose    = (getenv('BC_INSTALLER_DEBUG_VERBOSE') === '1');
         if ($this->debug) {
             error_log('[Installer][DEBUG] BC_INSTALLER_DEBUG=1 → SQL tracing (Installer) enabled');
+        }
+    }
+
+    private function replayJoinViewsScript(ModuleInterface $m): void
+    {
+        $dir  = $this->schemaDirBesideSrc($m);
+        $dial = $this->dialect->isMysql() ? 'mysql' : 'postgres';
+        $files = glob($dir . '/040_views_joins.' . $dial . '.sql') ?: [];
+        if (!$files) {
+            if ($this->traceFiles) { $this->dlog("join views: no 040_views_joins.$dial.sql in $dir"); }
+            return;
+        }
+        $applied = 0;
+        foreach ($files as $file) {
+            if ($this->traceFiles) { $this->dbg("join views: file " . basename($file) . " → " . realpath($file)); }
+            $raw = (string)@file_get_contents($file);
+            if ($raw === '') { continue; }
+            $sqlNoComments = $this->stripSqlComments($raw);
+            $stmts = SqlSplitter::split($sqlNoComments, $this->dialect);
+            foreach ($stmts as $stmt) {
+                $stmt = trim($stmt);
+                if ($stmt === '') { continue; }
+                if (!preg_match('~^CREATE\\s+(?:OR\\s+REPLACE\\s+)?(?:ALGORITHM\\s*=\\s*\\w+\\s+|DEFINER\\s*=\\s*(?:`[^`]+`@`[^`]+`|[^ \\t]+)\\s+|SQL\\s+SECURITY\\s+\\w+\\s+)*(?:MATERIALIZED\\s+)?VIEW\\b~i', $stmt)) {
+                    continue; // only views allowed
+                }
+                $stmt = $this->normalizeCreateViewDirectives($stmt);
+                if ($stmt === '') { continue; }
+                if ($this->dialect->isPg()) {
+                    // drop-and-create to avoid conflicts
+                    $dropName = null;
+                    if (preg_match('~\\bVIEW\\s+((?:`?\"?[A-Za-z0-9_]+`?\"?\\.)?`?\"?[A-Za-z0-9_]+`?\"?)\\s+AS\\b~i', $stmt, $mm)) {
+                        $dropName = str_replace(['`','\"'],'',$mm[1]);
+                    }
+                    if ($dropName) { try { $this->qexec('DROP VIEW IF EXISTS ' . $dropName); } catch (\Throwable) {} }
+                    $this->qexec($stmt);
+                } else {
+                    $this->ddlGuard->applyCreateView($stmt, [
+                        'lockTimeoutSec'     => (int)(getenv('BC_VIEW_LOCK_TIMEOUT') ?: 10),
+                        'retries'            => (int)(getenv('BC_INSTALLER_VIEW_RETRIES') ?: 3),
+                        'fenceMs'            => (int)(getenv('BC_VIEW_FENCE_MS') ?: 600),
+                        'dropFirst'          => true,
+                        'normalizeOrReplace' => true,
+                    ]);
+                }
+            }
         }
     }
 
@@ -542,27 +585,6 @@ final class Installer
         return null;
     }
 
-    // --- DB existence helpers ----------------------------------------------------
-
-    private function mysqlVersionNumber(): string
-    {
-        $fallback = '8.0.20';
-        if ($this->mysqlVerCache !== null) { return $this->mysqlVerCache; }
-        try {
-            if (method_exists($this->db, 'serverVersion')) {
-                $v = (string)($this->db->serverVersion() ?? $fallback);
-            } else {
-                $v = (string)($this->qfetchOne('SELECT VERSION()') ?? $fallback);
-            }
-            $num = (string)preg_replace('~^([0-9]+(?:\.[0-9]+){1,2}).*$~', '$1', $v);
-            $this->mysqlVerCache = $num !== '' ? $num : $fallback;
-            return $this->mysqlVerCache;
-        } catch (\Throwable) {
-            $this->mysqlVerCache = $fallback;
-            return $this->mysqlVerCache;
-        }
-    }
-
     private function extractCreateViewStmtsRaw(string $rawSql): array {
         $out = [];
         $re  = '~CREATE\s+(?:OR\s+REPLACE\s+)?'
@@ -610,6 +632,10 @@ final class Installer
         $dir  = $this->schemaDirBesideSrc($m);
         $dial = $this->dialect->isMysql() ? 'mysql' : 'postgres';
         $files = glob($dir . '/040_views.' . $dial . '.sql') ?: [];
+        $files = array_merge(
+            $files,
+            glob($dir . '/modules/*/040_views_modules.' . $dial . '.sql') ?: []
+        );
 
         $names = [];
         foreach ($files as $file) {
@@ -788,34 +814,29 @@ final class Installer
     public function installOrUpgradeAll(array $modules): void
     {
         $this->ensureRegistry();
+        // Best-effort cleanup of stray metadata locks (MySQL)
+        if ($this->dialect->isMysql()) {
+            try { $this->qexec('SELECT RELEASE_ALL_LOCKS()'); } catch (\Throwable) {}
+        }
         $ordered = $this->toposort($modules);
-        $origFeature = getenv('BC_INCLUDE_FEATURE_VIEWS');
-        // Disable feature views during the first pass to avoid dependency ordering issues
-        putenv('BC_INCLUDE_FEATURE_VIEWS=0');
         foreach ($ordered as $m) {
             $this->installOrUpgrade($m);
         }
-        if ($origFeature !== false) {
-            putenv("BC_INCLUDE_FEATURE_VIEWS={$origFeature}");
-        } else {
-            putenv('BC_INCLUDE_FEATURE_VIEWS');
-        }
-        // Second pass: when feature views are enabled, replay views after all tables exist
-        $includeFeatureViews = (getenv('BC_INCLUDE_FEATURE_VIEWS') === '1' || strtolower((string)getenv('BC_INCLUDE_FEATURE_VIEWS')) === 'true');
-        if ($includeFeatureViews) {
-            // Retryable pass: some feature views depend on other modules' views,
-            // so keep going and re-attempt the failed modules after the rest are replayed.
+        // Join views pass after all tables exist (retryable). Only declarative
+        // sources (views-library / packaged 040_views_joins.* scripts) are allowed:
+        // no arbitrary module code is executed for security reasons.
+        if (!$this->envOn('BC_INSTALLER_SKIP_JOINS', false)) {
             $pending = $ordered;
             $lastErr = null;
             for ($round = 1; $round <= 2 && $pending; $round++) {
                 $next = [];
                 foreach ($pending as $m) {
                     try {
-                        $this->replayViewsScript($m);
+                        $this->replayJoinViewsScript($m);
                     } catch (\Throwable $e) {
                         $lastErr = $e;
                         $next[]  = $m;
-                        $this->dbg('views-second-pass round ' . $round . ' failed for ' . $m->name() . ': ' . $e->getMessage());
+                        $this->dbg('join-views round ' . $round . ' failed for ' . $m->name() . ': ' . $e->getMessage());
                     }
                 }
                 $pending = $next;
@@ -823,6 +844,31 @@ final class Installer
             if ($pending && $lastErr !== null) {
                 throw $lastErr;
             }
+        } else {
+            $this->dlog('views: join layer skipped via BC_INSTALLER_SKIP_JOINS');
+        }
+        // Feature views pass after all tables/joins exist
+        if (!$this->envOn('BC_INSTALLER_SKIP_FEATURE_VIEWS', false)) {
+            $pending = $ordered;
+            $lastErr = null;
+            for ($round = 1; $round <= 2 && $pending; $round++) {
+                $next = [];
+                foreach ($pending as $m) {
+                    try {
+                        $this->replayFeatureViewsScript($m);
+                    } catch (\Throwable $e) {
+                        $lastErr = $e;
+                        $next[]  = $m;
+                        $this->dbg('feature-views round ' . $round . ' failed for ' . $m->name() . ': ' . $e->getMessage());
+                    }
+                }
+                $pending = $next;
+            }
+            if ($pending && $lastErr !== null) {
+                throw $lastErr;
+            }
+        } else {
+            $this->dlog('views: feature layer skipped via BC_INSTALLER_SKIP_FEATURE_VIEWS');
         }
     }
 
@@ -876,42 +922,34 @@ final class Installer
         ];
 
         if ($this->dialect->isMysql()) {
-            // Varianta s aliasem (bez VALUES()) — pro MySQL 8.0.20+
-            $sqlAlias = "INSERT INTO _schema_registry AS _new (module_name,version,checksum)
-                        VALUES (:name,:version,:checksum)
-                        ON DUPLICATE KEY UPDATE
-                            version  = _new.version,
-                            checksum = _new.checksum";
+            // MySQL ≥8.0.20: prefer alias form (VALUES(...) AS reg ON DUPLICATE KEY UPDATE col=reg.col)
+            // MariaDB/older MySQL: fall back to VALUES().
+            $isMaria = $this->isMariaDb();
+            $ver     = $this->db->serverVersion();
+            $aliasSql = "INSERT INTO _schema_registry (module_name,version,checksum)
+                         VALUES (:name,:version,:checksum) AS reg
+                         ON DUPLICATE KEY UPDATE
+                             version  = reg.version,
+                             checksum = reg.checksum";
 
-            // VALUES() variant — for MariaDB and older MySQL
-            $sqlValues = "INSERT INTO _schema_registry (module_name,version,checksum)
-                        VALUES (:name,:version,:checksum)
-                        ON DUPLICATE KEY UPDATE
-                            version  = VALUES(version),
-                            checksum = VALUES(checksum)";
+            $valuesSql = "INSERT INTO _schema_registry (module_name,version,checksum)
+                          VALUES (:name,:version,:checksum)
+                          ON DUPLICATE KEY UPDATE
+                              version  = VALUES(version),
+                              checksum = VALUES(checksum)";
 
-            // Branch based on platform/version
-            $useAlias = false;
-            if (!$this->isMariaDb()) {
-                // MySQL only: VALUES() removed from UPDATE since 8.0.20
-                $useAlias = \version_compare($this->mysqlVersionNumber(), '8.0.20', '>=');
-            }
-
-            $primary  = $useAlias ? $sqlAlias  : $sqlValues;
-            $fallback = $useAlias ? $sqlValues : $sqlAlias;
-
-            try {
-                $this->qexecute($primary, $params);
-            } catch (\Throwable $e) {
-                if ($this->diagEnabled()) {
-                    $code = $this->pdoErrorCode($e);
-                    $this->dbg('upsertVersion: primary variant failed'
-                        . ($code !== null ? " (code={$code})" : '')
-                        . ' → retrying fallback');
+            if (!$isMaria && $ver !== null && \version_compare($ver, '8.0.20', '>=')) {
+                try {
+                    $this->qexecute($aliasSql, $params);
+                    return;
+                } catch (\PDOException $e) {
+                    // Syntax error? fall back to VALUES for compatibility
+                    $this->qexecute($valuesSql, $params);
+                    return;
                 }
-                // final attempt – let it bubble up otherwise
-                $this->qexecute($fallback, $params);
             }
+
+            $this->qexecute($valuesSql, $params);
             return;
         }
 
@@ -984,8 +1022,7 @@ final class Installer
         $dir  = $this->schemaDirBesideSrc($m);
         $dial = $this->dialect->isMysql() ? 'mysql' : 'postgres';
         $targetView = strtolower((string)$m::contractView());
-        $includeFeatureViews = (getenv('BC_INCLUDE_FEATURE_VIEWS') === '1' || strtolower((string)getenv('BC_INCLUDE_FEATURE_VIEWS')) === 'true');
-        $filterByContract = ($targetView !== '' && !$includeFeatureViews);
+        $filterByContract = ($targetView !== '');
 
         if ($this->traceFiles) { $this->dbg("views: scanning in {$dir} (dialect={$dial})"); }
 
@@ -997,12 +1034,6 @@ final class Installer
             $raw = (string)@file_get_contents($file);
             if ($raw === '') { continue; }
             $raw = ltrim($raw, "\xEF\xBB\xBF");
-
-            // Skip feature-layer views unless explicitly enabled
-            if (!$includeFeatureViews && stripos($raw, 'schema-views-feature-') !== false) {
-                $this->dlog('views: skip feature layer (BC_INCLUDE_FEATURE_VIEWS=0) for ' . basename($file));
-                continue;
-            }
 
             $sqlNoComments = $this->stripSqlComments($raw);
 
@@ -1017,7 +1048,8 @@ final class Installer
                     $ignored++;
                     continue;
                 }
-                if ($filterByContract) {
+                // phpstan: $filterByContract is a runtime flag (targetView may be empty or not)
+                if ($filterByContract) { // @phpstan-ignore-line
                     if (preg_match('~\bVIEW\s+((?:`?"?[A-Za-z0-9_]+`?"?\.)?`?"?[A-Za-z0-9_]+`?"?)\s+AS\b~i', $stmt, $mm)) {
                         $vraw  = $mm[1];
                         $vname = strtolower(str_replace(['`','"'],'',$vraw));
@@ -1050,8 +1082,8 @@ final class Installer
                         $this->qexec($stmt);
                     } else {
                         $this->ddlGuard->applyCreateView($stmt, [
-                            'lockTimeoutSec'    => (int)(getenv('BC_VIEW_LOCK_TIMEOUT') ?: 10),
-                            'retries'           => (int)(getenv('BC_INSTALLER_VIEW_RETRIES') ?: 3),
+                            'lockTimeoutSec'    => (int)(getenv('BC_VIEW_LOCK_TIMEOUT') ?: 30),
+                            'retries'           => (int)(getenv('BC_INSTALLER_VIEW_RETRIES') ?: 5),
                             'fenceMs'           => (int)(getenv('BC_VIEW_FENCE_MS') ?: 600),
                             'dropFirst'         => true,
                             'normalizeOrReplace'=> true,
@@ -1071,7 +1103,7 @@ final class Installer
                     foreach ($fb as [$vname, $stmt]) {
                         $baseRaw = preg_replace('~^.*\.~','', str_replace(['`','"'],'',$vname));
                         $vbase = strtolower(\is_string($baseRaw) ? $baseRaw : (string)$vname);
-                        if ($filterByContract && $vbase !== $targetView) { $ignored++; continue; }
+                        if ($filterByContract && $vbase !== $targetView) { $ignored++; continue; } // @phpstan-ignore-line
                         $stmt = $this->normalizeCreateViewDirectives($stmt);
                         if ($stmt === '') { $ignored++; continue; }
                         if (!$this->traceSql && $this->diagEnabled()) { $this->dbg("views: guarded-fallback " . $this->head($stmt)); }
@@ -1080,11 +1112,11 @@ final class Installer
                             if (!$dropName && preg_match('~\bVIEW\s+((?:`?"?[A-Za-z0-9_]+`?"?\.)?`?"?[A-Za-z0-9_]+`?"?)\s+AS\b~i', $stmt, $mm)) {
                                 $dropName = str_replace(['`','"'],'',$mm[1]);
                             }
-                            if ($dropName) { try { $this->qexec('DROP VIEW IF EXISTS ' . $dropName); } catch (\Throwable) {} }
-                            $this->qexec($stmt);
-                        } else {
-                            $this->ddlGuard->applyCreateView($stmt, [
-                                'lockTimeoutSec'     => (int)(getenv('BC_VIEW_LOCK_TIMEOUT') ?: 10),
+                    if ($dropName) { try { $this->qexec('DROP VIEW IF EXISTS ' . $dropName); } catch (\Throwable) {} }
+                    $this->qexec($stmt);
+                } else {
+                    $this->ddlGuard->applyCreateView($stmt, [
+                        'lockTimeoutSec'     => (int)(getenv('BC_VIEW_LOCK_TIMEOUT') ?: 10),
                                 'retries'            => (int)(getenv('BC_INSTALLER_VIEW_RETRIES') ?: 3),
                                 'fenceMs'            => (int)(getenv('BC_VIEW_FENCE_MS') ?: 600),
                                 'dropFirst'          => true,
@@ -1104,7 +1136,7 @@ final class Installer
                     $x = strtolower(str_replace(['`','"'],'',$x));
                     return str_contains($x,'.') ? substr($x, strrpos($x,'.')+1) : $x;
                 }, $mmm[1])));
-                if ($filterByContract) {
+                if ($filterByContract) { // @phpstan-ignore-line
                     $declared = array_values(array_filter($declared, fn($v) => $v === $targetView));
                 }
             }
@@ -1559,6 +1591,54 @@ final class Installer
                     if (getenv('BC_INSTALLER_STRICT_PG_AUTO') === '1') { throw $e; }
                 }
             }
+        }
+    }
+
+    private function replayFeatureViewsScript(ModuleInterface $m): void
+    {
+        $dir  = $this->schemaDirBesideSrc($m);
+        $dial = $this->dialect->isMysql() ? 'mysql' : 'postgres';
+        $files = glob($dir . '/modules/*/040_views_modules.' . $dial . '.sql') ?: [];
+        if (!$files) {
+            if ($this->traceFiles) { $this->dlog("feature views: none in $dir for dial=$dial"); }
+            return;
+        }
+        $applied = 0;
+        foreach ($files as $file) {
+            if ($this->traceFiles) { $this->dbg("feature views: file " . basename($file) . " → " . realpath($file)); }
+            $raw = (string)@file_get_contents($file);
+            if ($raw === '') { continue; }
+            $sqlNoComments = $this->stripSqlComments($raw);
+            $stmts = SqlSplitter::split($sqlNoComments, $this->dialect);
+            foreach ($stmts as $stmt) {
+                $stmt = trim($stmt);
+                if ($stmt === '') { continue; }
+                if (!preg_match('~^CREATE\\s+(?:OR\\s+REPLACE\\s+)?(?:ALGORITHM\\s*=\\s*\\w+\\s+|DEFINER\\s*=\\s*(?:`[^`]+`@`[^`]+`|[^ \\t]+)\\s+|SQL\\s+SECURITY\\s+\\w+\\s+)*(?:MATERIALIZED\\s+)?VIEW\\b~i', $stmt)) {
+                    continue;
+                }
+                $stmt = $this->normalizeCreateViewDirectives($stmt);
+                if ($stmt === '') { continue; }
+                if ($this->dialect->isPg()) {
+                    $dropName = null;
+                    if (preg_match('~\\bVIEW\\s+((?:`?\"?[A-Za-z0-9_]+`?\"?\\.)?`?\"?[A-Za-z0-9_]+`?\"?)\\s+AS\\b~i', $stmt, $mm)) {
+                        $dropName = str_replace(['`','"'],'',$mm[1]);
+                    }
+                    if ($dropName) { try { $this->qexec('DROP VIEW IF EXISTS ' . $dropName); } catch (\Throwable) {} }
+                    $this->qexec($stmt);
+                } else {
+                    $this->ddlGuard->applyCreateView($stmt, [
+                        'lockTimeoutSec'     => (int)(getenv('BC_VIEW_LOCK_TIMEOUT') ?: 10),
+                        'retries'            => (int)(getenv('BC_INSTALLER_VIEW_RETRIES') ?: 3),
+                        'fenceMs'            => (int)(getenv('BC_VIEW_FENCE_MS') ?: 600),
+                        'dropFirst'          => true,
+                        'normalizeOrReplace' => true,
+                    ]);
+                }
+                $applied++;
+            }
+        }
+        if ($applied && $this->diagEnabled()) {
+            $this->dlog("feature views applied: {$applied} for {$m->name()}");
         }
     }
 }

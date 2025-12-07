@@ -111,8 +111,9 @@ $canonicalizeModuleToken = static function (string $value) use ($normalizeModule
     return $normalized;
 };
 foreach ($moduleFiltersRaw as $rawFilter) {
-    foreach (preg_split('/[,\s]+/', $rawFilter) as $token) {
-        $canonical = $canonicalizeModuleToken($token ?? '');
+    $tokens = preg_split('/[,\s]+/', $rawFilter) ?: [];
+    foreach ($tokens as $token) {
+        $canonical = $canonicalizeModuleToken($token);
         if ($canonical === '') continue;
         if (!array_key_exists($canonical, $moduleFilterCanonical)) {
             $moduleFilterCanonical[$canonical] = false;
@@ -168,9 +169,10 @@ foreach ($it as $f) {
     if ($f->isFile() && preg_match('~/packages/([^/]+)/src/([A-Za-z0-9_]+)Module\.php$~', $f->getPathname(), $m)) {
         $pkgDir = $m[1]; // e.g., "email-verifications" or "book_categories"
         // kebab/snake -> PascalCase
+        $parts = preg_split('/[_-]/', $pkgDir) ?: [];
         $pkgPascal = implode('', array_map(
             fn($x) => ucfirst($x),
-            preg_split('/[_-]/', $pkgDir)
+            $parts
         ));
         $class = "BlackCat\\Database\\Packages\\{$pkgPascal}\\{$pkgPascal}Module";
         if (!class_exists($class)) {
@@ -207,7 +209,8 @@ foreach ($modules as $fqn => $meta) {
         // expect format 'table-<snake>' => convert to FQN
         if (str_starts_with($depName, 'table-')) {
             $snake = substr($depName, 6);
-            $pkgPascal = implode('', array_map(fn($x)=>ucfirst($x), preg_split('/[_-]/', $snake)));
+            $partsSnake = preg_split('/[_-]/', $snake) ?: [];
+            $pkgPascal = implode('', array_map(fn($x)=>ucfirst($x), $partsSnake));
             $depFqn = "BlackCat\\Database\\Packages\\{$pkgPascal}\\{$pkgPascal}Module";
             if (isset($modules[$depFqn])) {
                 $graph[$depFqn][] = $fqn;

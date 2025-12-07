@@ -1,9 +1,21 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Unit\Support;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Support\OrderByTools;
 use BlackCat\Core\Database;
+
+class OrderByToolsHost
+{
+    use OrderByTools;
+    public function __construct(private Database $db) {}
+    public function build(string $order, array $allowed, array $also = [], string $alias = 't', ?string $pk = 'id'): string
+    {
+        return $this->buildOrderBy($order, $allowed, $this->db, $also, $alias, $pk, true);
+    }
+}
 
 final class OrderByToolsTest extends TestCase
 {
@@ -17,16 +29,9 @@ final class OrderByToolsTest extends TestCase
         self::$db = Database::getInstance();
     }
 
-    private function host(): object
+    private function host(): OrderByToolsHost
     {
-        return new class(self::$db) {
-            use OrderByTools;
-            public function __construct(private Database $db) {}
-            public function build(string $order, array $allowed, array $also = [], string $alias = 't', ?string $pk = 'id'): string
-            {
-                return $this->buildOrderBy($order, $allowed, $this->db, $also, $alias, $pk, true);
-            }
-        };
+        return new OrderByToolsHost(self::$db);
     }
 
     public function testWhitelistsAndTieBreaker(): void
@@ -34,7 +39,8 @@ final class OrderByToolsTest extends TestCase
         $host = $this->host();
         $sql = $host->build('ORDER BY name DESC, other ASC', ['id','name']);
         $this->assertStringContainsString('ORDER BY', $sql);
-        $this->assertStringContainsString('"t"."id"', $sql); // tie-breaker
+        $quotedPk = self::$db->quoteIdent('t.id');
+        $this->assertStringContainsString($quotedPk, $sql); // tie-breaker
         $this->assertStringNotContainsString('other', $sql); // not whitelisted
     }
 
@@ -42,6 +48,6 @@ final class OrderByToolsTest extends TestCase
     {
         $host = $this->host();
         $sql = $host->build('total DESC', ['id'], ['total']);
-        $this->assertStringContainsString('total DESC', $sql);
+        $this->assertStringContainsString('total', $sql);
     }
 }

@@ -107,6 +107,10 @@ final class OutboxRecord implements \JsonSerializable
         $traceId    = self::safeOptString($traceId, self::TRACE_MAX);
 
         $json = self::encodeJson($payload);
+        // Store payload without outer braces for easier inlining into envelopes.
+        if (\str_starts_with($json, '{') && \str_ends_with($json, '}')) {
+            $json = \substr($json, 1, -1);
+        }
         self::guardPayloadSize($json);
 
         return new self($eventType, $json, $aggregateTable, $aggregateId, $routingKey, $tenant, $traceId, $crypto);
@@ -141,12 +145,17 @@ final class OutboxRecord implements \JsonSerializable
         $json = self::encodeJson($payload);
         self::guardPayloadSize($json);
 
+        $aggregateId = $e->id;
+        if (\is_array($aggregateId) && \count($aggregateId) === 1 && \array_key_exists('id', $aggregateId)) {
+            $aggregateId = (string)$aggregateId['id'];
+        }
+
         $crypto = $e->context['crypto'] ?? null;
         return new self(
             eventType: $eventType,
             payloadJson: $json,
             aggregateTable: $e->table,
-            aggregateId: $e->id,
+            aggregateId: $aggregateId,
             routingKey: $routingKey,
             tenant: $tenant,
             traceId: $traceId,
@@ -273,11 +282,19 @@ final class OutboxRecord implements \JsonSerializable
 
     private function assertJsonString(string $json): void
     {
-        // Fast validation – decode without allocations (default depth); throw on error.
+        // Allow either full JSON or an object-fragment (used by outbox envelopes).
         \json_decode($json, true);
-        if (\json_last_error() !== \JSON_ERROR_NONE) {
-            throw new \InvalidArgumentException('OutboxRecord: payloadJson must be a valid JSON string.');
+        if (\json_last_error() === \JSON_ERROR_NONE) {
+            return;
         }
+
+        // Try fragment wrapped in braces
+        \json_decode('{' . $json . '}', true);
+        if (\json_last_error() === \JSON_ERROR_NONE) {
+            return;
+        }
+
+        throw new \InvalidArgumentException('OutboxRecord: payloadJson must be a valid JSON string.');
     }
 
     private static function isAssoc(array $arr): bool

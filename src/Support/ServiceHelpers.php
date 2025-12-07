@@ -75,9 +75,11 @@ trait ServiceHelpers
     protected function db(): Database
     {
         // Prefer property ($this->db), fallback to getDb()
+        /** @phpstan-ignore-next-line dynamic service property */
         if (\property_exists($this, 'db') && $this->db instanceof Database) {
             return $this->db;
         }
+        /** @phpstan-ignore-next-line dynamic service accessor */
         if (\method_exists($this, 'getDb')) {
             $db = $this->getDb();
             if ($db instanceof Database) {
@@ -89,9 +91,11 @@ trait ServiceHelpers
 
     protected function qcache(): ?QueryCache
     {
+        /** @phpstan-ignore-next-line dynamic service property */
         if (\property_exists($this, 'qcache') && $this->qcache instanceof QueryCache) {
             return $this->qcache;
         }
+        /** @phpstan-ignore-next-line dynamic service accessor */
         if (\method_exists($this, 'getQueryCache')) {
             $qc = $this->getQueryCache();
             if ($qc instanceof QueryCache) {
@@ -103,6 +107,7 @@ trait ServiceHelpers
 
     protected function logger(): ?LoggerInterface
     {
+        /** @phpstan-ignore-next-line dynamic service property */
         if (\property_exists($this, 'logger') && $this->logger instanceof LoggerInterface) {
             return $this->logger;
         }

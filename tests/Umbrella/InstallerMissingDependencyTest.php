@@ -29,7 +29,9 @@ final class InstallerMissingDependencyTest extends TestCase
             public function upgrade(Database $db, SqlDialect $d, string $from): void {}
             public function uninstall(Database $db, SqlDialect $d): void {}
             public static function contractView(): string { return 'vw_child'; }
-            public function status(Database $db, SqlDialect $d): array { return []; }
+            public function status(Database $db, SqlDialect $d): array {
+                return ['table'=>false,'view'=>false];
+            }
             public function info(): array { return ['t'=>'child']; }
         };
 

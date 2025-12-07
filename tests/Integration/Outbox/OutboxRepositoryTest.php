@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Integration\Outbox;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Core\Database;
 use BlackCat\Database\Outbox\OutboxRepository;
@@ -70,10 +72,12 @@ final class OutboxRepositoryTest extends TestCase
 
         $repo->ack($id);
         $row = self::$db->fetch('SELECT acked_at FROM bc_outbox_events WHERE id = :id', [':id' => $id]);
+        $this->assertIsArray($row);
         $this->assertNotNull($row['acked_at'] ?? null);
 
         $repo->fail($id, 'error', 1);
         $row2 = self::$db->fetch('SELECT fail_count, last_error FROM bc_outbox_events WHERE id = :id', [':id' => $id]);
+        $this->assertIsArray($row2);
         $this->assertSame(1, (int)$row2['fail_count']);
 
         // mark acked row as old and ensure cleanup removes it

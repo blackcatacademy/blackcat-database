@@ -96,13 +96,13 @@ final class MemoryCacheTest extends TestCase
         // a expirovala
         $c->setNowSkew(2);
 
-        // next set should not evict b/c, but first prune 'a'
+        // next set should prune 'a', then evict one LRU entry to stay within capacity
         $c->set('d', 'vd', 100);
 
         $this->assertFalse($c->has('a')); // expired and removed
-        $this->assertTrue($c->has('b'));
+        $this->assertFalse($c->has('b')); // LRU evicted after prune
         $this->assertTrue($c->has('c'));
-        $this->assertTrue($c->has('d') || $c->has('b') || $c->has('c')); // limit applies to 2 entries, but 'a' left first
+        $this->assertTrue($c->has('d')); // cache keeps latest two entries
         $this->assertSame(2, $c->debugCount());
     }
 

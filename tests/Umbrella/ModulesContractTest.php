@@ -15,6 +15,7 @@ final class ModulesContractTest extends TestCase
     public static function setUpBeforeClass(): void
     {
         DbUtil::wipeDatabase();
+        DbUtil::db()->configureCircuit(1000000, 1);
     }
 
     protected function setUp(): void

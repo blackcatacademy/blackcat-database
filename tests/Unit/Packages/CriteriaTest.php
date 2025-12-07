@@ -11,11 +11,6 @@ final class CriteriaTest extends TestCase
     {
         // use any Criteria class - pull it from app_settings
         $critClass = 'BlackCat\\Database\\Packages\\AppSettings\\Criteria';
-        if (!class_exists($critClass)) {
-            // locate the file if autoload has not loaded it yet
-        $path = __DIR__ . '/../../../packages/app-settings/src/Criteria.php';
-            if (is_file($path)) require_once $path;
-        }
         if (!class_exists($critClass)) $this->markTestSkipped('Criteria class not found');
 
         $c = new $critClass();

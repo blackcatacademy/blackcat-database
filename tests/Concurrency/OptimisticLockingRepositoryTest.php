@@ -24,9 +24,8 @@ final class OptimisticLockingRepositoryTest extends TestCase
         DbHarness::ensureInstalled();
 
         // find the first package with versionColumn() and derive the repo via DbHarness
-        foreach (glob(__DIR__ . '/../../packages/*/src/Definitions.php') as $df) {
-            require_once $df;
-            if (!preg_match('~[\\\\/]packages[\\\\/]([A-Za-z0-9_]+)[\\\\/]src[\\\\/]Definitions\.php$~i', $df, $m)) continue;
+        foreach ((array)glob(__DIR__ . '/../../packages/*/src/Definitions.php') as $df) {
+            if (!preg_match('~[\\\\/]packages[\\\\/]([A-Za-z0-9_]+)[\\\\/]src[\\\\/]Definitions\.php$~i', (string)$df, $m)) continue;
             $ns = $m[1];
             $defs = "BlackCat\\Database\\Packages\\{$ns}\\Definitions";
             if (!class_exists($defs)) continue;
@@ -74,16 +73,14 @@ final class OptimisticLockingRepositoryTest extends TestCase
             $base = basename($file, '.php');
             $fqn  = "BlackCat\\Database\\Packages\\{$pkgPascal}\\Repository\\{$base}";
             if (class_exists($fqn)) { return $fqn; }
-            require_once $file;
-            if (class_exists($fqn)) { return $fqn; }
         }
         return null;
     }
 
     private static function singularize(string $word): string
     {
-        if (preg_match('~ies$~i', $word))   return preg_replace('~ies$~i', 'y', $word);
-        if (preg_match('~sses$~i', $word))  return preg_replace('~es$~i',  '',  $word);
+        if (preg_match('~ies$~i', $word))   return (string)preg_replace('~ies$~i', 'y', $word);
+        if (preg_match('~sses$~i', $word))  return (string)preg_replace('~es$~i',  '',  $word);
         if (preg_match('~s$~i', $word) && !preg_match('~(news|status)$~i', $word)) {
             return substr($word, 0, -1);
         }
@@ -105,8 +102,11 @@ final class OptimisticLockingRepositoryTest extends TestCase
         DbHarness::begin();
         try {
             // insert a row (raw SQL; Repository insert would work too)
-            $ins   = RowFactory::insertSample(self::$table);
-            $pkCol = DbHarness::primaryKey(self::$table);
+            if (self::$table === null) {
+                self::markTestSkipped('No table selected');
+            }
+            $ins   = RowFactory::insertSample((string)self::$table);
+            $pkCol = DbHarness::primaryKey((string)self::$table);
             $id    = $ins['pk'];
             $this->assertNotEmpty($id);
 

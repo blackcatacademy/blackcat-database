@@ -6,7 +6,8 @@ declare(strict_types=1);
  * Suggested: integrate into Database::query() to append ' region:NAME ' and log to file.
  */
 final class SqlTrace {
-    public static string $logFile = dirname(__DIR__, 2) . '/.sqltrace/exec.log';
+    // Using a compile-time path keeps php -l happy while still resolving to repo root
+    public static string $logFile = __DIR__ . '/../../.sqltrace/exec.log';
     public static function log(string $region, string $sql): void {
         $dir = dirname(self::$logFile);
         if (!is_dir($dir)) @mkdir($dir, 0777, true);

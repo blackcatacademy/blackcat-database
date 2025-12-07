@@ -182,19 +182,19 @@ final class IngressLocator
         }, true, true);
     }
 
-    private static function resolveGateway(): \BlackCat\DatabaseCrypto\Gateway\DatabaseGatewayInterface
+    private static function resolveGateway(): \BlackCat\Database\Crypto\Gateway\DatabaseGatewayInterface
     {
         if (self::$gatewayFactory) {
             try {
                 $gw = (self::$gatewayFactory)();
-                if ($gw instanceof \BlackCat\DatabaseCrypto\Gateway\DatabaseGatewayInterface) {
+                if ($gw instanceof \BlackCat\Database\Crypto\Gateway\DatabaseGatewayInterface) {
                     return $gw;
                 }
             } catch (\Throwable) {
             }
         }
 
-        return new class implements \BlackCat\DatabaseCrypto\Gateway\DatabaseGatewayInterface {
+        return new class implements \BlackCat\Database\Crypto\Gateway\DatabaseGatewayInterface {
             public function insert(string $table, array $payload, array $options = []): mixed
             {
                 return $payload;

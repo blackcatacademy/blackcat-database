@@ -1,6 +1,6 @@
 <#  
   New-DocsIndex.ps1
-  Generates a root markdown index of all packages from schema-map.psd1.
+  Generates a root markdown index of all packages from schema/schema-map-postgres.yaml.
 #>
 [CmdletBinding()]
 param(

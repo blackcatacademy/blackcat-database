@@ -54,7 +54,7 @@ trait PkTools
      * Fetch PK column names from the *Definitions* class.
      * Prefers static method `pkColumns(): array`, falls back to `pk(): string`.
      *
-     * @param class-string $definitionsClass
+     * @param string $definitionsClass
      * @return list<string>
      */
     public function pkColumns(string $definitionsClass): array

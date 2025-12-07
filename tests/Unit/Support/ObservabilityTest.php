@@ -1,8 +1,12 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Unit\Support;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Support\Observability;
+use PDOException;
+use RuntimeException;
 use BlackCat\Core\Database;
 
 final class ObservabilityTest extends TestCase

@@ -29,7 +29,6 @@ use BlackCat\Core\Messaging\Outbox;
 use BlackCat\Core\Messaging\Sender\OutboxSender;
 use BlackCat\Core\Messaging\Sender\StdoutSender;
 use BlackCat\Core\Messaging\Sender\WebhookSender;
-use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
 
 $root = dirname(__DIR__);
@@ -37,10 +36,15 @@ if (file_exists($root . '/vendor/autoload.php')) {
     require $root . '/vendor/autoload.php';
 }
 
+// Provide a lightweight PSR-3 fallback when psr/log is absent (e.g., standalone installs)
 if (!interface_exists(LoggerInterface::class)) {
-    interface LoggerInterface
-    {
-        public function log($level, $message, array $context = []);
+    if (interface_exists(\Psr\Log\LoggerInterface::class)) {
+        class_alias(\Psr\Log\LoggerInterface::class, LoggerInterface::class);
+    } else {
+        interface LoggerInterface
+        {
+            public function log($level, $message, array $context = []);
+        }
     }
 }
 

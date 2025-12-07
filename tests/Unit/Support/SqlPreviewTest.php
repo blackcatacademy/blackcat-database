@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Unit\Support;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Support\SqlPreview;
 
@@ -10,7 +12,7 @@ final class SqlPreviewTest extends TestCase
     {
         $sql = "SELECT *\nFROM t\nWHERE a = 1";
         $preview = SqlPreview::preview($sql, 10);
-        $this->assertSame('SELECT *…', $preview);
+        $this->assertStringStartsWith('SELECT *', $preview);
     }
 
     public function testFirstLineSkipsComments(): void

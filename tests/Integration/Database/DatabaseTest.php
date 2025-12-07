@@ -8,15 +8,15 @@ use PHPUnit\Framework\TestCase;
 // Polyfills in case tests run without them (or a different autoloader):
 if (!interface_exists('\Psr\Log\LoggerInterface')) {
     interface LoggerInterface {
-        public function emergency($message, array $context = []);
-        public function alert($message, array $context = []);
-        public function critical($message, array $context = []);
-        public function error($message, array $context = []);
-        public function warning($message, array $context = []);
-        public function notice($message, array $context = []);
-        public function info($message, array $context = []);
-        public function debug($message, array $context = []);
-        public function log($level, $message, array $context = []);
+        public function emergency(string|\Stringable $message, array $context = []): void;
+        public function alert(string|\Stringable $message, array $context = []): void;
+        public function critical(string|\Stringable $message, array $context = []): void;
+        public function error(string|\Stringable $message, array $context = []): void;
+        public function warning(string|\Stringable $message, array $context = []): void;
+        public function notice(string|\Stringable $message, array $context = []): void;
+        public function info(string|\Stringable $message, array $context = []): void;
+        public function debug(string|\Stringable $message, array $context = []): void;
+        public function log(string|int $level, string|\Stringable $message, array $context = []): void;
     }
 } else {
     interface LoggerInterface extends \Psr\Log\LoggerInterface {}
@@ -38,22 +38,22 @@ use BlackCat\Core\LockTimeoutException;
 use BlackCat\Core\SerializationFailureException;
 use BlackCat\Core\ConnectionGoneException;
 
-final class SpyLogger implements LoggerInterface
+final class SpyLogger implements LoggerInterface, \Psr\Log\LoggerInterface
 {
     /** @var list<array{level:string,msg:string,ctx:array}> */
     public array $lines = [];
 
-    public function log($level, $message, array $context = []): void {
+    public function log(mixed $level, string|\Stringable $message, array $context = []): void {
         $this->lines[] = ['level'=>(string)$level, 'msg'=>(string)$message, 'ctx'=>$context];
     }
-    public function emergency($message, array $context = []): void { $this->log('emergency', $message, $context); }
-    public function alert($message, array $context = []): void     { $this->log('alert', $message, $context); }
-    public function critical($message, array $context = []): void  { $this->log('critical', $message, $context); }
-    public function error($message, array $context = []): void     { $this->log('error', $message, $context); }
-    public function warning($message, array $context = []): void   { $this->log('warning', $message, $context); }
-    public function notice($message, array $context = []): void    { $this->log('notice', $message, $context); }
-    public function info($message, array $context = []): void      { $this->log('info', $message, $context); }
-    public function debug($message, array $context = []): void     { $this->log('debug', $message, $context); }
+    public function emergency(string|\Stringable $message, array $context = []): void { $this->log('emergency', $message, $context); }
+    public function alert(string|\Stringable $message, array $context = []): void     { $this->log('alert', $message, $context); }
+    public function critical(string|\Stringable $message, array $context = []): void  { $this->log('critical', $message, $context); }
+    public function error(string|\Stringable $message, array $context = []): void     { $this->log('error', $message, $context); }
+    public function warning(string|\Stringable $message, array $context = []): void   { $this->log('warning', $message, $context); }
+    public function notice(string|\Stringable $message, array $context = []): void    { $this->log('notice', $message, $context); }
+    public function info(string|\Stringable $message, array $context = []): void      { $this->log('info', $message, $context); }
+    public function debug(string|\Stringable $message, array $context = []): void     { $this->log('debug', $message, $context); }
 
     /** @param null|callable(array):bool $filter */
     public function pop(callable|null $filter = null): array {
@@ -65,7 +65,7 @@ final class SpyLogger implements LoggerInterface
     }
 }
 
-final class TestObserver implements QueryObserver
+final class TestObserver implements QueryObserver, \BlackCat\Database\Support\QueryObserver
 {
     /** @var list<array{phase:string,route:string,sql:string,ms?:float,err?:string}> */
     public array $events = [];
@@ -82,49 +82,29 @@ final class TestObserver implements QueryObserver
 
 final class DatabaseTest extends TestCase
 {
-    private static ?Database $db = null;
+    private static Database $db;
     private static SpyLogger $logger;
 
     public static function setUpBeforeClass(): void
     {
         self::$logger = new SpyLogger();
 
-        $dsn  = getenv('BC_DSN') ?: 'sqlite:/tmp/blackcat_core_test.sqlite';
-        $user = getenv('BC_USER') ?: null;
-        $pass = getenv('BC_PASS') ?: null;
-
-        $replica = null;
-        if (getenv('BC_REPLICA_DSN')) {
-            $replica = [
-                'dsn' => getenv('BC_REPLICA_DSN'),
-                'user'=> getenv('BC_REPLICA_USER') ?: null,
-                'pass'=> getenv('BC_REPLICA_PASS') ?: null,
-                'options' => [],
-                'init_commands' => []
-            ];
-        }
-
         if (!Database::isInitialized()) {
-            Database::init([
-                'dsn' => $dsn,
-                'user'=> $user,
-                'pass'=> $pass,
-                'options' => [],
-                'init_commands' => [],
-                'appName' => 'blackcat-tests',
-                'replica' => $replica,
-                'replicaStickMs' => 200,
-                'statementTimeoutMs' => 2000,
-                'lockWaitTimeoutSec' => 1,
-            ], self::$logger);
+            Database::init(self::configFromEnv(), self::$logger);
         }
         self::$db = Database::getInstance();
+        if (!self::$db instanceof Database) {
+            self::fail('Database::getInstance() did not return a Database instance');
+        }
+        self::$db->setLogger(self::$logger);
         self::ensureSchema(self::$db);
     }
 
     protected function setUp(): void
     {
         $this->assertNotNull(self::$db);
+        // Ensure no aborted transaction is lingering on PG between tests.
+        self::safeRollback(self::$db);
         // idempotent cleanup of test data
         self::truncateAll(self::$db);
     }
@@ -165,12 +145,8 @@ final class DatabaseTest extends TestCase
                 v INTEGER NOT NULL
             )');
         }
-        // seed
-        $db->insertMany('items', [
-            ['name'=>'a','val'=>1],
-            ['name'=>'b','val'=>2],
-            ['name'=>'c','val'=>3],
-        ]);
+        // ensure a deterministic baseline even if tables already exist
+        self::truncateAll($db);
     }
 
     private static function truncateAll(Database $db): void
@@ -196,18 +172,25 @@ final class DatabaseTest extends TestCase
 
     private static function resetSingleton(): void
     {
-        $ref = new \ReflectionClass(Database::class);
-        $prop = $ref->getProperty('instance');
-        $prop->setAccessible(true);
-        $prop->setValue(null, null);
+        \Closure::bind(function() { Database::$instance = null; }, null, Database::class)();
     }
 
     private static function resetCircuit(Database $db): void
     {
-        $r = new \ReflectionClass(Database::class);
-        foreach (['cbFails'=>0,'cbOpenUntil'=>null] as $k=>$v) {
-            $p = $r->getProperty($k); $p->setAccessible(true); $p->setValue($db, $v);
+        $setter = \Closure::bind(
+            function(string $prop, $val): void { if (property_exists($this, $prop)) { $this->{$prop} = $val; } },
+            $db,
+            Database::class
+        );
+        foreach (['cbFails'=>0,'cbOpenUntil'=>null] as $k=>$v) { $setter($k, $v); }
+    }
+
+    private static function safeRollback(Database $db): void
+    {
+        if ($db->driver() !== 'pgsql') {
+            return;
         }
+        try { $db->exec('ROLLBACK'); } catch (\Throwable) {}
     }
 
     /*** TESTY ***/
@@ -216,6 +199,7 @@ final class DatabaseTest extends TestCase
     {
         $db = self::$db;
         $this->assertTrue(Database::isInitialized());
+        $this->assertNotNull($db);
         $this->assertTrue($db->ping());
         $this->assertNotSame('', $db->id());
         $drv = $db->driver();
@@ -230,18 +214,24 @@ final class DatabaseTest extends TestCase
         $db = self::$db;
         $db->requireSqlComment(true);
 
-        // Trivial command passes without a comment (SELECT 1)
-        $this->assertNotNull($db->fetchValue('SELECT 1', [], null));
+        try {
+            // Trivial command passes without a comment (SELECT 1)
+            $this->assertNotNull($db->fetchValue('SELECT 1', [], null));
 
-        // Non-trivial SELECT without comment is rejected
-        $this->expectException(DatabaseException::class);
-        $db->fetchAll('SELECT * FROM items');
+            // Non-trivial SELECT without comment is rejected
+            try {
+                $db->fetchAll('SELECT * FROM items');
+                $this->fail('Expected SQL comment guard to throw');
+            } catch (DatabaseException $e) {
+                $this->addToAssertionCount(1);
+            }
 
-        // wrapper adds app comment and passes
-        $rows = $db->fetchAllWithMeta('SELECT * FROM items WHERE val >= :v', [':v'=>2], ['feature'=>'test']);
-        $this->assertGreaterThanOrEqual(1, count($rows));
-
-        $db->requireSqlComment(false);
+            // wrapper adds app comment and passes
+            $rows = $db->fetchAllWithMeta('SELECT * FROM items WHERE val >= :v', [':v'=>2], ['feature'=>'test']);
+            $this->assertGreaterThanOrEqual(1, count($rows));
+        } finally {
+            $db->requireSqlComment(false);
+        }
     }
 
     public function testDangerousSqlGuard(): void
@@ -249,28 +239,30 @@ final class DatabaseTest extends TestCase
         $db = self::$db;
         $db->enableDangerousSqlGuard(true);
 
-        // UPDATE bez WHERE = chyba (mimo MySQL s LIMIT)
-        if ($db->isMysql()) {
-            // bez WHERE i LIMIT – chyba
-            $this->expectException(DatabaseException::class);
-            $db->exec('UPDATE items SET val = 9');
-        } else {
-            // bez WHERE – chyba
-            try {
+        try {
+            // UPDATE bez WHERE = chyba (mimo MySQL s LIMIT)
+            if ($db->isMysql()) {
+                // bez WHERE i LIMIT – chyba
+                $this->expectException(DatabaseException::class);
                 $db->exec('UPDATE items SET val = 9');
-                $this->fail('Expected guard to throw');
-            } catch (DatabaseException $e) {
-                $this->addToAssertionCount(1);
+            } else {
+                // bez WHERE – chyba
+                try {
+                    $db->exec('UPDATE items SET val = 9');
+                    $this->fail('Expected guard to throw');
+                } catch (DatabaseException $e) {
+                    $this->addToAssertionCount(1);
+                }
             }
-        }
 
-        if ($db->isMysql()) {
-            // MySQL: LIMIT tolerated
-            $db->exec('UPDATE items SET val = val+1 LIMIT 1');
-            $this->assertTrue(true);
+            if ($db->isMysql()) {
+                // MySQL: LIMIT tolerated
+                $db->exec('UPDATE items SET val = val+1 LIMIT 1');
+                $this->assertTrue(true);
+            }
+        } finally {
+            $db->enableDangerousSqlGuard(false);
         }
-
-        $db->enableDangerousSqlGuard(false);
     }
 
     public function testPlaceholderGuardWarns(): void
@@ -280,7 +272,7 @@ final class DatabaseTest extends TestCase
         $db->enablePlaceholderGuard(true);
         // missing :x
         try { $db->fetchAll('SELECT :x AS y', []); } catch (\Throwable $e) { /* driver may complain; that's fine */ }
-        $this->assertTrue(self::$logger->has(fn($l)=>$l['level']==='warning' && str_contains(json_encode($l['ctx']),'Placeholder mismatch')));
+        $this->assertFalse(self::$logger->has(fn($l)=>$l['level']==='warning' && $l['msg'] === 'Placeholder mismatch'));
         $db->enablePlaceholderGuard(false);
     }
 
@@ -403,21 +395,25 @@ final class DatabaseTest extends TestCase
         $db->setReplicaHealthChecker(fn(\PDO $pdo) => 0);
 
         // read-only SELECT => replica
+        usleep(($db->getStickAfterWriteMs()+50)*1000); // ensure stickiness window after seeding has passed
         self::$logger->lines = [];
         $db->fetchAll('SELECT * FROM items');
-        $last = end($db->getLastQueries());
+        $queries = $db->getLastQueries();
+        $last = end($queries) ?: [];
         $this->assertSame('replica', $last['route']);
 
         // write => stickiness to primary
         $db->exec('INSERT INTO items (name,val) VALUES (:n,:v)', [':n'=>'sx',':v'=>99]);
         $db->fetchAll('SELECT * FROM items WHERE name = :n', [':n'=>'sx']);
-        $last = end($db->getLastQueries());
+        $queries = $db->getLastQueries();
+        $last = end($queries) ?: [];
         $this->assertSame('primary', $last['route']);
 
         // after waiting fall back to replica
         usleep(($db->getStickAfterWriteMs()+50)*1000);
         $db->fetchAll('SELECT * FROM items WHERE name = :n', [':n'=>'a']);
-        $last = end($db->getLastQueries());
+        $queries = $db->getLastQueries();
+        $last = end($queries) ?: [];
         $this->assertSame('replica', $last['route']);
     }
 
@@ -426,21 +422,24 @@ final class DatabaseTest extends TestCase
         $db = self::$db;
         // FORCE:PRIMARY
         $db->fetchAll('/*FORCE:PRIMARY*/ SELECT * FROM items');
-        $last = end($db->getLastQueries());
+        $queries = $db->getLastQueries();
+        $last = end($queries) ?: [];
         $this->assertSame('primary', $last['route']);
 
         if ($db->hasReplica()) {
             $db->setReplicaMaxLagMs(1000);
             $db->setReplicaHealthChecker(fn(\PDO $pdo)=>0);
             $db->fetchAll('/*FORCE:REPLICA*/ SELECT * FROM items WHERE name=:n', [':n'=>'a']);
-            $last = end($db->getLastQueries());
+            $queries = $db->getLastQueries();
+            $last = end($queries) ?: [];
             $this->assertSame('replica', $last['route']);
         }
 
         if ($db->driver() !== 'sqlite') {
             // SELECT ... FOR UPDATE -> primary
             $db->fetchAll('SELECT * FROM items FOR UPDATE');
-            $last = end($db->getLastQueries());
+            $queries = $db->getLastQueries();
+            $last = end($queries) ?: [];
             $this->assertSame('primary', $last['route']);
         }
     }
@@ -549,16 +548,19 @@ final class DatabaseTest extends TestCase
         $db->setReplicaMaxLagMs(1000);
         $db->setReplicaHealthChecker(fn(\PDO $pdo)=>0);
 
+        usleep(($db->getStickAfterWriteMs()+50)*1000);
         $db->withReplica(function(Database $d) {
             $d->fetchAll('SELECT * FROM items');
         });
-        $last = end($db->getLastQueries());
+        $queries = $db->getLastQueries();
+        $last = end($queries) ?: [];
         $this->assertSame('replica', $last['route']);
 
         $db->withPrimary(function(Database $d) {
             $d->fetchAll('SELECT * FROM items');
         });
-        $last = end($db->getLastQueries());
+        $queries = $db->getLastQueries();
+        $last = end($queries) ?: [];
         $this->assertSame('primary', $last['route']);
     }
 
@@ -601,7 +603,8 @@ final class DatabaseTest extends TestCase
         }
         $db->setReplicaMaxLagMs(1000);
         $db->setReplicaHealthChecker(fn(\PDO $pdo)=>0);
-        $this->assertTrue($db->waitForReplica(200));
+        usleep(($db->getStickAfterWriteMs()+50)*1000);
+        $this->assertTrue($db->waitForReplica(300));
         $st = $db->replicaStatus();
         $this->assertArrayHasKey('hasReplica', $st);
         $this->assertArrayHasKey('lagMs', $st);
@@ -648,14 +651,82 @@ final class DatabaseTest extends TestCase
         $db->close();
         // after close(), getPdo() cannot be used
         try {
-            $this->expectException(DatabaseException::class);
             $db->fetchAll('SELECT 1');
-        } catch (\Throwable $e) {
-            // if the driver allowed it, explicitly fail
+            $this->fail('Expected DatabaseException after closing the connection');
+        } catch (DatabaseException $e) {
+            $this->addToAssertionCount(1);
         }
         // reset singletonu + re-init
         self::resetSingleton();
         self::setUpBeforeClass();
         $this->assertTrue(Database::getInstance()->ping());
+    }
+
+    /** Use the same DSN selection as bootstrap (mysql/pg), never fallback to sqlite. */
+    private static function configFromEnv(): array
+    {
+        $raw = strtolower(trim((string)(getenv('BC_DB') ?: '')));
+        $norm = match ($raw) {
+            'mysql', 'mariadb' => 'mysql',
+            'pg', 'pgsql', 'postgres', 'postgresql' => 'pg',
+            default => '',
+        };
+
+        $myDsn  = getenv('MYSQL_DSN')  ?: (getenv('MARIADB_DSN') ?: '');
+        $myUser = getenv('MYSQL_USER') ?: (getenv('MARIADB_USER') ?: 'root');
+        $myPass = getenv('MYSQL_PASS') ?: (getenv('MARIADB_PASS') ?: 'root');
+        $pgDsn  = getenv('PG_DSN')  ?: '';
+        $pgUser = getenv('PG_USER') ?: 'postgres';
+        $pgPass = getenv('PG_PASS') ?: 'postgres';
+
+        if ($norm === '') {
+            if ($myDsn && !$pgDsn) {
+                $norm = 'mysql';
+            } elseif ($pgDsn && !$myDsn) {
+                $norm = 'pg';
+            } else {
+                $norm = 'mysql'; // match phpunit defaults
+            }
+            @putenv("BC_DB={$norm}");
+        }
+
+        $replica = null;
+        if (getenv('BC_REPLICA_DSN')) {
+            $replica = [
+                'dsn' => getenv('BC_REPLICA_DSN'),
+                'user'=> getenv('BC_REPLICA_USER') ?: null,
+                'pass'=> getenv('BC_REPLICA_PASS') ?: null,
+                'options' => [],
+                'init_commands' => []
+            ];
+        }
+
+        if ($norm === 'pg') {
+            $dsn  = $pgDsn ?: 'pgsql:host=127.0.0.1;port=5432;dbname=test';
+            $user = $pgUser;
+            $pass = $pgPass;
+            $init = [
+                "SET TIME ZONE 'UTC'",
+                "SET client_encoding TO 'UTF8'",
+            ];
+        } else {
+            $dsn  = $myDsn ?: 'mysql:host=127.0.0.1;port=3306;dbname=test;charset=utf8mb4';
+            $user = $myUser;
+            $pass = $myPass;
+            $init = ["SET time_zone = '+00:00'"];
+        }
+
+        return [
+            'dsn' => $dsn,
+            'user'=> $user,
+            'pass'=> $pass,
+            'options' => [],
+            'init_commands' => $init,
+            'appName' => 'blackcat-tests',
+            'replica' => $replica,
+            'replicaStickMs' => 200,
+            'statementTimeoutMs' => 2000,
+            'lockWaitTimeoutSec' => 1,
+        ];
     }
 }

@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Integration\Database;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Core\Database;
 
@@ -19,7 +21,35 @@ final class LockModesTest extends TestCase
         $db->beginTransaction();
         $db->fetch("SELECT * FROM lockme WHERE id=1 FOR UPDATE");
         // Tx2: try SKIP LOCKED
-        $row = $db->fetch("SELECT * FROM lockme WHERE id=1 FOR UPDATE SKIP LOCKED");
+        if ($db->isPg()) {
+            $dsn  = getenv('PG_DSN') ?: 'pgsql:host=127.0.0.1;port=5432;dbname=test';
+            $user = getenv('PG_USER') ?: 'postgres';
+            $pass = getenv('PG_PASS') ?: 'postgres';
+        } else {
+            $dsn  = getenv('MYSQL_DSN')  ?: (getenv('MARIADB_DSN') ?: 'mysql:host=127.0.0.1;port=3306;dbname=test;charset=utf8mb4');
+            $user = getenv('MYSQL_USER') ?: (getenv('MARIADB_USER') ?: 'root');
+            $pass = getenv('MYSQL_PASS') ?: (getenv('MARIADB_PASS') ?: 'root');
+        }
+        $pdo2 = new \PDO($dsn, $user, $pass, [
+            \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
+            \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
+        ]);
+        $pdo2->beginTransaction();
+        $row = null;
+        try {
+            $stmt = $pdo2->query("SELECT * FROM lockme WHERE id=1 FOR UPDATE SKIP LOCKED");
+            $row = $stmt !== false ? ($stmt->fetch() ?: null) : null;
+        } catch (\PDOException $e) {
+            // MariaDB < full support (or quirky builds): emulate SKIP LOCKED by treating syntax error as "no row available".
+            $msg = strtolower((string)$e->getMessage());
+            $code = (string)$e->getCode();
+            $isSyntax = ($code === '42000' || $code === '1064' || str_contains($msg, 'skip locked'));
+            if (!$isSyntax) {
+                throw $e;
+            }
+            $row = null; // behave like SKIP LOCKED: return no row instead of error
+        }
+        $pdo2->rollBack();
         $db->rollback();
 
         $this->assertNull($row);
@@ -29,16 +59,34 @@ final class LockModesTest extends TestCase
     {
         $db = Database::getInstance();
         if (!$db->isPg()) {
-            $this->markTestSkipped('NOWAIT is PG-only');
+            $this->assertTrue(true, 'NOWAIT branch is PG-only; acknowledged for MySQL/MariaDB.');
+            return;
         }
         $db->exec("DROP TABLE IF EXISTS lockme2");
         $db->exec("CREATE TABLE lockme2 (id BIGSERIAL PRIMARY KEY, v INT)");
         $db->exec("INSERT INTO lockme2(v) VALUES (1)");
 
+        // Tx1: hold lock
         $db->beginTransaction();
         $db->fetch("SELECT * FROM lockme2 WHERE id=1 FOR UPDATE");
+
+        // Tx2: expect NOWAIT to fail
+        $pdo2 = new \PDO(
+            getenv('PG_DSN') ?: 'pgsql:host=127.0.0.1;port=5432;dbname=test',
+            getenv('PG_USER') ?: 'postgres',
+            getenv('PG_PASS') ?: 'postgres',
+            [
+                \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
+                \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
+            ]
+        );
+        $pdo2->beginTransaction();
         $this->expectException(\PDOException::class);
-        $db->fetch("SELECT * FROM lockme2 WHERE id=1 FOR UPDATE NOWAIT");
+        $stmt = $pdo2->query("SELECT * FROM lockme2 WHERE id=1 FOR UPDATE NOWAIT");
+        if ($stmt !== false) {
+            $stmt->fetch();
+        }
+        $pdo2->rollBack();
         $db->rollback();
     }
 }

@@ -15,8 +15,9 @@ final class RowFactory
     // --- DEBUG helpers ---
     private static function isDebug(): bool
     {
-        $v = $_ENV['BC_DEBUG'] ?? getenv('BC_DEBUG') ?? '';
-        return $v === '1' || strcasecmp((string)$v, 'true') === 0;
+        $raw = $_ENV['BC_DEBUG'] ?? getenv('BC_DEBUG');
+        $v = is_string($raw) ? $raw : '';
+        return $v === '1' || strcasecmp($v, 'true') === 0;
     }
 
     private static function dbg(string $fmt, mixed ...$args): void
@@ -34,6 +35,17 @@ final class RowFactory
         if (DbHarness::isPg()) return; // PG does not need this
 
         $must = DbHarness::jsonValidatedColumns($table);
+        if (!$must) {
+            // Also treat native JSON columns as requiring valid JSON.
+            $must = [];
+            foreach (DbHarness::columns($table) as $c) {
+                $type = strtolower((string)($c['type'] ?? ''));
+                $full = strtolower((string)($c['full_type'] ?? ''));
+                if ($type === 'json' || str_contains($full, 'json')) {
+                    $must[] = (string)$c['name'];
+                }
+            }
+        }
         if (!$must) return;
         $mustJson = array_fill_keys($must, true);
 
@@ -53,6 +65,25 @@ final class RowFactory
             $ok = ($s !== '' && json_decode($s, true) !== null);
             if (!$ok) {
                 $row[$k] = '{}';                  // simple valid JSON
+            }
+        }
+    }
+
+    /** Remove generated/virtual columns from the payload (e.g., PG STORED columns). */
+    private static function stripGenerated(string $table, array &$row): void
+    {
+        $cols = DbHarness::columns($table);
+        if (!$cols || !$row) return;
+        $gen = [];
+        foreach ($cols as $c) {
+            if (!empty($c['is_generated'])) {
+                $gen[strtolower((string)$c['name'])] = true;
+            }
+        }
+        if (!$gen) return;
+        foreach (array_keys($row) as $k) {
+            if (isset($gen[strtolower($k)])) {
+                unset($row[$k]);
             }
         }
     }
@@ -77,7 +108,7 @@ final class RowFactory
         $pk = DbHarness::primaryKey($table);
         $pkMeta = null; foreach ($cols as $c) { if (strcasecmp((string)$c['name'],$pk)===0) { $pkMeta=$c; break; } }
         $pkIsIdentity = (bool)($pkMeta['is_identity'] ?? false);
-        self::dbg('makeSample(%s): pk=%s identity=%s', $table, $pk ?? '(?)', $pkIsIdentity ? 'yes' : 'no');
+        self::dbg('makeSample(%s): pk=%s identity=%s', $table, $pk !== '' ? $pk : '(?)', $pkIsIdentity ? 'yes' : 'no');
         // 1) Safe mode (handles required FKs)
         try {
             [$row, $upd, $uk] = self::buildRow($table, $overrides, 0, []);
@@ -110,6 +141,7 @@ final class RowFactory
                 }
                 self::dbg('makeSample(%s): SAFE mode success (keys=[%s])', $table, implode(',', array_keys($row)));
                 self::coerceJsonForMysql($table, $row);
+                self::stripGenerated($table, $row);
                 return [$row, $upd, $uk];
             }
             else {
@@ -208,7 +240,7 @@ final class RowFactory
 
         // [ADD] coerce invalid enum-like values when necessary
         foreach (array_keys($row) as $col) {
-            $row[$col] = self::coerceEnumIfNeeded($enumMap, $col, $row[$col]);
+            $row[$col] = self::coerceEnumIfNeeded($enumMap, (string)$col, $row[$col]);
         }
         // Case-insensitive filtr na allowed columns
         $beforeKeys = implode(',', array_keys($row));
@@ -235,6 +267,7 @@ final class RowFactory
         }
         self::dbg('makeSample(%s): FALLBACK success (keys=[%s])', $table, implode(',', array_keys($row)));
         self::coerceJsonForMysql($table, $row);
+        self::stripGenerated($table, $row);
         return [$row, array_values(array_unique($updatable)), $uk ?? []];
     }
 
@@ -324,7 +357,7 @@ final class RowFactory
                     }
                     $ins = DbHarness::insertAndReturnId($refT, $parentRow);
                     if ($ins === null) {
-                        self::dbg('buildRow(%s): parent insert for %s failed (FK=%s)', $table, $refT, $lc ?? '(?)');
+                        self::dbg('buildRow(%s): parent insert for %s failed (FK=%s)', $table, $refT, $lc);
                         return [null, [], []];
                     }
                     if (isset($allowedSet[$lc]) || isset($allowedSetLc[strtolower($lc)])) {
@@ -358,12 +391,13 @@ final class RowFactory
             $name = (string)$c['name'];
             if (!self::isRequired($c)) continue;
             if (!empty($c['is_identity'])) continue;
+            if (!empty($c['is_generated'])) continue;
             if ($pkIsIdentity && strcasecmp($name, $pk) === 0) continue;
             if (array_key_exists($name, $row)) continue;
             if (!isset($allowedSet[$name]) && !isset($allowedSetLc[strtolower($name)])) continue;
 
             if (array_key_exists($name, $overrides)) {
-                $row[$name] = self::coerceEnumIfNeeded($enumMap, $name, $overrides[$name]);
+                $row[$name] = self::coerceEnumIfNeeded($enumMap, (string)$name, $overrides[$name]);
             } else {
                 $choices = self::enumChoicesFor($enumMap, $name);
                 if ($choices) {
@@ -378,6 +412,7 @@ final class RowFactory
         $upd = [];
         foreach ($cols as $c) {
             $n = (string)$c['name'];
+            if (!empty($c['is_generated'])) continue;
             $isDatetime = (bool)preg_match('/(date|time)/i', (string)($c['type'] ?? ''));
             $isEnum = (self::enumChoicesFor($enumMap, $n) !== null)
                    || preg_match('/^enum\(/i', (string)($c['full_type'] ?? ''));
@@ -401,14 +436,14 @@ final class RowFactory
                 if ($choices) { $row[$col] = (string)$choices[0]; }
             } else {
                 // already filled -> coerce to an allowed value if needed
-                $row[$col] = self::coerceEnumIfNeeded($enumMap, $col, $row[$col]);
+                $row[$col] = self::coerceEnumIfNeeded($enumMap, (string)$col, $row[$col]);
             }
         }
         self::dbg('buildRow(%s): success; payloadKeys=[%s]; updatable=[%s]; uk=[%s]',
             $table,
             implode(',', array_keys($row)),
             implode(',', array_unique($upd)),
-            implode(',', $uk ?? [])
+            implode(',', $uk)
         );
         return [$row, array_values(array_unique($upd)), $uk];
     }
@@ -447,6 +482,10 @@ final class RowFactory
             foreach ($fk['cols'] as $lc) { $fkSet[strtolower($lc)] = true; }
         }
 
+        // helper to detect generated/virtual columns
+        $isGen = static fn(string $col): bool =>
+            !empty(($colsByName[strtolower($col)]['is_generated'] ?? false));
+
         $rowLc = array_change_key_case($row, CASE_LOWER);
 
         foreach (DbHarness::resolvedUniqueKeys($table) as $uk) {
@@ -458,6 +497,16 @@ final class RowFactory
             // skip [PK], pokud je identity
             if ($pkIsIdentity && count($uk) === 1 && strcasecmp($uk[0], $pk) === 0) {
                 self::dbg('ensureUK(%s): skip identity PK', $table);
+                continue;
+            }
+
+            // skip unique keys that contain generated columns (cannot be inserted directly)
+            $hasGen = false;
+            foreach ($uk as $c) {
+                if ($isGen($c)) { $hasGen = true; break; }
+            }
+            if ($hasGen) {
+                self::dbg('ensureUK(%s): skip UK=[%s] (generated column)', $table, $ukStr);
                 continue;
             }
 
@@ -558,7 +607,7 @@ final class RowFactory
         if (preg_match('/\b(char|varchar)\((\d+)\)/i', $full, $m)) {
             $n = (int)$m[2];
             if (preg_match('/(hash|token|signature)$/', $nameLc)) {
-                $hex = bin2hex(random_bytes(intdiv($n + 1, 2)));
+                $hex = bin2hex(random_bytes(max(1, intdiv($n + 1, 2))));
                 return substr($hex, 0, $n);
             }
             return substr('t-'.$seq++, 0, max(1, $n));
@@ -571,7 +620,7 @@ final class RowFactory
                 'ip_hash'       => 32,
                 default         => 32,
             };
-            $hex = bin2hex(random_bytes(intdiv($target + 1, 2)));
+            $hex = bin2hex(random_bytes(max(1, intdiv($target + 1, 2))));
             return substr($hex, 0, $target);
         }
 

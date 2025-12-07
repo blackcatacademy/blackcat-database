@@ -7,8 +7,8 @@
   failOnWarning="true"
   failOnRisky="true"
   beStrictAboutOutputDuringTests="true"
-  failOnDeprecation="false"
-  failOnPhpunitDeprecation="false"
+  failOnDeprecation="true"
+  failOnPhpunitDeprecation="true"
   displayDetailsOnTestsThatTriggerDeprecations="true"
   displayDetailsOnSkippedTests="true"
 >
@@ -39,4 +39,15 @@
     <!-- enable for heavier tests (bulk 10k, etc.) -->
     <env name="BC_STRESS" value="0"/>
   </php>
+  <coverage>
+    <report>
+      <clover outputFile="tmp/coverage/clover.xml"/>
+    </report>
+  </coverage>
+  <source>
+    <include>
+      <directory suffix=".php">../src</directory>
+      <directory suffix=".php">../packages</directory>
+    </include>
+  </source>
 </phpunit>

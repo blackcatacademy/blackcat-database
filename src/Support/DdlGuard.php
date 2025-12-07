@@ -34,6 +34,7 @@ declare(strict_types=1);
 namespace BlackCat\Database\Support;
 
 use BlackCat\Core\Database;
+use BlackCat\Core\DatabaseException;
 use BlackCat\Database\SqlDialect;
 use BlackCat\Database\Exceptions\DdlRetryExceededException;
 use BlackCat\Database\Exceptions\ViewVerificationException;
@@ -180,93 +181,96 @@ final class DdlGuard
         ?string $expectDef,
         bool $ignoreDefiner
     ): void {
-        if ($dropFirst) {
-            $this->dropViewIfExists($name, 'precreate');
-        }
+        // Ensure any inherited per-statement timeout does not kill CREATE VIEW / fence probes.
+        $this->db->withStatementTimeout(0, function () use ($dropFirst, $name, $create, $fenceMs, $expectAlg, $expectSec, $expectDef, $ignoreDefiner): void {
+            if ($dropFirst) {
+                $this->dropViewIfExists($name, 'precreate');
+            }
 
-        // CREATE VIEW
-        $this->execMeta(
-            $create,
-            [],
-            ['component' => self::META_COMPONENT, 'op' => 'create_view', 'view' => $name]
-        );
+            // CREATE VIEW
+            $this->execMeta(
+                $create,
+                [],
+                ['component' => self::META_COMPONENT, 'op' => 'create_view', 'view' => $name]
+            );
 
-        // Fence – wait until the view becomes readable (MySQL/MariaDB)
-        $this->fenceViewReady($name, $fenceMs);
+            // Fence – wait until the view becomes readable (MySQL/MariaDB)
+            $this->fenceViewReady($name, $fenceMs);
 
-        // Postgres: bez direktiv – hotovo.
-        if (!$this->dialect->isMysql()) {
-            return;
-        }
+            // Postgres: bez direktiv – hotovo.
+            if (!$this->dialect->isMysql()) {
+                return;
+            }
 
-        // MySQL/MariaDB: verify directives
-        $got = $this->currentMySqlDirectives($name);
+            // MySQL/MariaDB: verify directives
+            $got = $this->currentMySqlDirectives($name);
 
-        $actualAlg = \strtoupper((string)($got['algorithm'] ?? ''));
-        if ($actualAlg === 'UNDEFINED') {
-            throw ViewVerificationException::drift($name, $got, ['algorithm' => $expectAlg, 'security' => $expectSec, 'definer' => $expectDef]);
-        }
+            $actualAlg = \strtoupper((string)($got['algorithm'] ?? ''));
+            if ($actualAlg === 'UNDEFINED') {
+                throw ViewVerificationException::drift($name, $got, ['algorithm' => $expectAlg, 'security' => $expectSec, 'definer' => $expectDef]);
+            }
 
-        $okAlg = !$expectAlg || $actualAlg === \strtoupper($expectAlg);
-        $okSec = !$expectSec || \strtoupper((string)($got['security']  ?? '')) === \strtoupper($expectSec);
+            $okAlg = !$expectAlg || $actualAlg === \strtoupper($expectAlg);
+            $okSec = !$expectSec || \strtoupper((string)($got['security']  ?? '')) === \strtoupper($expectSec);
 
-        $okDef = true;
-        if (!$ignoreDefiner && $expectDef) {
-            $expectedNorm = $this->normalizeDefiner($expectDef)
-                ?? $this->normalizeDefiner($this->resolveCurrentUser() ?? '');
-            $gotNorm      = $this->normalizeDefiner((string)($got['definer'] ?? ''));
-            $okDef = $expectedNorm !== null && $expectedNorm === $gotNorm;
-        }
+            $okDef = true;
+            if (!$ignoreDefiner && $expectDef) {
+                $expectedNorm = $this->normalizeDefiner($expectDef)
+                    ?? $this->normalizeDefiner($this->resolveCurrentUser() ?? '');
+                $gotNorm      = $this->normalizeDefiner((string)($got['definer'] ?? ''));
+                $okDef = $expectedNorm !== null && $expectedNorm === $gotNorm;
+            }
 
-        if ($okAlg && $okSec && $okDef) {
-            return;
-        }
+            if ($okAlg && $okSec && $okDef) {
+                return;
+            }
 
-        // Drift -> perform a one-off recreation within the same attempt
-        $this->log('warning', 'View directives drift detected; recreating', [
-            'view'   => $name,
-            'expect' => ['algorithm' => $expectAlg, 'security' => $expectSec, 'definer' => $expectDef],
-            'got'    => $got,
-        ]);
+            // Drift -> perform a one-off recreation within the same attempt
+            $this->log('warning', 'View directives drift detected; recreating', [
+                'view'   => $name,
+                'expect' => ['algorithm' => $expectAlg, 'security' => $expectSec, 'definer' => $expectDef],
+                'got'    => $got,
+            ]);
 
-        $this->dropViewIfExists($name, 'drift');
+            $this->dropViewIfExists($name, 'drift');
 
-        $this->execMeta(
-            $create,
-            [],
-            ['component' => self::META_COMPONENT, 'op' => 'create_view', 'view' => $name, 'reason' => 'recreate']
-        );
+            $this->execMeta(
+                $create,
+                [],
+                ['component' => self::META_COMPONENT, 'op' => 'create_view', 'view' => $name, 'reason' => 'recreate']
+            );
 
-        $this->fenceViewReady($name, $fenceMs);
+            $this->fenceViewReady($name, $fenceMs);
 
-        $got2 = $this->currentMySqlDirectives($name);
+            $got2 = $this->currentMySqlDirectives($name);
 
-        $actualAlg2 = \strtoupper((string)($got2['algorithm'] ?? ''));
-        if ($actualAlg2 === 'UNDEFINED') {
-            throw ViewVerificationException::drift($name, $got2, ['algorithm' => $expectAlg, 'security' => $expectSec, 'definer' => $expectDef]);
-        }
+            $actualAlg2 = \strtoupper((string)($got2['algorithm'] ?? ''));
+            if ($actualAlg2 === 'UNDEFINED') {
+                throw ViewVerificationException::drift($name, $got2, ['algorithm' => $expectAlg, 'security' => $expectSec, 'definer' => $expectDef]);
+            }
 
-        $okAlg = !$expectAlg || $actualAlg2 === \strtoupper($expectAlg);
-        $okSec = !$expectSec || \strtoupper((string)($got2['security']  ?? '')) === \strtoupper($expectSec);
+            $okAlg = !$expectAlg || $actualAlg2 === \strtoupper($expectAlg);
+            $okSec = !$expectSec || \strtoupper((string)($got2['security']  ?? '')) === \strtoupper($expectSec);
 
-        $okDef = true;
-        if (!$ignoreDefiner && $expectDef) {
-            $expectedNorm = $this->normalizeDefiner($expectDef)
-                ?? $this->normalizeDefiner($this->resolveCurrentUser() ?? '');
-            $gotNorm      = $this->normalizeDefiner((string)($got2['definer'] ?? ''));
-            $okDef = $expectedNorm !== null && $expectedNorm === $gotNorm;
-        }
+            $okDef = true;
+            if (!$ignoreDefiner && $expectDef) {
+                $expectedNorm = $this->normalizeDefiner($expectDef)
+                    ?? $this->normalizeDefiner($this->resolveCurrentUser() ?? '');
+                $gotNorm      = $this->normalizeDefiner((string)($got2['definer'] ?? ''));
+                $okDef = $expectedNorm !== null && $expectedNorm === $gotNorm;
+            }
 
-        if ($okAlg && $okSec && $okDef) {
-            return;
-        }
+            if ($okAlg && $okSec && $okDef) {
+                return;
+            }
 
-        // Still wrong after one recreation -> throw a verification exception (non-transient).
-        throw ViewVerificationException::drift(
-            $name,
-            $got2,
-            ['algorithm' => $expectAlg, 'security' => $expectSec, 'definer' => $expectDef]
-        );
+            // Still wrong after one recreation -> throw a verification exception (non-transient).
+            throw ViewVerificationException::drift(
+                $name,
+                $got2,
+                ['algorithm' => $expectAlg, 'security' => $expectSec, 'definer' => $expectDef]
+            );
+        });
     }
 
     /**
@@ -412,7 +416,19 @@ final class DdlGuard
         }
 
         // MySQL/MariaDB – GET_LOCK(timeout) blocks and Database::withAdvisoryLock handles that
-        return $this->db->withAdvisoryLock($key, $timeoutSec, $fn);
+        try {
+            return $this->db->withStatementTimeout(0, fn() => $this->db->withAdvisoryLock($key, $timeoutSec, $fn));
+        } catch (DatabaseException $e) {
+            // If a stale named lock causes a timeout, attempt a best-effort cleanup and retry once.
+            $msg = \strtolower((string)$e->getMessage());
+            if (\str_contains($msg, 'get_lock timeout')) {
+                try { $this->db->exec('SELECT RELEASE_ALL_LOCKS()'); } catch (\Throwable) {}
+                usleep(200_000); // short pause before retry
+                // One last retry with a slightly longer timeout; if it still fails, bubble up.
+                return $this->db->withStatementTimeout(0, fn() => $this->db->withAdvisoryLock($key, max($timeoutSec, 5), $fn));
+            }
+            throw $e;
+        }
     }
 
     /** @return array{0:string,1:?string,2:?string,3:?string} [name, algorithm, security, definer] */

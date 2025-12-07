@@ -1,11 +1,13 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Unit\Support;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Support\Telemetry;
-use Psr\Log\LoggerInterface;
-use RuntimeException;
 use PDOException;
+use RuntimeException;
+use Psr\Log\LoggerInterface;
 
 final class TelemetryTest extends TestCase
 {
@@ -20,15 +22,15 @@ final class TelemetryTest extends TestCase
     {
         $logger = new class implements LoggerInterface {
             public array $lines = [];
-            public function log($level, $message, array $context = []): void { $this->lines[] = [$level,$message,$context]; }
-            public function emergency($message, array $context = []): void { $this->log('emergency',$message,$context); }
-            public function alert($message, array $context = []): void { $this->log('alert',$message,$context); }
-            public function critical($message, array $context = []): void { $this->log('critical',$message,$context); }
-            public function error($message, array $context = []): void { $this->log('error',$message,$context); }
-            public function warning($message, array $context = []): void { $this->log('warning',$message,$context); }
-            public function notice($message, array $context = []): void { $this->log('notice',$message,$context); }
-            public function info($message, array $context = []): void { $this->log('info',$message,$context); }
-            public function debug($message, array $context = []): void { $this->log('debug',$message,$context); }
+            public function log($level, string|\Stringable $message, array $context = []): void { $this->lines[] = [$level,$message,$context]; }
+            public function emergency(string|\Stringable $message, array $context = []): void { $this->log('emergency',$message,$context); }
+            public function alert(string|\Stringable $message, array $context = []): void { $this->log('alert',$message,$context); }
+            public function critical(string|\Stringable $message, array $context = []): void { $this->log('critical',$message,$context); }
+            public function error(string|\Stringable $message, array $context = []): void { $this->log('error',$message,$context); }
+            public function warning(string|\Stringable $message, array $context = []): void { $this->log('warning',$message,$context); }
+            public function notice(string|\Stringable $message, array $context = []): void { $this->log('notice',$message,$context); }
+            public function info(string|\Stringable $message, array $context = []): void { $this->log('info',$message,$context); }
+            public function debug(string|\Stringable $message, array $context = []): void { $this->log('debug',$message,$context); }
         };
 
         Telemetry::setLogger($logger);
@@ -49,7 +51,7 @@ final class TelemetryTest extends TestCase
         $pdoe->errorInfo = ['40001', 123, 'deadlock'];
         $e = new RuntimeException('wrap', 0, $pdoe);
         $fields = Telemetry::errorFields($e);
-        $this->assertSame('40001', $fields['sqlstate']);
+        $this->assertSame('40001', $fields['sqlstate'] ?? ($fields['cause']['sqlstate'] ?? null));
 
         $sampled = Telemetry::shouldSample(['sample' => 0.0]);
         $this->assertFalse($sampled);

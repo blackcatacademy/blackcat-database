@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Unit\Support;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Support\Casts;
 use DateTimeImmutable;
@@ -32,10 +34,11 @@ final class CastsTest extends TestCase
         $tz = new DateTimeZone('UTC');
         $dt = Casts::toDate('2024-01-02T03:04:05+00:00', $tz);
         $this->assertInstanceOf(DateTimeImmutable::class, $dt);
-        $this->assertSame('2024-01-02 03:04:05', $dt?->format('Y-m-d H:i:s'));
+        $this->assertSame('2024-01-02 03:04:05', $dt->format('Y-m-d H:i:s'));
 
         $ms = (int)(1700000000 * 1000);
         $epoch = Casts::toDate((string)$ms, $tz);
-        $this->assertSame(1700000000, $epoch?->getTimestamp());
+        $this->assertInstanceOf(DateTimeImmutable::class, $epoch);
+        $this->assertSame(1700000000, $epoch->getTimestamp());
     }
 }

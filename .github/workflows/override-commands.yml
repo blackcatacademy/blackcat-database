@@ -13,11 +13,14 @@ jobs:
       pull-requests: write
       contents: read
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 0
 
       - name: Handle /override and /unoverride
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');

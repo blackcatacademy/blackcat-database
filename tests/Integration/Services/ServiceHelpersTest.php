@@ -1,18 +1,23 @@
 <?php
 declare(strict_types=1);
 
+namespace BlackCat\Database\Tests\Integration\Services;
+
 use PHPUnit\Framework\TestCase;
 use BlackCat\Database\Support\ServiceHelpers;
 use BlackCat\Core\Database;
 use BlackCat\Core\Database\QueryCache;
 use BlackCat\Core\DatabaseException;
-use ReflectionClass;
+use PDOException;
 
 final class ServiceHelpersDummyService
 {
     use ServiceHelpers;
 
     public function __construct(private Database $db, private ?QueryCache $qcache = null) {}
+
+    // Expose protected helpers for tests
+    public function db(): Database { return $this->db; }
 }
 
 final class ServiceHelpersTest extends TestCase
@@ -26,7 +31,13 @@ final class ServiceHelpersTest extends TestCase
         }
         if (!self::$dbReady) {
             $db = Database::getInstance();
-            $db->exec('CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY AUTOINCREMENT, v TEXT)');
+            if ($db->dialect()->isMysql()) {
+                $db->exec('CREATE TABLE IF NOT EXISTS t (id BIGINT AUTO_INCREMENT PRIMARY KEY, v TEXT)');
+            } elseif ($db->dialect()->isPg()) {
+                $db->exec('CREATE TABLE IF NOT EXISTS t (id BIGSERIAL PRIMARY KEY, v TEXT)');
+            } else {
+                $db->exec('CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY AUTOINCREMENT, v TEXT)');
+            }
             $db->exec('DELETE FROM t');
             for ($i=0;$i<3;$i++) {
                 $db->execute('INSERT INTO t(v) VALUES (?)', ['x'.$i]);
@@ -40,16 +51,27 @@ final class ServiceHelpersTest extends TestCase
         return new ServiceHelpersDummyService(Database::getInstance());
     }
 
+    private function callMethod(object $obj, string $method, mixed ...$args): mixed
+    {
+        $closure = \Closure::bind(
+            function(...$inner) use ($method) { return $this->{$method}(...$inner); },
+            $obj,
+            get_class($obj)
+        );
+        return $closure(...$args);
+    }
+
     public function testTxnTimeoutAndLockWrappers(): void
     {
         $svc = $this->makeSvc();
-        $r = $svc->txn(fn($s)=> $s->db()->fetchOne('SELECT COUNT(*) FROM t'));
+        $db  = Database::getInstance();
+        $r = $this->callMethod($svc, 'txn', fn() => $db->fetchOne('SELECT COUNT(*) FROM t'));
         $this->assertSame(3, (int)$r);
 
-        $r2 = $svc->withTimeout(5, fn($s)=> $s->db()->fetchOne('SELECT 1'));
+        $r2 = $this->callMethod($svc, 'withTimeout', 5, fn() => $db->fetchOne('SELECT 1'));
         $this->assertSame(1, (int)$r2);
 
-        $r3 = $svc->withLock('demo', 1, fn($s)=> $s->db()->fetchOne('SELECT 1'));
+        $r3 = $this->callMethod($svc, 'withLock', 'demo', 1, fn() => $db->fetchOne('SELECT 1'));
         $this->assertSame(1, (int)$r3);
     }
 
@@ -57,7 +79,7 @@ final class ServiceHelpersTest extends TestCase
     {
         $svc = $this->makeSvc();
         $attempts = 0;
-        $out = $svc->retry(3, function() use (&$attempts) {
+        $out = $this->callMethod($svc, 'retry', 3, function() use (&$attempts) {
             $attempts++;
             if ($attempts === 1) {
                 $e = new PDOException('serialization');
@@ -85,9 +107,7 @@ final class ServiceHelpersTest extends TestCase
             return 'ok';
         };
 
-        $retry = (new ReflectionClass($svc))->getMethod('retry');
-        $retry->setAccessible(true);
-        $out = $retry->invoke($svc, 3, $fn);
+        $out = $this->callMethod($svc, 'retry', 3, $fn);
         $this->assertSame('ok', $out);
         $this->assertSame(2, $calls);
     }
@@ -95,13 +115,10 @@ final class ServiceHelpersTest extends TestCase
     public function testKeysetWrapperDefaultsPkResultKey(): void
     {
         $svc = $this->makeSvc();
-        $sqlBase = 'SELECT id, val FROM t';
-        $keyset = (new ReflectionClass($svc))->getMethod('keyset');
-        $keyset->setAccessible(true);
-        $res = $keyset->invoke(
-            $svc, $sqlBase, [], 'id', null, 2, null, 'ASC', false
-        );
-        $this->assertSame([1,2], array_column($res['items'], 'id'));
-        $this->assertSame(2, $res['nextAfter']);
+        $sqlBase = 'SELECT id, v FROM t';
+        $res = $this->callMethod($svc, 'keyset', $sqlBase, [], 'id', null, 2, null, 'ASC', false);
+        $ids = array_column($res['items'], 'id');
+        $this->assertCount(2, $ids);
+        $this->assertSame($ids[1], $res['nextAfter']);
     }
 }

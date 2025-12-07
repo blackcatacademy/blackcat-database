@@ -40,7 +40,7 @@ packages/
     tests/
     README.md
 ```
-- Generate boilerplate from templates (`*.psd1` + `Generate-PhpFromSchema.ps1`), then implement repositories/services.
+- Generate boilerplate from templates (`*.yaml` + `Generate-PhpFromSchema.ps1`), then implement repositories/services.
 - Each package should expose a `ModuleInterface` and provide its `Installer` class.
 
 ---

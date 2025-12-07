@@ -36,9 +36,8 @@ final class DoubleWriterRepositoryTest extends TestCase
             $db->setSlowQueryThresholdMs(0);
         }
         // Find the first package via Definitions and derive the repo (via DbHarness::repoFor)
-        foreach (glob(__DIR__ . '/../../packages/*/src/Definitions.php') as $df) {
-            require_once $df;
-            if (!preg_match('~[\\\\/]packages[\\\\/]([A-Za-z0-9_]+)[\\\\/]src[\\\\/]Definitions\.php$~i', $df, $m)) {
+        foreach ((array)glob(__DIR__ . '/../../packages/*/src/Definitions.php') as $df) {
+            if (!preg_match('~[\\\\/]packages[\\\\/]([A-Za-z0-9_]+)[\\\\/]src[\\\\/]Definitions\.php$~i', (string)$df, $m)) {
                 continue;
             }
             $pkgPascal = $m[1];
@@ -107,7 +106,8 @@ final class DoubleWriterRepositoryTest extends TestCase
 
     private static function isDebug(): bool
     {
-        $val = $_ENV['BC_DEBUG'] ?? getenv('BC_DEBUG') ?? '';
+        $envVal = $_ENV['BC_DEBUG'] ?? (getenv('BC_DEBUG') !== false ? getenv('BC_DEBUG') : null);
+        $val = $envVal ?? '';
         return $val === '1' || strcasecmp((string)$val, 'true') === 0;
     }
 
@@ -119,13 +119,15 @@ final class DoubleWriterRepositoryTest extends TestCase
 
     private function insertRowAndGetId(): int
     {
+        if (self::$table === null) {
+            self::markTestSkipped('No table selected');
+        }
         try {
-            $ins = RowFactory::insertSample(self::$table);
+            $ins = RowFactory::insertSample((string)self::$table);
         } catch (\Throwable $e) {
             self::markTestSkipped(
                 'RowFactory cannot construct safe sample for table ' . self::$table . ': ' . $e->getMessage()
             );
-            return 0; // unreachable, keeps the signature happy
         }
         self::dbg('Inserted sample into %s: %s=%s', self::$table, $ins['pkCol'], (string)$ins['pk']);
         return (int)$ins['pk'];
@@ -133,7 +135,11 @@ final class DoubleWriterRepositoryTest extends TestCase
 
     public function test_repo_update_times_out_while_other_repo_holds_lock(): void
     {
+        /** @var Database $db */
         $db  = Database::getInstance();
+        assert($db instanceof Database);
+        /** @var Database $db */
+        $db = $db;
         $pdo = $db->getPdo();
 
         $id = $this->insertRowAndGetId();
@@ -147,7 +153,7 @@ final class DoubleWriterRepositoryTest extends TestCase
         $cmd = sprintf(
             'php %s "%s" %d %d',
             escapeshellarg(__DIR__.'/../support/lock_row_repo.php'),
-            $repoFqn,
+            (string)$repoFqn,
             $id,
             $seconds
         );
@@ -166,8 +172,10 @@ final class DoubleWriterRepositoryTest extends TestCase
         // --- READ LOCKER OUTPUT (stdout/stderr) ---
         foreach ($pipes as $p) { if (is_resource($p)) stream_set_blocking($p, false); }
         $readLocker = function() use ($pipes) {
-            $out = is_resource($pipes[1]) ? stream_get_contents($pipes[1]) : '';
-            $err = is_resource($pipes[2]) ? stream_get_contents($pipes[2]) : '';
+            $outRaw = is_resource($pipes[1]) ? stream_get_contents($pipes[1]) : '';
+            $errRaw = is_resource($pipes[2]) ? stream_get_contents($pipes[2]) : '';
+            $out = ($outRaw !== false) ? $outRaw : '';
+            $err = ($errRaw !== false) ? $errRaw : '';
             if ($out !== '') self::dbg('[locker-stdout] %s', trim($out));
             if ($err !== '') self::dbg('[locker-stderr] %s', trim($err));
         };
@@ -192,7 +200,7 @@ final class DoubleWriterRepositoryTest extends TestCase
 
         // Wait for the locker process to finish (release lock)
         $status = proc_get_status($proc);
-        while ($status && $status['running']) {
+        while (is_array($status) && $status['running'] === true) {
             usleep(100_000);
             $readLocker();
             $status = proc_get_status($proc);
@@ -219,7 +227,7 @@ final class DoubleWriterRepositoryTest extends TestCase
 
         $id = $this->insertRowAndGetId();
         $this->assertGreaterThan(0, $id);
-        $pkCol = DbHarness::primaryKey(self::$table);
+        $pkCol = DbHarness::primaryKey((string)self::$table);
         $ver = (int)$db->fetchOne("SELECT ".self::$verCol." FROM ".self::$table." WHERE {$pkCol}=:id", [':id'=>$id]);
         self::dbg('Inserted id=%d (optimistic test), initial version=%d', $id, $ver);
 
@@ -244,8 +252,10 @@ final class DoubleWriterRepositoryTest extends TestCase
         // --- READ LOCKER OUTPUT (stdout/stderr) ---
         foreach ($pipes as $p) { if (is_resource($p)) stream_set_blocking($p, false); }
         $readLocker = function() use ($pipes) {
-            $out = is_resource($pipes[1]) ? stream_get_contents($pipes[1]) : '';
-            $err = is_resource($pipes[2]) ? stream_get_contents($pipes[2]) : '';
+            $outRaw = is_resource($pipes[1]) ? stream_get_contents($pipes[1]) : '';
+            $errRaw = is_resource($pipes[2]) ? stream_get_contents($pipes[2]) : '';
+            $out = ($outRaw !== false) ? $outRaw : '';
+            $err = ($errRaw !== false) ? $errRaw : '';
             if ($out !== '') self::dbg('[locker-stdout] %s', trim($out));
             if ($err !== '') self::dbg('[locker-stderr] %s', trim($err));
         };
@@ -282,7 +292,7 @@ final class DoubleWriterRepositoryTest extends TestCase
 
         // After releasing the lock the first update succeeds -> version++
         $status = proc_get_status($proc);
-        while ($status && $status['running']) {
+        while (is_array($status) && $status['running'] === true) {
             usleep(100_000);
             $readLocker();                 // <- added: poll locker stdout/stderr
             $status = proc_get_status($proc);
@@ -290,16 +300,17 @@ final class DoubleWriterRepositoryTest extends TestCase
         $readLocker();
         foreach ($pipes as $p) { if (is_resource($p)) fclose($p); }
         if (is_resource($proc)) proc_close($proc);
+        // Refresh version right before optimistic update to avoid drift on CI backends
         $verBefore = (int)$db->fetchOne("SELECT ".self::$verCol." FROM ".self::$table." WHERE {$pkCol}=:id", [':id'=>$id]);
         self::dbg('Version right before optimistic update=%d (expected=%d)', $verBefore, $ver);
-        $aff1 = $repo->updateById($id, [ self::$verCol => $ver, self::$updCol => 'r2' ]);
+        $aff1 = $repo->updateById($id, [ self::$verCol => $verBefore, self::$updCol => 'r2' ]);
         $verAfter = (int)$db->fetchOne("SELECT ".self::$verCol." FROM ".self::$table." WHERE {$pkCol}=:id", [':id'=>$id]);
         self::dbg('Version after optimistic attempt=%d', $verAfter);
         $this->assertSame(1, $aff1, 'First optimistic update should succeed.');
 
         // Second writer (stale version) - simulate by reusing 'ver' (unchanged)
-        self::dbg('Second optimistic update with stale version=%d (should be 0)', $ver);
-        $aff2 = $repo->updateById($id, [ self::$verCol => $ver, self::$updCol => 'r3' ]);
+        self::dbg('Second optimistic update with stale version=%d (should be 0)', $verBefore);
+        $aff2 = $repo->updateById($id, [ self::$verCol => $verBefore, self::$updCol => 'r3' ]);
         self::dbg('aff2=%d', $aff2);
         $this->assertSame(0, $aff2, 'Second optimistic update with stale version must affect 0 rows.');
     }

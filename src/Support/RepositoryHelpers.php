@@ -92,10 +92,16 @@ trait RepositoryHelpers
             return $row;
         }
 
+        // Blacklist generated/virtual columns to avoid inserting into computed fields (PG/MariaDB will reject).
+        $generated = [];
+        if (\method_exists($def, 'generatedColumns')) {
+            $generated = \array_fill_keys((array)$def::generatedColumns(), true);
+        }
+
         $out = [];
         foreach ($row as $k => $v) {
             $col = (string) $k;
-            if ($col !== '' && $def::hasColumn($col)) {
+            if ($col !== '' && $def::hasColumn($col) && !isset($generated[$col])) {
                 $out[$col] = $v;
             }
         }
@@ -126,6 +132,13 @@ trait RepositoryHelpers
                 $row[$col] = $row[$alias];
             }
             unset($row[$alias]);
+        }
+
+        // Drop generated/virtual columns to avoid inserting into computed fields (PG disallows it).
+        if (\method_exists($def, 'generatedColumns')) {
+            foreach ((array)$def::generatedColumns() as $gen) {
+                unset($row[$gen]);
+            }
         }
         return $row;
     }

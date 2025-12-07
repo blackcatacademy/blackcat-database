@@ -14,7 +14,6 @@ use BlackCat\Database\Tests\Support\ConnFactory;
 final class RowLocksAndDeadlocksTest extends TestCase
 {
     private static ?string $table = null;
-    private static ?string $pk = 'id';
     private static ?string $updCol = null;
 
     public static function setUpBeforeClass(): void
@@ -23,9 +22,8 @@ final class RowLocksAndDeadlocksTest extends TestCase
         DbHarness::ensureInstalled();
 
         // find a "safe" table with identity PK 'id' and an updatable column (via Definitions only)
-        foreach (glob(__DIR__ . '/../../packages/*/src/Definitions.php') as $df) {
-            require_once $df;
-            if (!preg_match('~[\\\\/]packages[\\\\/]([A-Za-z0-9_]+)[\\\\/]src[\\\\/]Definitions\.php$~i', $df, $m)) continue;
+        foreach ((array)glob(__DIR__ . '/../../packages/*/src/Definitions.php') as $df) {
+            if (!preg_match('~[\\\\/]packages[\\\\/]([A-Za-z0-9_]+)[\\\\/]src[\\\\/]Definitions\.php$~i', (string)$df, $m)) continue;
             $ns = $m[1];
             $defs = "BlackCat\\Database\\Packages\\{$ns}\\Definitions";
             if (!class_exists($defs)) continue;
@@ -58,7 +56,7 @@ final class RowLocksAndDeadlocksTest extends TestCase
 
     private function insertRow(\PDO $pdo): int
     {
-        $ins = RowFactory::insertSample(self::$table);
+        $ins = RowFactory::insertSample((string)self::$table);
         return (int)$ins['pk'];
     }
 
@@ -175,10 +173,18 @@ final class RowLocksAndDeadlocksTest extends TestCase
         $idA = $this->insertRow($pdo);
         $idB = $this->insertRow($pdo);
 
-        $php = escapeshellarg(PHP_BINARY) . ' -d display_errors=1 -d error_reporting=32767';
+        // Prefer the regular PHP CLI for the worker (phpdbg swallows exit codes on some setups).
+        $phpBin = PHP_BINARY;
+        if (PHP_SAPI === 'phpdbg' && is_string(PHP_BINDIR)) {
+            $candidate = rtrim(PHP_BINDIR, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'php';
+            if (is_file($candidate) && is_executable($candidate)) {
+                $phpBin = $candidate;
+            }
+        }
+        $php = escapeshellarg($phpBin) . ' -d display_errors=1 -d error_reporting=32767';
         $script = escapeshellarg(__DIR__ . '/../Support/deadlock_worker.php');
-        $table  = escapeshellarg(self::$table);
-        $col    = escapeshellarg(self::$updCol);
+        $table  = escapeshellarg((string)self::$table);
+        $col    = escapeshellarg((string)self::$updCol);
 
         $cmdA = "$script $table $col $idA $idB A";
         $cmdB = "$script $table $col $idA $idB B";
@@ -201,27 +207,19 @@ final class RowLocksAndDeadlocksTest extends TestCase
         if (!isset($env['PATH']) || $env['PATH'] === '') { $env['PATH'] = getenv('PATH') ?: ''; }
         if (!isset($env['HOME']) || $env['HOME'] === '') { $env['HOME'] = getenv('HOME') ?: ''; }
 
-        // Harden DSN per target backend (inside Docker network host MUST be service name)
+        // Harden DSN per target backend
         if ($norm === 'pg') {
-            // if PG_DSN missing or pointing to localhost/127.0.0.1, rewrite to service "postgres"
+            // respect provided PG_DSN; if missing, fallback to localhost
             $pgDsn = $env['PG_DSN'] ?? (getenv('PG_DSN') ?: '');
-            if ($pgDsn === '' || preg_match('~host\s*=\s*(127\.0\.0\.1|localhost)~i', $pgDsn)) {
+            if ($pgDsn === '') {
                 $db   = $env['PGDATABASE'] ?? (getenv('PGDATABASE') ?: 'test');
                 $port = $env['PGPORT']     ?? (getenv('PGPORT') ?: '5432');
-                $env['PG_DSN'] = "pgsql:host=postgres;port={$port};dbname={$db}";
+                $env['PG_DSN'] = "pgsql:host=127.0.0.1;port={$port};dbname={$db}";
             }
             // ensure user/password/schema even when absent from $_ENV
             $env['PG_USER']      = $env['PG_USER']      ?? (getenv('PG_USER')      ?: 'postgres');
             $env['PG_PASS']      = $env['PG_PASS']      ?? (getenv('PG_PASS')      ?: 'postgres');
             $env['BC_PG_SCHEMA'] = $env['BC_PG_SCHEMA'] ?? (getenv('BC_PG_SCHEMA') ?: 'public');
-
-            // if DSN missing or pointing to localhost, rewrite to service name
-            $pgDsn = $env['PG_DSN'] ?? (getenv('PG_DSN') ?: '');
-            if ($pgDsn === '' || preg_match('~host\s*=\s*(127\.0\.0\.1|localhost)~i', $pgDsn)) {
-                $db   = $env['PGDATABASE'] ?? (getenv('PGDATABASE') ?: 'test');
-                $port = $env['PGPORT']     ?? (getenv('PGPORT')     ?: '5432');
-                $env['PG_DSN'] = "pgsql:host=postgres;port={$port};dbname={$db}";
-            }
 
             // avoid ambiguity - drop MySQL variables
             unset($env['MYSQL_DSN'], $env['MYSQL_USER'], $env['MYSQL_PASS']);
@@ -231,14 +229,18 @@ final class RowLocksAndDeadlocksTest extends TestCase
             // ensure user/password even if missing in $_ENV
             $env['MYSQL_USER'] = $env['MYSQL_USER'] ?? (getenv('MYSQL_USER') ?: 'root');
             $env['MYSQL_PASS'] = $env['MYSQL_PASS'] ?? (getenv('MYSQL_PASS') ?: 'root');
+
             $myDsn = $env['MYSQL_DSN'] ?? (getenv('MYSQL_DSN') ?: '');
-            if ($myDsn === '' || preg_match('~host\s*=\s*(127\.0\.0\.1|localhost)~i', $myDsn)) {
+            $needsRewrite = ($myDsn === '' || preg_match('~host\s*=\s*(127\.0\.0\.1|localhost)~i', $myDsn));
+            // Prefer compose service hostname only when it resolves; otherwise keep explicit host (e.g. host networking)
+            $mysqlHostResolvable = gethostbyname('mysql') !== 'mysql';
+            if ($needsRewrite && $mysqlHostResolvable) {
                 $db   = $env['MYSQL_DATABASE'] ?? (getenv('MYSQL_DATABASE') ?: 'test');
                 $port = $env['MYSQL_PORT']     ?? (getenv('MYSQL_PORT')     ?: '3306');
                 $env['MYSQL_DSN'] = "mysql:host=mysql;port={$port};dbname={$db};charset=utf8mb4";
             }
-            unset($env['PG_DSN'], $env['PG_USER'], $env['PG_PASS'], $env['BC_PG_SCHEMA']);
 
+            unset($env['PG_DSN'], $env['PG_USER'], $env['PG_PASS'], $env['BC_PG_SCHEMA']);
         }
 
         // Pass only scalar values (proc_open expects that)
@@ -273,7 +275,9 @@ final class RowLocksAndDeadlocksTest extends TestCase
 
             $stA = proc_get_status($pA);
             $stB = proc_get_status($pB);
-            if (!($stA && $stA['running']) && !($stB && $stB['running'])) {
+            $runningA = is_array($stA) && $stA['running'] === true;
+            $runningB = is_array($stB) && $stB['running'] === true;
+            if (!$runningA && !$runningB) {
                 break;
             }
             usleep(100_000);

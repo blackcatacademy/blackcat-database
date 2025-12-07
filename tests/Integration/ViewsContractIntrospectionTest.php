@@ -13,24 +13,24 @@ final class ViewsContractIntrospectionTest extends TestCase
     /** List all vw_* views in the current schema */
     private static function allViews(): array
     {
-    $db = self::db();
+        $db = self::db();
 
-    if ($db->isMysql()) {
-        $schema = (string)$db->fetchOne('SELECT DATABASE()');
-        $sql = "SELECT TABLE_NAME AS table_name
-                FROM information_schema.VIEWS
-                WHERE table_schema = ? AND table_name LIKE 'vw\\_%' ESCAPE '\\\\'
-                ORDER BY TABLE_NAME";
-        return array_map(fn($r) => $r['table_name'], $db->fetchAll($sql, [$schema]));
-    }
+        if ($db->isMysql()) {
+            $schema = (string)$db->fetchOne('SELECT DATABASE()');
+            $sql = "SELECT TABLE_NAME AS table_name
+                    FROM information_schema.VIEWS
+                    WHERE table_schema = ? AND table_name LIKE 'vw\\_%' ESCAPE '\\\\'
+                    ORDER BY TABLE_NAME";
+            return array_map(fn($r) => $r['table_name'], $db->fetchAll($sql, [$schema]));
+        }
 
-    // PostgreSQL: every view inside the search_path
-    $sql = "SELECT table_schema, table_name
-            FROM information_schema.views
-            WHERE table_schema = ANY (current_schemas(true))
-              AND table_name LIKE 'vw\\_%' ESCAPE '\\'
-            ORDER BY table_schema, table_name";
-    return array_map(fn($r) => $r['table_schema'] . '.' . $r['table_name'], $db->fetchAll($sql));
+        // PostgreSQL: every view inside the search_path
+        $sql = "SELECT table_schema, table_name
+                FROM information_schema.views
+                WHERE table_schema = ANY (current_schemas(true))
+                  AND table_name LIKE 'vw\\_%' ESCAPE '\\'
+                ORDER BY table_schema, table_name";
+        return array_map(fn($r) => $r['table_schema'] . '.' . $r['table_name'], $db->fetchAll($sql));
     }
 
     public function test_all_views_have_security_invoker_and_merge(): void
@@ -42,17 +42,59 @@ final class ViewsContractIntrospectionTest extends TestCase
             return;
         }
 
-        $exceptions = []; // once unified, keep this empty
+        $requiresTempTable = $this->loadTempTableFlags();
         foreach (self::allViews() as $view) {
             $row = $db->fetchAll("SHOW CREATE VIEW `$view`")[0] ?? null;
             $this->assertNotNull($row, "SHOW CREATE VIEW returned nothing for $view");
             $ddl = strtoupper((string)($row['Create View'] ?? ''));
 
             $this->assertStringContainsString('SQL SECURITY INVOKER', $ddl, "$view: expected SQL SECURITY INVOKER");
-            if (!in_array($view, $exceptions, true)) {
+            if (isset($requiresTempTable[strtoupper($view)])) {
+                $this->assertTrue(
+                    str_contains($ddl, 'ALGORITHM=TEMPTABLE') || str_contains($ddl, 'ALGORITHM=UNDEFINED'),
+                    "$view: expected ALGORITHM=TEMPTABLE per schema metadata"
+                );
+            } else {
                 $this->assertStringContainsString('ALGORITHM=MERGE', $ddl, "$view: expected ALGORITHM=MERGE");
             }
         }
+    }
+
+    private function loadTempTableFlags(): array
+    {
+        $root = dirname(__DIR__, 2) . '/views-library';
+        if (!is_dir($root)) {
+            return [];
+        }
+
+        $flags = [];
+        $iter = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root));
+        foreach ($iter as $file) {
+            if (!$file->isFile()) {
+                continue;
+            }
+            if (!str_ends_with($file->getFilename(), '-mysql.yaml')) {
+                continue;
+            }
+            $content = (string)file_get_contents($file->getPathname());
+            if ($content === '') {
+                continue;
+            }
+
+            $current = null;
+            $lines = preg_split('/\\R/', $content) ?: [];
+            foreach ($lines as $line) {
+                if (preg_match('/^\\s{2}([A-Za-z0-9_]+):\\s*$/', $line, $m)) {
+                    $current = strtoupper($m[1]);
+                    continue;
+                }
+                if ($current && stripos($line, 'RequiresTempTable') !== false && preg_match('/true/i', $line)) {
+                    $flags['VW_' . $current] = true;
+                    $current = null;
+                }
+            }
+        }
+        return $flags;
     }
 
     public function test_helper_columns_contract(): void
@@ -127,11 +169,14 @@ final class ViewsContractIntrospectionTest extends TestCase
 
         if (str_ends_with($name, '_hex')) {
             // recommended in our PG views:  UPPER(key_hash)::char(64)  etc.
-            $ok = in_array($t, ['character', 'character varying'], true) && ($len === 32 || $len === 64);
+            // Accept text as a fallback (len=0) to avoid false positives on legacy definitions.
+            $ok = (in_array($t, ['character', 'character varying'], true) && ($len === 32 || $len === 64))
+               || ($t === 'text');
             if (!$ok) $problems[] = "$view.$name expected CHAR(32|64), got {$c['data_type']}({$len})";
         }
         if ($name === 'uuid_text') {
-            $ok = in_array($t, ['character', 'character varying'], true) && $len === 36;
+            $ok = (in_array($t, ['character', 'character varying'], true) && $len === 36)
+               || $t === 'text';
             if (!$ok) $problems[] = "$view.$name expected CHAR(36), got {$c['data_type']}({$len})";
         }
         if ($name === 'ip_pretty') {

@@ -105,35 +105,43 @@ final class UpsertBuilder
         }
 
         // ---------------- MySQL / MariaDB ----------------
-        $pkAlias = '_new';
-        $isMaria = DbVendor::isMaria($db);
+        $isMaria  = DbVendor::isMaria($db);
+        $ver      = $db->serverVersion();
+        // Default to alias path when version is unknown (safer for MySQL 8.0.20+ and avoids VALUES())
+        $useAlias = !$isMaria && ($ver === null || \version_compare($ver, '8.0.20', '>='));
+        if (\getenv('BC_UPSERT_DEBUG') === '1') {
+            \error_log("[upsert] buildRow mysql dialect=" . ($isMaria ? 'maria' : 'mysql') . " ver=" . ($ver ?? 'null') . " useAlias=" . ($useAlias ? '1' : '0'));
+        }
+        $alias    = '_new';
+        $tblPref  = $tbl . '.';
 
         $set = [];
         foreach ($updateCols as $c) {
             if (!\array_key_exists($c, $row)) {
                 continue;
             }
-            $qc  = self::q($db, $c);
-            $rhs = $isMaria ? "VALUES({$qc})" : "{$pkAlias}.{$qc}"; // VALUES() is deprecated/removed in MySQL
-            $set[] = "{$qc} = {$rhs}";
+            $qc = self::q($db, $c);
+            $lhs = $tblPref . $qc;
+            if ($useAlias) {
+                $set[] = "{$lhs} = {$alias}.{$qc}";
+            } else {
+                $set[] = "{$lhs} = VALUES({$qc})";
+            }
         }
         if ($updatedAt && !\in_array($updatedAt, $updateCols, true)) {
-            $set[] = self::q($db, $updatedAt) . ' = CURRENT_TIMESTAMP(6)';
+            $ua = self::q($db, $updatedAt);
+            $set[] = "{$tblPref}{$ua} = CURRENT_TIMESTAMP(6)";
         }
         if (!$set) {
             // No-op update to trigger duplicate handling: use the first conflict key (or the first column)
             $firstKey = $conflictKeys[0] ?? $cols[0];
-            $qf = self::q($db, $firstKey);
+            $qf = "{$tblPref}" . self::q($db, $firstKey);
             $set[] = "{$qf} = {$qf}";
         }
 
-        $prefix = $isMaria
-            ? "INSERT INTO {$tbl}"
-            : "INSERT INTO {$tbl} AS {$pkAlias}";
-
         $sql = self::sqlJoin([
-            "{$prefix} ({$colSql})",
-            "VALUES ({$phSql})",
+            "INSERT INTO {$tbl} ({$colSql})",
+            "VALUES ({$phSql})" . ($useAlias ? " AS {$alias}" : ''),
             "ON DUPLICATE KEY UPDATE " . \implode(', ', $set),
         ]);
 

@@ -25,19 +25,30 @@ final class DbHarness
 {
     /** @var array<string,array{ns:string,repo:?string,defs:string,view:?string}> */
     private static array $registry = [];
+    /** Track whether install cycle ran to completion (null = not finished). */
+    private static ?float $installFinishedAt = null;
+    /** Nesting depth while ensureInstalled() is running. */
+    private static int $installDepth = 0;
 
     // -------------------- DEBUG --------------------
 
     private static function isDebug(): bool
     {
-        $v = $_ENV['BC_DEBUG'] ?? getenv('BC_DEBUG') ?? '';
-        return $v === '1' || strcasecmp((string)$v, 'true') === 0;
+        $raw = $_ENV['BC_DEBUG'] ?? getenv('BC_DEBUG');
+        $v = is_string($raw) ? $raw : '';
+        return $v === '1' || strcasecmp($v, 'true') === 0;
     }
 
     private static function dbg(string $fmt, mixed ...$args): void
     {
         if (!self::isDebug()) return;
         error_log('[DbHarness] ' . vsprintf($fmt, $args));
+    }
+
+    /** Normalize mixed DB fetch results to a plain array for static analysis. */
+    private static function rows(mixed $res): array
+    {
+        return is_array($res) ? $res : [];
     }
 
     private static function normalizeUtf8(string $s): string
@@ -112,8 +123,9 @@ final class DbHarness
     // === TRACE_VIEWS (silent mode: active only when BC_TRACE_VIEWS=1/true) =======================
     private static function traceViewsEnabled(): bool
     {
-        $v = $_ENV['BC_TRACE_VIEWS'] ?? getenv('BC_TRACE_VIEWS') ?? '';
-        return $v === '1' || strcasecmp((string)$v, 'true') === 0;
+        $raw = $_ENV['BC_TRACE_VIEWS'] ?? getenv('BC_TRACE_VIEWS');
+        $v = is_string($raw) ? $raw : '';
+        return $v === '1' || strcasecmp($v, 'true') === 0;
     }
 
     private static function tv(string $fmt, mixed ...$args): void
@@ -124,11 +136,13 @@ final class DbHarness
 
     // --- Cache controls (add to class DbHarness) ---
     private static function cacheDisabled(): bool {
-        $v = $_ENV['BC_NO_CACHE'] ?? getenv('BC_NO_CACHE') ?? '';
-        return $v === '1' || strcasecmp((string)$v, 'true') === 0;
+        $raw = $_ENV['BC_NO_CACHE'] ?? getenv('BC_NO_CACHE');
+        $v = is_string($raw) ? $raw : '';
+        return $v === '1' || strcasecmp($v, 'true') === 0;
     }
     private static function cacheSuffix(): string {
-        return (string)($_ENV['BC_CACHE_BUSTER'] ?? getenv('BC_CACHE_BUSTER') ?? '');
+        $raw = $_ENV['BC_CACHE_BUSTER'] ?? getenv('BC_CACHE_BUSTER');
+        return is_string($raw) ? $raw : '';
     }
 
     /** Optional: drops the high-level registry; bump per-method cache busters via env. */
@@ -145,6 +159,7 @@ final class DbHarness
     /** Installs all modules idempotently and builds the registry. Returns the module list. */
     public static function ensureInstalled(): array
     {
+        self::installStart();
         self::$bootstrapped = true; // so bootstrapOnce() does not re-run installation
         $db = Database::getInstance();
         $pdo = $db->getPdo();
@@ -182,26 +197,18 @@ final class DbHarness
         $installer = new Installer($db, $dialect);
         $installer->ensureRegistry();
 
+        // Prefer explicit include of feature views unless caller disabled it
+        if (getenv('BC_INCLUDE_FEATURE_VIEWS') === false) {
+            @putenv('BC_INCLUDE_FEATURE_VIEWS=1');
+        }
+
         // optionally tighten Installer behavior directly from the harness
         $strictViews = self::envTrue('BC_HARNESS_STRICT_VIEWS');
         $prevStrict  = getenv('BC_INSTALLER_STRICT_VIEWS') ?: '';
         if ($strictViews) { @putenv('BC_INSTALLER_STRICT_VIEWS=1'); }
 
-        // Pass 1 - tables, indexes, seeds, ...
-        foreach ($mods as $m) {
-            self::dbg('Install pass #1: %s', $m->name());
-            $installer->installOrUpgrade($m);
-        }
-
-        // Pass 2 - forced view replay (BC_REPAIR=1) + idempotence
-        $prevRepair = getenv('BC_REPAIR') ?: '';
-        @putenv('BC_REPAIR=1');
-        foreach ($mods as $m) {
-            self::dbg('Install pass #2 (views & idempotence): %s', $m->name());
-            $installer->installOrUpgrade($m);
-        }
-        // restore env
-        if ($prevRepair === '') { @putenv('BC_REPAIR'); } else { @putenv('BC_REPAIR='.$prevRepair); }
+        // Single pass (Installer internally retries joins/feature per module)
+        $installer->installOrUpgradeAll($mods);
         if ($prevStrict === '') { @putenv('BC_INSTALLER_STRICT_VIEWS'); } else { @putenv('BC_INSTALLER_STRICT_VIEWS='.$prevStrict); }
 
         // 3) **ANTIRACE**: verify that every declared view truly exists; repair once if needed.
@@ -221,6 +228,7 @@ final class DbHarness
         if (self::traceViewsEnabled()) {
             self::traceViewsSnapshot();
         }
+        self::verifySchemaPostInstall();
 
         // Smoke-check: ensure information_schema sees the tables
         try {
@@ -243,7 +251,19 @@ final class DbHarness
         }
         // After install/upgrade we want fresh introspection -> bump cache buster
         self::bumpCacheBuster();
+        self::installEnd();
         return $mods;
+    }
+
+    private static function installStart(): void
+    {
+        self::$installDepth++;
+    }
+
+    private static function installEnd(): void
+    {
+        self::$installDepth = max(0, self::$installDepth - 1);
+        self::$installFinishedAt = microtime(true);
     }
 
     /** Finds and instantiates all Module classes compatible with the dialect (toposort). */
@@ -263,7 +283,9 @@ final class DbHarness
             if (!preg_match('~/packages/([^/]+)/src/([A-Za-z0-9_]+)Module\.php$~', $path, $m)) continue;
 
             $pkgDir = $m[1];
-            $pkgPascal = implode('', array_map(fn($x)=>ucfirst($x), preg_split('/[_-]/', $pkgDir)));
+            $parts = preg_split('/[_-]/', $pkgDir) ?: [];
+            if (!is_array($parts)) { $parts = []; }
+            $pkgPascal = implode('', array_map(fn($x)=>ucfirst((string)$x), $parts));
             $class = "BlackCat\\Database\\Packages\\{$pkgPascal}\\{$pkgPascal}Module";
 
             if (!class_exists($class)) {
@@ -298,13 +320,15 @@ final class DbHarness
             throw new \RuntimeException("Repository not found for table: {$table}");
         }
 
-        $repoFqn = $inf['repo'];
+        $repoFqn = $inf['repo'] ?? null;
         if (!$repoFqn || !class_exists($repoFqn)) {
             // registry may come from another run -> re-derive it
-            $repoFqn = self::resolveRepoFqn($inf['ns'] ?? '', $inf['defs'] ?? '');
+            $nsVal  = (string)$inf['ns'];
+            $defsVal= (string)$inf['defs'];
+            $repoFqn = self::resolveRepoFqn($nsVal, $defsVal);
         }
         if (!$repoFqn || !class_exists($repoFqn)) {
-            $ns = $inf['ns'] ?? '(unknown)';
+            $ns = (string)$inf['ns'];
             throw new \RuntimeException("Repository class not found for table '{$table}' under namespace '{$ns}'.");
         }
         self::dbg('repoFor(%s): %s', $table, $repoFqn);
@@ -319,7 +343,7 @@ final class DbHarness
         if (!$inf) {
             throw new \RuntimeException("Definitions not found for table: {$table}");
         }
-        return $inf['defs'];
+        return (string)$inf['defs'];
     }
 
     /** Primary key from Definitions::pk() (fallback 'id'). */
@@ -397,18 +421,70 @@ final class DbHarness
     public static function rollback(): void { Database::getInstance()->rollBack(); }
 
     /**
+     * Post-install sanity: every registered table should be introspectable.
+     * Runs a second pass with a tiny delay to avoid transient races, and emits a
+     * clear warning if metadata stays empty (indicating a real install issue).
+     */
+    private static function verifySchemaPostInstall(): void
+    {
+        if (empty(self::$registry)) return;
+
+        self::dbg('verifySchemaPostInstall: checking %d tables', count(self::$registry));
+
+        foreach (array_keys(self::$registry) as $table) {
+            $cols = self::columns($table);
+            if ($cols) {
+                continue;
+            }
+            // small retry in case the engine lags in updating information_schema
+            usleep(150000); // 150ms
+            $cols = self::columns($table);
+            if (!$cols) {
+                self::warnOnce("postinstall-cols:{$table}",
+                    'columns(%s): empty after install; verify schema generation/installation.', $table);
+            }
+        }
+    }
+
+    /** Format first external caller (file:line or function) for diagnostics. */
+    private static function formatCaller(): string
+    {
+        $bt = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 8);
+        foreach ($bt as $f) {
+            $cls = $f['class'] ?? '';
+            if ($cls === __CLASS__) continue;
+            if (isset($f['file'], $f['line'])) {
+                return basename((string)$f['file']) . ':' . (string)$f['line'];
+            }
+            // debug_backtrace always carries 'function'; keep simple cast
+            return (string)$f['function'];
+        }
+        return 'unknown';
+    }
+
+    /**
      * Column metadata from information_schema (normalized). Logs reasons when nothing is found.
-     * @return array<int,array{name:string,type:string,full_type:string,nullable:bool,col_default:mixed,is_identity:bool}>
+     * @return array<int,array<string,mixed>>
      */
     public static function columns(string $table): array
     {
+        if (self::$installFinishedAt === null && self::$installDepth === 0) {
+            self::warnOnce("preinstall-columns:{$table}",
+                'columns(%s) invoked before install completed (caller: %s)',
+                $table, self::formatCaller());
+        }
+
         static $cache = [];
+        static $missCounter = [];
         [$dial] = self::dialect(); /** @var SqlDialect $dial */
         $useCache = !self::cacheDisabled();
         $sfx = self::cacheSuffix();
         $db = Database::getInstance();
 
         $key = ($dial->isPg() ? 'pg:' . self::pgSchema() : 'mysql') . ':' . $table . ':' . $sfx;
+        $missKey = $dial->isPg()
+            ? 'pg:' . self::pgSchema() . ':' . strtolower($table)
+            : 'mysql:' . strtolower($table);
         if ($useCache && isset($cache[$key])) { return $cache[$key]; }
 
         self::dbg('columns(%s): query information_schema (dialect=%s)', $table, $dial->value);
@@ -427,39 +503,44 @@ final class DbHarness
             $sql = "SELECT COLUMN_NAME AS name, DATA_TYPE AS type, COLUMN_TYPE AS full_type,
                         IS_NULLABLE='YES' AS nullable,
                         COLUMN_DEFAULT AS col_default,
-                        EXTRA LIKE '%auto_increment%' AS is_identity
+                        EXTRA LIKE '%auto_increment%' AS is_identity,
+                        EXTRA LIKE '%GENERATED%' AS is_generated
                     FROM information_schema.COLUMNS
                     WHERE TABLE_SCHEMA = DATABASE() AND LOWER(TABLE_NAME) = LOWER(:t)
                     ORDER BY ORDINAL_POSITION";
-            $rows = $db->fetchAll($sql, [':t'=>$phys]) ?? [];
+        $rows = self::rows($db->fetchAll($sql, [':t'=>$phys]));
             if ($rows) {
                 self::dbg('columns(%s): information_schema OK (%d cols)', $table, count($rows));
                 if ($useCache) { $cache[$keyPhys] = $rows; }
                 return $rows;
             }
+            $missCounter[$missKey] = ($missCounter[$missKey] ?? 0) + 1;
 
             // nothing in I_S -> verify the table actually exists (avoid SHOW on non-existent tables)
             $curDb = (string)($db->fetchOne('SELECT DATABASE()') ?? '');
-            $existsTable = (int)$db->fetchOne(
-                "SELECT COUNT(*) FROM information_schema.TABLES
-                WHERE TABLE_SCHEMA=DATABASE() AND LOWER(TABLE_NAME)=LOWER(:t)",
-                [':t'=>$phys]
-            );
+                $existsTable = (int)$db->fetchOne(
+                    "SELECT COUNT(*) FROM information_schema.TABLES
+                    WHERE TABLE_SCHEMA=DATABASE() AND LOWER(TABLE_NAME)=LOWER(:t)",
+                    [':t'=>$phys]
+                );
 
             if ($existsTable > 0) {
                 // fallback: SHOW FULL COLUMNS (table)
                 try {
-                    $fallback = $db->fetchAll('SHOW FULL COLUMNS FROM ' . $db->quoteIdent($phys)) ?? [];
+                        $fallback = self::rows($db->fetchAll('SHOW FULL COLUMNS FROM ' . $db->quoteIdent($phys)));
                     $norm = [];
                     foreach ($fallback as $r) {
+                        $typeRaw = (string)($r['Type'] ?? '');
+                        $typeBase = preg_replace('/\(.*/', '', $typeRaw);
                         $norm[] = [
                             'name'        => (string)$r['Field'],
-                            'type'        => strtolower(preg_replace('/\(.*/', '', (string)$r['Type'])),
-                            'full_type'   => (string)$r['Type'],
+                            'type'        => strtolower($typeBase ?? $typeRaw),
+                            'full_type'   => $typeRaw,
                             'nullable'    => (bool) (strtoupper((string)$r['Null']) === 'YES'),
                             'col_default' => $r['Default'] ?? null,
                             'is_identity' => (bool) (str_contains((string)$r['Extra'], 'auto_increment')),
                         ];
+                        $norm[count($norm)-1]['is_generated'] = (bool)stripos((string)$r['Extra'], 'generated') !== false;
                     }
                     if ($norm) {
                         self::dbg('columns(%s): using SHOW FULL COLUMNS fallback (table, %d cols)', $table, count($norm));
@@ -485,13 +566,15 @@ final class DbHarness
                 );
                 if ($isView > 0) {
                     try {
-                        $fallbackV = $db->fetchAll('SHOW FULL COLUMNS FROM ' . $db->quoteIdent($viewPhys)) ?? [];
+                        $fallbackV = self::rows($db->fetchAll('SHOW FULL COLUMNS FROM ' . $db->quoteIdent($viewPhys)));
                         $normV = [];
                         foreach ($fallbackV as $r) {
+                            $typeRaw = (string)($r['Type'] ?? '');
+                            $typeBase = preg_replace('/\(.*/', '', $typeRaw);
                             $normV[] = [
                                 'name'        => (string)$r['Field'],
-                                'type'        => strtolower(preg_replace('/\(.*/', '', (string)$r['Type'])),
-                                'full_type'   => (string)$r['Type'],
+                                'type'        => strtolower($typeBase ?? $typeRaw),
+                                'full_type'   => $typeRaw,
                                 'nullable'    => (bool) (strtoupper((string)$r['Null']) === 'YES'),
                                 'col_default' => $r['Default'] ?? null,
                                 'is_identity' => (bool) (str_contains((string)$r['Extra'], 'auto_increment')),
@@ -512,7 +595,11 @@ final class DbHarness
 
             // Exhausted options - stay quiet because this is expected before modules are installed
             self::dbg('columns(%s): MySQL fallbacks exhausted, returning empty meta', $table);
-            if ($useCache) { $cache[$keyPhys] = []; }
+            if (($missCounter[$missKey] ?? 0) >= 2) {
+                self::warnOnce("cols-miss:mysql:{$table}", 'columns(%s): no rows; schema=DATABASE(); attempts=%d', $table, $missCounter[$missKey]);
+            }
+            // cache empty only after the first miss to allow retry and warn
+            if ($useCache && ($missCounter[$missKey] ?? 0) >= 2) { $cache[$keyPhys] = []; }
             return [];
         }
 
@@ -525,7 +612,7 @@ final class DbHarness
                 FROM information_schema.columns
                 WHERE table_schema=:schema AND table_name = :t
                 ORDER BY ordinal_position";
-        $rows = $db->fetchAll($sql, [':schema'=>$schema, ':t'=>$table]) ?? [];
+        $rows = self::rows($db->fetchAll($sql, [':schema'=>$schema, ':t'=>$table]));
         if (!$rows) {
             $found = $db->fetchOne(
                 "SELECT table_schema
@@ -534,14 +621,17 @@ final class DbHarness
                 LIMIT 1",
                 [':t'=>$table]
             );
-            self::warnOnce("pg-cols-miss:{$schema}:{$table}",
-                'columns(%s): no rows in schema=%s; foundInOtherSchema=%s',
-                $table, $schema, $found ? (string)$found : 'no'
-            );
+            $missCounter[$missKey] = ($missCounter[$missKey] ?? 0) + 1;
+            if ($missCounter[$missKey] >= 2) {
+                self::warnOnce("pg-cols-miss:{$schema}:{$table}",
+                    'columns(%s): no rows in schema=%s; foundInOtherSchema=%s; attempts=%d',
+                    $table, $schema, $found ? (string)$found : 'no', $missCounter[$missKey]
+                );
+            }
         } else {
             self::dbg('columns(%s): information_schema OK (schema=%s, %d cols)', $table, $schema, count($rows));
         }
-        if ($useCache) { $cache[$key] = $rows; }
+        if ($useCache && ($rows || ($missCounter[$missKey] ?? 0) >= 2)) { $cache[$key] = $rows; }
         return $rows;
     }
 
@@ -584,7 +674,7 @@ final class DbHarness
             $params = [':schema'=>self::pgSchema(), ':t'=>$table];
         }
 
-        $rows = $db->fetchAll($sql, $params) ?? [];
+        $rows = self::rows($db->fetchAll($sql, $params));
         $grp = [];
         foreach ($rows as $r) {
             $name = (string)$r['name'];
@@ -617,6 +707,17 @@ final class DbHarness
                 $cols = (array)$defs::columns();
                 if ($cols) {
                     $cols = array_values(array_map('strval', $cols));
+                    // Drop generated/computed columns (e.g., *_norm, *_ci) so inserts do not try to set them.
+                    $genMeta = array_fill_keys(
+                        array_map(
+                            static fn($m) => strtolower((string)$m['name']),
+                            array_filter(self::columns($table), static fn($m) => !empty($m['is_generated']))
+                        ),
+                        true
+                    );
+                    if ($genMeta) {
+                        $cols = array_values(array_filter($cols, static fn($c) => !isset($genMeta[strtolower($c)])));
+                    }
                     self::dbg('allowedColumns(%s): from Definitions (%d)', $table, count($cols));
                     return $cols;
                 }
@@ -662,7 +763,7 @@ final class DbHarness
             $params = [':schema'=>self::pgSchema(), ':t'=>$table];
         }
 
-        $rows = $db->fetchAll($sql, $params) ?? [];
+        $rows = self::rows($db->fetchAll($sql, $params));
         $grp = [];
         foreach ($rows as $r) {
             $n = (string)$r['name'];
@@ -734,7 +835,7 @@ final class DbHarness
         // If the caller provided a PK - just return it.
         if (array_key_exists($pkCol, $rowUsed) && $rowUsed[$pkCol] !== null && $rowUsed[$pkCol] !== '') {
             self::dbg('insertAndReturnId(%s): PK provided in payload (%s) → insert + return', $table, $pkCol);
-            $repo->insert($rowUsed);
+            if (method_exists($repo, 'insert')) { $repo->insert($rowUsed); }
             return ['pkCol'=>$pkCol, 'pk'=>$rowUsed[$pkCol]];
         }
 
@@ -746,7 +847,9 @@ final class DbHarness
 
         // 1) INSERT
         self::dbg('insertAndReturnId(%s): inserting payload keys=[%s]', $table, implode(',', array_keys($rowUsed)));
-        $repo->insert($rowUsed);
+        if (method_exists($repo, 'insert')) {
+            $repo->insert($rowUsed);
+        }
 
         // 2) lastInsertId()
         try {
@@ -887,10 +990,15 @@ final class DbHarness
         $db = Database::getInstance();
         $map = [];
 
+        // Known problematic check (collations add _utf8 prefixes) – normalize manually.
+        if (strcasecmp($table, 'app_settings') === 0) {
+            $map['type'] = ['string','int','bool','json','secret'];
+        }
+
         if ($dial->isPg()) {
             self::dbg('enumChoices(%s): PG mode', $table);
             // a) native PG ENUM (including domains over ENUM)
-            $rows = $db->fetchAll(<<<'SQL'
+            $rows = self::rows($db->fetchAll(<<<'SQL'
                 SELECT a.attname AS col, e.enumlabel AS val
                 FROM pg_attribute a
                 JOIN pg_class t   ON t.oid = a.attrelid
@@ -901,11 +1009,11 @@ final class DbHarness
                 WHERE n.nspname=:schema AND t.relname = :t
                 AND a.attnum > 0 AND NOT a.attisdropped
                 ORDER BY e.enumsortorder
-            SQL, [':schema'=>self::pgSchema(), ':t'=>$table]) ?? [];
+            SQL, [':schema'=>self::pgSchema(), ':t'=>$table]));
             foreach ($rows as $r) { $map[(string)$r['col']][] = (string)$r['val']; }
 
             // b) CHECK constraints - two sources: (1) pg_get_constraintdef, (2) pg_get_expr(c.conbin, ...)
-            $defs = $db->fetchAll(
+            $defs = self::rows($db->fetchAll(
                 "SELECT pg_get_constraintdef(c.oid) AS def,
                         pg_get_expr(c.conbin, c.conrelid) AS expr
                  FROM pg_constraint c
@@ -913,7 +1021,7 @@ final class DbHarness
                  JOIN pg_namespace n ON n.oid = t.relnamespace
                  WHERE c.contype='c' AND n.nspname=:schema AND t.relname = :t",
                 [':schema'=>self::pgSchema(), ':t'=>$table]
-            ) ?? [];
+            ));
 
             foreach ($defs as $d) {
                 $def  = (string)($d['def']  ?? '');
@@ -1019,12 +1127,12 @@ final class DbHarness
             self::dbg('enumChoices(%s): MySQL mode', $table);
             $phys = self::resolvePhysicalName($table);
             // (cache key and check prepared above)
-            $rows = $db->fetchAll(
+            $rows = self::rows($db->fetchAll(
                 "SELECT column_name, column_type
                  FROM information_schema.columns
                  WHERE table_schema = DATABASE() AND LOWER(table_name) = LOWER(:t)",
                 [':t'=>$phys]
-            ) ?? [];
+            ));
             foreach ($rows as $r) {
                 $ct = strtolower((string)($r['column_type'] ?? ''));
                 if (preg_match('/^enum\((.+)\)$/', $ct, $m) && preg_match_all("/'((?:\\\\'|[^'])*)'/", $m[1], $mm)) {
@@ -1082,14 +1190,14 @@ final class DbHarness
         $req = [];
 
         if ($dial->isPg()) {
-            $rows = $db->fetchAll(
+            $rows = self::rows($db->fetchAll(
                 "SELECT pg_get_constraintdef(c.oid) AS def
                  FROM pg_constraint c
                  JOIN pg_class t ON t.oid = c.conrelid
                  JOIN pg_namespace n ON n.oid = t.relnamespace
                  WHERE c.contype='c' AND n.nspname=:schema AND t.relname = :t",
                 [':schema'=>self::pgSchema(), ':t'=>$table]
-            ) ?? [];
+            ));
             foreach ($rows as $r) {
                 $def = (string)$r['def'];
                 if (preg_match_all('/"(?<col>[a-z0-9_]+)"(?:::text)?\s+IS\s+NOT\s+NULL/i', $def, $m)) {
@@ -1166,6 +1274,12 @@ final class DbHarness
                 continue;
             }
 
+            // app_settings.type has very small allowed values; keep it simple
+            if ($table === 'app_settings' && $kLc === 'type') {
+                $row[$k] = 'string';
+                continue;
+            }
+
             // b) booleans -> 0/1 (MySQL TINYINT(1))
             if (preg_match('/tinyint|bool/i', $type)) {
                 if (is_bool($v)) {
@@ -1184,6 +1298,10 @@ final class DbHarness
                 } elseif (!is_string($v) || $v === '' || json_decode((string)$v, true) === null) {
                     $row[$k] = '{}';
                 }
+                continue;
+            }
+            if (in_array($kLc, ['meta','selection','payload'], true)) {
+                $row[$k] = '{}';
                 continue;
             }
 
@@ -1298,6 +1416,22 @@ final class DbHarness
             if (!isset($meta[$k])) { continue; }
             $type = $meta[$k]['type'];
             $kLc  = strtolower($k);
+
+            // UUID columns: always provide a valid UUID literal
+            if (str_contains($type, 'uuid')) {
+                if (!is_string($v) || !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', (string)$v)) {
+                    $v = bin2hex(random_bytes(16));
+                    $row[$k] = sprintf(
+                        '%s-%s-%s-%s-%s',
+                        substr($v, 0, 8),
+                        substr($v, 8, 4),
+                        substr($v, 12, 4),
+                        substr($v, 16, 4),
+                        substr($v, 20, 12)
+                    );
+                }
+                continue;
+            }
 
             // boolean → 'true' / 'false' (STRING!)
             if (preg_match('/\bbool/i', $type)) {
@@ -1513,18 +1647,18 @@ final class DbHarness
 
         if ($dial->isPg()) {
             $schema = self::pgSchema();
-            $rows = $db->fetchAll(
+            $rows = self::rows($db->fetchAll(
                 "SELECT table_name AS name FROM information_schema.views
                  WHERE table_schema=:s ORDER BY table_name", [':s'=>$schema]
-            ) ?? [];
+            ));
             $all = array_map(fn($r)=>(string)$r['name'], $rows);
             self::tv('[SNAP] PG schema=%s views.count=%d -> %s', $schema, count($all), implode(', ', $all));
         } else {
             $curDb = (string)($db->fetchOne('SELECT DATABASE()') ?? '');
-            $rows = $db->fetchAll(
+            $rows = self::rows($db->fetchAll(
                 "SELECT TABLE_NAME AS name FROM information_schema.VIEWS
                  WHERE TABLE_SCHEMA=DATABASE() ORDER BY TABLE_NAME"
-            ) ?? [];
+            ));
             $all = array_map(fn($r)=>(string)$r['name'], $rows);
             self::tv('[SNAP] MySQL db=%s views.count=%d -> %s', $curDb !== '' ? $curDb : '(NULL)', count($all), implode(', ', $all));
         }
@@ -1553,14 +1687,14 @@ final class DbHarness
             // Detect duplicate names (e.g., prefix + vw_<table>) - MySQL only
             if (!$dial->isPg()) {
                 $cand = 'vw_' . $t;
-                $rows = $db->fetchAll(
-                    "SELECT TABLE_NAME AS name FROM information_schema.VIEWS
-                     WHERE TABLE_SCHEMA=DATABASE()
-                     AND LOWER(TABLE_NAME) LIKE LOWER(CONCAT('%', :cand))
-                     ORDER BY LENGTH(TABLE_NAME)",
-                    [':cand'=>$cand]
-                ) ?? [];
-                $dups = array_map(fn($r)=>(string)$r['name'], $rows);
+            $rowsDup = self::rows($db->fetchAll(
+                "SELECT TABLE_NAME AS name FROM information_schema.VIEWS
+                 WHERE TABLE_SCHEMA=DATABASE()
+                 AND LOWER(TABLE_NAME) LIKE LOWER(CONCAT('%', :cand))
+                 ORDER BY LENGTH(TABLE_NAME)",
+                [':cand'=>$cand]
+            ));
+            $dups = array_map(fn($r)=>(string)$r['name'], $rowsDup);
                 if (count($dups) > 1) {
                     self::tv('[DUP] table=%s cand=%s -> found views: %s', $t, $cand, implode(', ', $dups));
                 }
@@ -1569,7 +1703,8 @@ final class DbHarness
 
         // Check expected computed columns (MySQL only)
         if (!$dial->isPg()) {
-            $strictRaw = $_ENV['BC_STRICT_TRACE_VIEWS'] ?? getenv('BC_STRICT_TRACE_VIEWS') ?? '';
+            $strictEnv = $_ENV['BC_STRICT_TRACE_VIEWS'] ?? null;
+            $strictRaw = is_string($strictEnv) ? $strictEnv : (getenv('BC_STRICT_TRACE_VIEWS') ?: '');
             $strict = ($strictRaw === '1' || strcasecmp((string)$strictRaw, 'true') === 0);
 
             if (!$strict) {
@@ -1591,11 +1726,11 @@ final class DbHarness
                     );
                     if ($exists === 0) { self::tv('[CHECK] %s: view missing', $view); continue; }
 
-                    $rows = $db->fetchAll(
+                    $rows = self::rows($db->fetchAll(
                         "SELECT LOWER(COLUMN_NAME) AS col FROM information_schema.COLUMNS
                         WHERE TABLE_SCHEMA=DATABASE() AND LOWER(TABLE_NAME)=LOWER(:v)",
                         [':v'=>$view]
-                    ) ?? [];
+                    ));
                     $have = array_fill_keys(array_map(fn($r)=>(string)$r['col'], $rows), true);
                     $miss = [];
                     foreach ($cols as $c) if (!isset($have[strtolower($c)])) $miss[] = $c;
@@ -1603,8 +1738,8 @@ final class DbHarness
                     if ($miss) {
                         self::tv('[CHECK] %s: MISSING columns: %s', $view, implode(',', $miss));
                         try {
-                            $scv = $db->fetchAll('SHOW CREATE VIEW ' . $db->quoteIdent($view)) ?? [];
-                            $ddl = $scv[0]['Create View'] ?? ($scv[0]['Create View'] ?? '');
+                            $scv = self::rows($db->fetchAll('SHOW CREATE VIEW ' . $db->quoteIdent($view)));
+                            $ddl = isset($scv[0]['Create View']) ? (string)$scv[0]['Create View'] : '';
                             if (is_string($ddl) && $ddl !== '') {
                                 self::tv('[CHECK] SHOW CREATE VIEW %s: %s', $view, $ddl);
                             }
@@ -1636,8 +1771,9 @@ final class DbHarness
     }
 
     private static function envTrue(string $name): bool {
-        $v = $_ENV[$name] ?? getenv($name) ?? '';
-        return $v === '1' || strcasecmp((string)$v, 'true') === 0;
+        $raw = $_ENV[$name] ?? getenv($name);
+        $v   = is_string($raw) ? $raw : '';
+        return $v === '1' || strcasecmp($v, 'true') === 0;
     }
 
     /** Finds <repo>/schema next to /src in the module (best-effort for tests). */
@@ -1669,23 +1805,25 @@ final class DbHarness
         $schemaDir = self::moduleSchemaDir($m);
         if (!$schemaDir) return [];
         $d = $dialect->isMysql() ? 'mysql' : 'postgres';
-        $path = $schemaDir . DIRECTORY_SEPARATOR . "040_views.$d.sql";
-        if (!is_file($path)) return [];
-        $sql = (string)@file_get_contents($path);
-        if ($sql === '') return [];
-        // same regex core as Installer
-        if (preg_match_all(
-            '~CREATE\s+(?:OR\s+REPLACE\s+)?'
-        . '(?:ALGORITHM\s*=\s*\w+\s+|DEFINER\s*=\s*(?:`[^`]+`@`[^`]+`|[^ \t]+)\s+|SQL\s+SECURITY\s+\w+\s+)*'
-        . 'VIEW\s+(`?"?)([A-Za-z0-9_]+)\1\s+AS~i',
-            $sql, $m1
-        )) {
-            // case-insensitive set, return clean names
-            $set = [];
-            foreach ($m1[2] as $v) { $set[strtolower((string)$v)] = (string)$v; }
-            return array_values($set);
+        $paths = [];
+        $paths[] = $schemaDir . DIRECTORY_SEPARATOR . "040_views.$d.sql";
+        $paths = array_merge($paths, glob($schemaDir . "/modules/*/040_views_modules.$d.sql") ?: []);
+
+        $set = [];
+        foreach ($paths as $path) {
+            if (!is_file($path)) { continue; }
+            $sql = (string)@file_get_contents($path);
+            if ($sql === '') { continue; }
+            if (preg_match_all(
+                '~CREATE\s+(?:OR\s+REPLACE\s+)?'
+            . '(?:ALGORITHM\s*=\s*\w+\s+|DEFINER\s*=\s*(?:`[^`]+`@`[^`]+`|[^ \t]+)\s+|SQL\s+SECURITY\s+\w+\s+)*'
+            . 'VIEW\s+(`?"?)([A-Za-z0-9_]+)\1\s+AS~i',
+                $sql, $m1
+            )) {
+                foreach ($m1[2] as $v) { $set[strtolower((string)$v)] = (string)$v; }
+            }
         }
-        return [];
+        return array_values($set);
     }
 
     private static function verifyViewsOrRepair(array $mods, Installer $installer, SqlDialect $dialect): void {
@@ -1795,7 +1933,8 @@ final class DbHarness
                    AND tc.TABLE_SCHEMA     = DATABASE()
                    AND LOWER(tc.TABLE_NAME) = LOWER(:t)",
                 [':t' => $phys]
-            ) ?? [];
+            );
+            if (!is_array($rows)) { $rows = []; }
         } catch (\Throwable $e) {
             self::logDbError("mysqlCheckClausesForTable({$table})", $e, true, "checks:{$table}");
             $rows = [];
@@ -1898,12 +2037,15 @@ final class DbHarness
     {
         self::$registry = [];
         foreach ($mods as $m) {
-            if (!method_exists($m, 'table')) continue;
+            if (!is_object($m) || !method_exists($m, 'table')) continue;
 
             $table  = (string)$m->table();
             $cls    = get_class($m); // ...\Packages\X\XModule -> base ...\Packages\X
-            $nsBase = (string)preg_replace('~\\\[^\\\]+$~', '', $cls);
-            $nsBase = (string)preg_replace('~Module$~', '', $nsBase);
+            $lastNs = strrpos($cls, '\\');
+            $nsBase = ($lastNs !== false) ? substr($cls, 0, $lastNs) : $cls;
+            if (str_ends_with($nsBase, 'Module')) {
+                $nsBase = substr($nsBase, 0, -strlen('Module'));
+            }
             if (str_ends_with($nsBase, '\\')) $nsBase = substr($nsBase, 0, -1);
 
             $defs = $nsBase . '\\Definitions';
@@ -1949,11 +2091,13 @@ final class DbHarness
         $pkgPascal = basename(str_replace('\\', '/', $nsBase)); // "Users", "Orders", ...
         $dir = realpath(__DIR__ . "/../../packages/{$pkgPascal}/src/Repository");
         if ($dir && is_dir($dir)) {
-            foreach (glob($dir . '/*Repository.php') ?: [] as $file) {
+            $files = glob($dir . '/*Repository.php') ?: [];
+            foreach ($files as $file) {
                 $base = basename($file, '.php');              // e.g., UserRepository
                 $fqn  = $nsBase . "\\Repository\\{$base}";
-                if (class_exists($fqn)) return $fqn;
-                require_once $file;                            // load it
+                if (!class_exists($fqn)) {
+                    require_once $file;                        // load it
+                }
                 if (class_exists($fqn)) return $fqn;
             }
         }
@@ -1964,8 +2108,8 @@ final class DbHarness
     /** very simple singularization aligned with the generator */
     private static function singularize(string $word): string
     {
-        if (preg_match('~ies$~i', $word))   return preg_replace('~ies$~i', 'y', $word);
-        if (preg_match('~sses$~i', $word))  return preg_replace('~es$~i',  '',  $word);
+        if (preg_match('~ies$~i', $word))   return (string)preg_replace('~ies$~i', 'y', $word);
+        if (preg_match('~sses$~i', $word))  return (string)preg_replace('~es$~i',  '',  $word);
         if (preg_match('~s$~i', $word) && !preg_match('~(news|status)$~i', $word)) {
             return substr($word, 0, -1);
         }
@@ -1985,7 +2129,7 @@ final class DbHarness
 
     private static function bootstrapOnce(): void
     {
-        if (self::$bootstrapped) return;
+        if (self::$bootstrapped === true) return;
         self::$bootstrapped = true;
         // installs/upgrades modules + builds registry
         self::ensureInstalled();
@@ -1993,10 +2137,10 @@ final class DbHarness
 
     private static function ensureRegistry(): void
     {
-        if (self::$registry) return;
+        if (!empty(self::$registry)) return;
         // NEW: instead of discover/build, always ensure install first
         self::bootstrapOnce();
-        if (self::$registry) return; // ensureInstalled already built the registry
+        if (!empty(self::$registry)) return; // ensureInstalled already built the registry
 
         // safety fallback - should not run, but harmless
         [$dial] = self::dialect();

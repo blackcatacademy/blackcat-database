@@ -75,7 +75,11 @@ final class LockMode
         if ($db->isMysql()) {
             // MariaDB: SKIP LOCKED since 10.3+, NOWAIT usually not
             if (DbVendor::isMaria($db)) {
-                return ($m === self::MODE_SKIP_LOCKED && self::mariaSupportsSkipLocked($db)) ? ' SKIP LOCKED' : '';
+                if ($m === self::MODE_SKIP_LOCKED && self::mariaSupportsSkipLocked($db)) {
+                    return ' SKIP LOCKED';
+                }
+                // Older MariaDB or rejected SKIP LOCKED → no suffix (behaves like WAIT).
+                return '';
             }
 
             // Oracle MySQL 8.0+ (including Aurora MySQL 3.x) – NOWAIT and SKIP LOCKED
