@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$Packages = 'packages',          # folder containing package submodules
+  [string]$Packages = 'packages',          # folder containing package submodules (relative to repo root by default)
   [switch]$Force,                          # overwrite existing files
   [switch]$DryRun,                         # only prints the actions
   [int]$Year = 2025,
@@ -17,6 +17,10 @@ param(
 )
 
 Set-StrictMode -Version Latest
+
+# Resolve repo root (one level above scripts/quality by default) and packages path
+$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..') | Select-Object -ExpandProperty Path
+$packagesPath = if ([IO.Path]::IsPathRooted($Packages)) { $Packages } else { Join-Path $repoRoot $Packages }
 
 # ----------------- Helpers -----------------
 function Set-FileContentSafe {
@@ -174,12 +178,12 @@ $NoticeText  = Get-Body -Path $NoticePath  -DefaultText $DefaultNotice  -Map $ph
 $LegalMd     = Get-Body -Path $LegalPath   -DefaultText $DefaultLegal   -Map $ph
 
 # ----------------- Run -----------------
-if (-not (Test-Path $Packages)) {
-  throw "Packages folder '$Packages' not found. Run the script from the umbrella repo root."
+if (-not (Test-Path -LiteralPath $packagesPath)) {
+  throw "Packages folder '$packagesPath' not found. Run from repo root or set -Packages explicitly."
 }
 
-$modules = Get-ChildItem -Directory $Packages | Sort-Object Name
-if ($modules.Count -eq 0) { Write-Host "No modules found under '$Packages'." ; return }
+$modules = Get-ChildItem -Directory $packagesPath | Sort-Object Name
+if ($modules.Count -eq 0) { Write-Host "No modules found under '$packagesPath'." ; return }
 
 $changed = @()
 foreach ($m in $modules) {
@@ -198,12 +202,8 @@ foreach ($m in $modules) {
   }
 
   if ($did1 -or $did2 -or $did3) {
-    git -C $repoPath add LICENSE NOTICE LEGAL.md
-    if (Test-GitPendingChanges -RepoPath $repoPath) {
-      git -C $repoPath commit -m "legal: enforce proprietary LICENSE, add NOTICE & LEGAL.md"
-      if ($Push) { git -C $repoPath push }
-      $changed += $name
-    }
+    Write-Host "Updated LICENSE/NOTICE/LEGAL in $name (pending manual git add/commit/push)."
+    $changed += $name
   } else {
     Write-Host "OK   (no change)"
   }
@@ -219,16 +219,5 @@ $u3 = Set-FileContentSafe -Path (Join-Path $umbrellaRoot 'LEGAL.md') -Content $L
 
 # brief log plus change aggregation
 Write-Host "Umbrella writes → $umbrellaRoot  | LICENSE=$u1 NOTICE=$u2 LEGAL=$u3"
-$umbrellaChanged = ($u1 -or $u2 -or $u3)
-
-if (-not $DryRun -and $umbrellaChanged) {
-  git -C $umbrellaRoot add LICENSE NOTICE LEGAL.md
-}
-
-if (-not $DryRun -and ($changed.Count -gt 0 -or $umbrellaChanged)) {
-  git add $Packages
-  git commit -m "legal: add/enforce proprietary LICENSE, NOTICE & LEGAL.md in submodules and umbrella"
-  if ($Push) { git push }
-}
 
 Write-Host "Done. Updated modules: $($changed -join ', ')"

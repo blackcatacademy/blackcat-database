@@ -436,8 +436,6 @@ foreach ($t in $tables) {
   $explorerPath = Join-Path $pkgPath 'docs/schema-explorer.html'
   $explorerLink = Get-PkgLink -Path $explorerPath -PreferRelative
 
-  # ERD images disabled; rely on mermaid auto-render from definitions
-  $erdImgLink = $null
   $schemaDir = Join-Path $pkgPath 'schema'
   $schemaFiles = @()
   if (Test-Path -LiteralPath $schemaDir) {
@@ -568,101 +566,79 @@ foreach ($t in $tables) {
     $lines.Add("") | Out-Null
   }
 
-  # Hero/vibe block
-  $docsLabel = if ($docsLink) { "<a href='$docsLink'>definitions</a>" } else { "<span style='opacity:0.65;'>definitions missing</span>" }
+  # Hero/vibe block (Markdown-friendly callout)
+  $docsLabel = if ($docsLink) { "[$docsLink]($docsLink)" } else { "_definitions missing_" }
   $driftLabel = if ($driftStatus) { $driftStatus } else { 'Drift: n/a (no definitions yet)' }
-  $lines.Add("<div style='margin:12px 0 18px;padding:14px 16px;border-radius:14px;background:linear-gradient(120deg,#0b1021 0%,#111827 40%,#312e81 100%);color:#e2e8f0;border:1px solid #1f2937;box-shadow:0 18px 55px rgba(49,46,129,0.35);'>") | Out-Null
-  $lines.Add("<div style='font-weight:700;letter-spacing:0.4px;font-size:14px;'>Schema vibe</div>") | Out-Null
-  $lines.Add("<div style='font-size:13px;opacity:0.95;'>Map: <a href='$mapLink' style='color:#a5b4fc;'>$mapLabel</a> · Docs: $docsLabel · Drift warnings: $driftCount</div>") | Out-Null
-  $lines.Add("<div style='font-size:13px;opacity:0.92;'>Lineage heat: $fkRefCount outbound / $inboundRefCount inbound · $driftLabel · Index coverage: " + ($(if ($indexCoverageOk) { 'ready' } else { 'todo' })) + " · PII: " + ($(if ($piiCount -eq 0) { 'none' } else { $piiCount })) + " · Changelog: $changelogDescriptor</div>") | Out-Null
-  $lines.Add("</div>") | Out-Null
+  $lines.Add("> **Schema snapshot**") | Out-Null
+  $lines.Add(("> Map: [{0}]({1}) · Docs: {2} · Drift warnings: {3}" -f $mapLabel, $mapLink, $docsLabel, $driftCount)) | Out-Null
+  $lines.Add(("> Lineage: {0} outbound / {1} inbound · {2} · Index coverage: {3} · PII flags: {4} · Changelog: {5}" -f $fkRefCount, $inboundRefCount, $driftLabel, ($(if ($indexCoverageOk) { 'ready' } else { 'todo' })), $piiCount, $changelogDescriptor)) | Out-Null
   $lines.Add("") | Out-Null
 
   # Quick links
   $lines.Add("## Quick Links") | Out-Null
-  $lines.Add("- Schema map: [$mapLabel]($mapLink)") | Out-Null
+  $lines.Add("| What | Link | Notes |") | Out-Null
+  $lines.Add("| --- | --- | --- |") | Out-Null
+  $lines.Add(("| Schema map | [{0}]({1}) | Source for table metadata |" -f $mapLabel, $mapLink)) | Out-Null
   $pkgLabel = if ($pkgRootRel) { $pkgRootRel } else { $pkgPath }
   if ($pkgRootLink) {
-    $lines.Add("- Pkg folder: [$pkgLabel]($pkgRootLink)") | Out-Null
+    $lines.Add(("| Pkg folder | [{0}]({1}) | Repo location |" -f $pkgLabel, $pkgRootLink)) | Out-Null
   } else {
-    $lines.Add("- Pkg folder: $pkgLabel") | Out-Null
+    $lines.Add(("| Pkg folder | {0} | Repo location |" -f $pkgLabel)) | Out-Null
   }
-  if ($docsLink) { $lines.Add("- Definitions: [$docsLink]($docsLink)") | Out-Null } else { $lines.Add("- Definitions: _(missing)_") | Out-Null }
-  if ($engineDiffLink) { $lines.Add("- Engine differences: [$engineDiffLink]($engineDiffLink)") | Out-Null }
-  if ($explorerLink) { $lines.Add("- Schema Explorer: [$explorerLink]($explorerLink)") | Out-Null }
-  if ($changelogLink) { $lines.Add("- Changelog: [$changelogLink]($changelogLink)") | Out-Null } else { $lines.Add("- Changelog: _(missing)_") | Out-Null }
+  if ($docsLink) { $lines.Add(("| Definitions | [{0}]({0}) | Column/index/FK docs |" -f $docsLink)) | Out-Null } else { $lines.Add("| Definitions | _(missing)_ | run Build-Definitions |") | Out-Null }
+  if ($engineDiffLink) { $lines.Add(("| Engine differences | [{0}]({0}) | Drift section in definitions |" -f $engineDiffLink)) | Out-Null }
+  if ($explorerLink) { $lines.Add(("| Schema Explorer | [{0}]({0}) | HTML explorer (local) |" -f $explorerLink)) | Out-Null }
+  if ($changelogLink) { $lines.Add(("| Changelog | [{0}]({0}) | Recent changes |" -f $changelogLink)) | Out-Null } else { $lines.Add("| Changelog | _(missing)_ |  |") | Out-Null }
   $lines.Add("") | Out-Null
-  if ($erdImgLink) {
-    $lines.Add("<a href='$erdImgLink'><img src='$erdImgLink' alt='ERD preview' height='160'/></a>") | Out-Null
-    $lines.Add("") | Out-Null
-  } elseif (($fkRefCount + $inboundRefCount) -gt 0) {
-    $lines.Add("> ERD preview: auto-rendered from docs/definitions.md (mermaid).") | Out-Null
-    $miniGraph = New-RelationshipGraph -TableName $t -Outbound $fkRefs -Inbound $inboundRefs
-    foreach ($mg in $miniGraph) { $lines.Add($mg) | Out-Null }
-    $lines.Add("") | Out-Null
-  } elseif ($defsCount -gt 0) {
-    $lines.Add("> ERD preview: auto-rendered from docs/definitions.md (no FK links detected; showing anchor).") | Out-Null
-    $miniGraph = New-RelationshipGraph -TableName $t -Outbound @() -Inbound @()
-    foreach ($mg in $miniGraph) { $lines.Add($mg) | Out-Null }
-    $lines.Add("") | Out-Null
-  } else {
-    $lines.Add("> ERD preview: missing – add docs/erd.svg (or .png/.jpg) to this package.") | Out-Null
-    $lines.Add(([string]::new([char]96,3) + 'mermaid')) | Out-Null
-    $lines.Add("graph TD") | Out-Null
-    $lines.Add("  erd[ERD missing]:::warn --> howto[Add docs/erd.svg|png|jpg]") | Out-Null
-    $lines.Add("  classDef warn fill:#2d1b1b,stroke:#f87171,stroke-width:2px,color:#fecaca;") | Out-Null
-    $lines.Add("  classDef info fill:#0f172a,stroke:#60a5fa,stroke-width:2px,color:#bfdbfe;") | Out-Null
-    $lines.Add("  class howto info;") | Out-Null
-    $lines.Add([string]::new([char]96,3)) | Out-Null
-    $lines.Add("") | Out-Null
-  }
-
   # Contents / TOC
   $lines.Add("## Contents") | Out-Null
-  $lines.Add("- [Quick Links](#quick-links)") | Out-Null
-  $lines.Add("- [At a Glance](#at-a-glance)") | Out-Null
-  $lines.Add("- [Summary](#summary)") | Out-Null
-  $lines.Add("- [Relationship Graph](#relationship-graph)") | Out-Null
-  $lines.Add("- [Engine Matrix](#engine-matrix)") | Out-Null
-  $lines.Add("- [Engine Drift](#engine-drift)") | Out-Null
-  $lines.Add("- [Constraints Snapshot](#constraints-snapshot)") | Out-Null
-  $lines.Add("- [Compliance Notes](#compliance-notes)") | Out-Null
-  $lines.Add("- [Schema Files](#schema-files)") | Out-Null
-  $lines.Add("- [Views](#views)") | Out-Null
-  $lines.Add("- [Seeds](#seeds)") | Out-Null
-  $lines.Add("- [Usage](#usage)") | Out-Null
-  $lines.Add("- [Quality Gates](#quality-gates)") | Out-Null
-  $lines.Add("- [Regeneration](#regeneration)") | Out-Null
+  $lines.Add("| Section | Purpose |") | Out-Null
+  $lines.Add("| --- | --- |") | Out-Null
+  $lines.Add("| [Quick Links](#quick-links) | Jump to definitions/changelog/tooling |") | Out-Null
+  $lines.Add("| [At a Glance](#at-a-glance) | Key counts (columns/indexes/views) |") | Out-Null
+  $lines.Add("| [Summary](#summary) | Compact status matrix for this package |") | Out-Null
+  $lines.Add("| [Relationship Graph](#relationship-graph) | FK lineage snapshot |") | Out-Null
+  $lines.Add("| [Engine Matrix](#engine-matrix) | MySQL/Postgres coverage |") | Out-Null
+  $lines.Add("| [Engine Drift](#engine-drift) | Cross-engine diffs |") | Out-Null
+  $lines.Add("| [Constraints Snapshot](#constraints-snapshot) | Defaults/enums/checks |") | Out-Null
+  $lines.Add("| [Compliance Notes](#compliance-notes) | PII/secret hints |") | Out-Null
+  $lines.Add("| [Schema Files](#schema-files) | Scripts by engine |") | Out-Null
+  $lines.Add("| [Views](#views) | View definitions |") | Out-Null
+  $lines.Add("| [Seeds](#seeds) | Fixtures/smoke data |") | Out-Null
+  $lines.Add("| [Usage](#usage) | Runnable commands |") | Out-Null
+  $lines.Add("| [Quality Gates](#quality-gates) | Readiness checklist |") | Out-Null
+  $lines.Add("| [Regeneration](#regeneration) | Rebuild docs/readme |") | Out-Null
   $lines.Add("") | Out-Null
 
   # Summary
   $lines.Add("## At a Glance") | Out-Null
   $lines.Add("| Metric | Count |") | Out-Null
   $lines.Add("| --- | --- |") | Out-Null
-  $lines.Add("| Columns | $colCount |") | Out-Null
-  $lines.Add("| Indexes | $idxCount |") | Out-Null
-  $lines.Add("| Foreign keys | $fkCount |") | Out-Null
-  $lines.Add("| Unique keys | $uniqueCount |") | Out-Null
-  $lines.Add("| Outbound links (FK targets) | $fkRefCount |") | Out-Null
-  $lines.Add("| Inbound links (tables depending on this) | $inboundRefCount |") | Out-Null
-  $lines.Add("| Views | $viewsCount |") | Out-Null
-  $lines.Add("| Seeds | $seedCount |") | Out-Null
-  $lines.Add("| Drift warnings | $driftCount |") | Out-Null
-  $lines.Add("| PII flags | $piiCount |") | Out-Null
+  $lines.Add(("| Columns | **{0}** |" -f $colCount)) | Out-Null
+  $lines.Add(("| Indexes | **{0}** |" -f $idxCount)) | Out-Null
+  $lines.Add(("| Foreign keys | **{0}** |" -f $fkCount)) | Out-Null
+  $lines.Add(("| Unique keys | **{0}** |" -f $uniqueCount)) | Out-Null
+  $lines.Add(("| Outbound links (FK targets) | **{0}** |" -f $fkRefCount)) | Out-Null
+  $lines.Add(("| Inbound links (tables depending on this) | **{0}** |" -f $inboundRefCount)) | Out-Null
+  $lines.Add(("| Views | **{0}** |" -f $viewsCount)) | Out-Null
+  $lines.Add(("| Seeds | **{0}** |" -f $seedCount)) | Out-Null
+  $lines.Add(("| Drift warnings | **{0}** |" -f $driftCount)) | Out-Null
+  $lines.Add(("| PII flags | **{0}** |" -f $piiCount)) | Out-Null
   $lines.Add("") | Out-Null
 
   $lines.Add("## Summary") | Out-Null
-  $lines.Add("- Table: $t") | Out-Null
-  $lines.Add("- Schema files: $schemaCount") | Out-Null
-  $lines.Add("- Views: $viewCount") | Out-Null
-  $lines.Add("- Seeds: $seedCount") | Out-Null
-  $lines.Add("- Docs: " + ($(if ($docsLink) { "present" } else { "missing (run Build-Definitions)" }))) | Out-Null
-  $lines.Add("- Changelog: " + ($(if ($changelogLink) { "present" } else { "missing" }))) | Out-Null
-  if ($changelogFresh) { $lines.Add("- Changelog freshness: $changelogFresh ($changelogFreshDays days old; threshold $changelogFreshThreshold)") | Out-Null }
-  $lines.Add("- Outbound FK targets: " + ($(if ($fkRefCount -gt 0) { $fkRefCount } else { 'none' }))) | Out-Null
-  $lines.Add("- Inbound FK sources: " + ($(if ($inboundRefCount -gt 0) { $inboundRefCount } else { 'none (from definitions)' }))) | Out-Null
-  $lines.Add("- Index coverage: " + ($(if ($indexCoverageOk) { 'ready' } else { 'todo (add PK and at least one index)' }))) | Out-Null
-  $lines.Add("- Engine targets: PHP 8.3; MySQL/MariaDB/Postgres") | Out-Null
+  $lines.Add("| Item | Value |") | Out-Null
+  $lines.Add("| --- | --- |") | Out-Null
+  $lines.Add(("| Table | `{0}` |" -f $t)) | Out-Null
+  $lines.Add(("| Schema files | **{0}** |" -f $schemaCount)) | Out-Null
+  $lines.Add(("| Views | **{0}** |" -f $viewCount)) | Out-Null
+  $lines.Add(("| Seeds | **{0}** |" -f $seedCount)) | Out-Null
+  $lines.Add("| Docs | " + ($(if ($docsLink) { "**present**" } else { "_missing (run Build-Definitions)_" })) + " |") | Out-Null
+  $lines.Add("| Changelog | " + ($(if ($changelogLink) { "**present**" } else { "_missing_" })) + " |") | Out-Null
+  if ($changelogFresh) { $lines.Add(("| Changelog freshness | {0} ({1} days; threshold {2}) |" -f $changelogFresh, $changelogFreshDays, $changelogFreshThreshold)) | Out-Null }
+  $lines.Add(("| Lineage | outbound **{0}** / inbound **{1}** |" -f $fkRefCount, $inboundRefCount)) | Out-Null
+  $lines.Add("| Index coverage | " + ($(if ($indexCoverageOk) { '**ready**' } else { '_todo (add PK and at least one index)_' })) + " |") | Out-Null
+  $lines.Add("| Engine targets | PHP 8.3; MySQL/MariaDB/Postgres |") | Out-Null
   $lines.Add("") | Out-Null
 
   $lines.Add("## Relationship Graph") | Out-Null
@@ -800,12 +776,26 @@ foreach ($t in $tables) {
 
   # Usage hints
   $lines.Add("## Usage") | Out-Null
-  $lines.Add("- Install/upgrade schema: pwsh -NoLogo -NoProfile -File scripts/schema-tools/Migrate-DryRun.ps1 -Package $slug -Apply") | Out-Null
-  $lines.Add("- Split schema: pwsh -NoLogo -NoProfile -File scripts/schema-tools/Split-SchemaToPackages.ps1") | Out-Null
-  $lines.Add("- Generate PHP DTO/Repo: pwsh -NoLogo -NoProfile -File scripts/schema-tools/Generate-PhpFromSchema.ps1 -SchemaDir scripts/schema -TemplatesRoot scripts/templates/php -ModulesRoot packages -NameResolution detect -Force") | Out-Null
-  $lines.Add("- Validate SQL: pwsh -NoLogo -NoProfile -File scripts/schema-tools/Lint-Sql.ps1 -PackagesDir $PackagesDir") | Out-Null
-  $lines.Add('- PHPUnit (full DB matrix): set BC_DB=mysql|postgres|mariadb then run `vendor/bin/phpunit --configuration tests/phpunit.xml.dist --testsuite "DB Integration"`') | Out-Null
-  $lines.Add("") | Out-Null
+  foreach ($ln in @(
+    '```bash',
+    "# Install/upgrade schema",
+    "pwsh -NoLogo -NoProfile -File scripts/schema-tools/Migrate-DryRun.ps1 -Package $slug -Apply",
+    "# Split schema to packages",
+    'pwsh -NoLogo -NoProfile -File scripts/schema-tools/Split-SchemaToPackages.ps1',
+    "# Generate PHP DTO/Repo from schema",
+    'pwsh -NoLogo -NoProfile -File scripts/schema-tools/Generate-PhpFromSchema.ps1 -SchemaDir scripts/schema -TemplatesRoot scripts/templates/php -ModulesRoot packages -NameResolution detect -Force',
+    "# Validate SQL across packages",
+    "pwsh -NoLogo -NoProfile -File scripts/schema-tools/Lint-Sql.ps1 -PackagesDir $PackagesDir",
+    '```',
+    '',
+    '- PHPUnit (full DB matrix):',
+    '```bash',
+    'BC_DB=mysql vendor/bin/phpunit --configuration tests/phpunit.xml.dist --testsuite "DB Integration"',
+    'BC_DB=postgres vendor/bin/phpunit --configuration tests/phpunit.xml.dist --testsuite "DB Integration"',
+    'BC_DB=mariadb vendor/bin/phpunit --configuration tests/phpunit.xml.dist --testsuite "DB Integration"',
+    '```',
+    ''
+  )) { $lines.Add($ln) | Out-Null }
 
   # Quality gates
   function Format-Check {
@@ -815,14 +805,14 @@ foreach ($t in $tables) {
     return "$mark $Label$suffix"
   }
   $lines.Add("## Quality Gates") | Out-Null
-  $lines.Add($(Format-Check -Ok $hasDocs -Label 'Definitions present' -HintIfFail 'run Build-Definitions')) | Out-Null
-  $lines.Add($(Format-Check -Ok $hasChangelog -Label 'Changelog present')) | Out-Null
-  $lines.Add($(Format-Check -Ok (($changelogFresh -eq 'fresh') -or -not $hasChangelog) -Label 'Changelog fresh' -HintIfFail ('older than {0} d' -f $changelogFreshThreshold))) | Out-Null
-  $lines.Add($(Format-Check -Ok $indexCoverageOk -Label 'Index coverage (PK + index)')) | Out-Null
-  $lines.Add($(Format-Check -Ok ($fkRefCount -gt 0) -Label 'Outbound lineage captured')) | Out-Null
-  $lines.Add($(Format-Check -Ok ($inboundRefCount -gt 0) -Label 'Inbound lineage mapped')) | Out-Null
-  $lines.Add($(Format-Check -Ok ($defsCount -gt 0) -Label 'ERD renderable (mermaid)' -HintIfFail 'add docs/definitions.md')) | Out-Null
-  $lines.Add($(Format-Check -Ok ($seedCount -gt 0) -Label 'Seeds available' -HintIfFail 'add smoke data seeds')) | Out-Null
+  $lines.Add("- " + $(Format-Check -Ok $hasDocs -Label 'Definitions present' -HintIfFail 'run Build-Definitions')) | Out-Null
+  $lines.Add("- " + $(Format-Check -Ok $hasChangelog -Label 'Changelog present')) | Out-Null
+  $lines.Add("- " + $(Format-Check -Ok (($changelogFresh -eq 'fresh') -or -not $hasChangelog) -Label 'Changelog fresh' -HintIfFail ('older than {0} d' -f $changelogFreshThreshold))) | Out-Null
+  $lines.Add("- " + $(Format-Check -Ok $indexCoverageOk -Label 'Index coverage (PK + index)')) | Out-Null
+  $lines.Add("- " + $(Format-Check -Ok ($fkRefCount -gt 0) -Label 'Outbound lineage captured')) | Out-Null
+  $lines.Add("- " + $(Format-Check -Ok ($inboundRefCount -gt 0) -Label 'Inbound lineage mapped')) | Out-Null
+  $lines.Add("- " + $(Format-Check -Ok ($defsCount -gt 0) -Label 'ERD renderable (mermaid)' -HintIfFail 'add docs/definitions.md')) | Out-Null
+  $lines.Add("- " + $(Format-Check -Ok ($seedCount -gt 0) -Label 'Seeds available' -HintIfFail 'add smoke data seeds')) | Out-Null
   $lines.Add("") | Out-Null
 
   # Maintenance checklist
@@ -830,21 +820,33 @@ foreach ($t in $tables) {
   $lines.Add("- [ ] Update schema map and split: Split-SchemaToPackages.ps1") | Out-Null
   $lines.Add("- [ ] Regenerate PHP DTO/Repo: Generate-PhpFromSchema.ps1") | Out-Null
   $lines.Add("- [ ] Rebuild definitions + README + docs index") | Out-Null
+  $lines.Add("- [ ] Ensure seeds/smoke data are present (if applicable)") | Out-Null
   $lines.Add("- [ ] Lint SQL + run full PHPUnit DB matrix") | Out-Null
   $lines.Add("") | Out-Null
 
   # Regeneration
   $lines.Add("## Regeneration") | Out-Null
-  $lines.Add("- Definitions: pwsh -NoLogo -NoProfile -File scripts/schema-tools/Build-Definitions.ps1 -Force") | Out-Null
-  $lines.Add("- Pkg README: pwsh -NoLogo -NoProfile -File scripts/docs/New-PackageReadmes.ps1 -Force") | Out-Null
-  $lines.Add("- Docs index: pwsh -NoLogo -NoProfile -File scripts/docs/New-DocsIndex.ps1 -Force") | Out-Null
-  $lines.Add("- Pkg changelog: pwsh -NoLogo -NoProfile -File scripts/docs/New-PackageChangelogs.ps1 -Force") | Out-Null
-  $lines.Add("") | Out-Null
+  foreach ($ln in @(
+    '```bash',
+    '# Rebuild definitions (docs/definitions.md)',
+    'pwsh -NoLogo -NoProfile -File scripts/schema-tools/Build-Definitions.ps1 -Force',
+    '# Regenerate package READMEs',
+    'pwsh -NoLogo -NoProfile -File scripts/docs/New-PackageReadmes.ps1 -Force',
+    '# Regenerate docs index',
+    'pwsh -NoLogo -NoProfile -File scripts/docs/New-DocsIndex.ps1 -Force',
+    '# Regenerate package changelogs',
+    'pwsh -NoLogo -NoProfile -File scripts/docs/New-PackageChangelogs.ps1 -Force',
+    '```',
+    ''
+  )) { $lines.Add($ln) | Out-Null }
 
   # Footer
   $lines.Add("---") | Out-Null
-  $lines.Add("Generated by scripts/docs/New-PackageReadmes.ps1 ($stamp)") | Out-Null
-  $licenseNote = if ($licenseLink) { "⚖️ License: Proprietary – see [LICENSE]($licenseLink)." } else { "⚖️ License: Proprietary – see LICENSE at the repo root." }
+  $licenseNote = if ($licenseLink) {
+    "> ⚖️ License: BlackCat Proprietary – detailed terms in [LICENSE]($licenseLink)."
+  } else {
+    "> ⚖️ License: BlackCat Proprietary – detailed terms in LICENSE at repo root."
+  }
   $lines.Add($licenseNote) | Out-Null
 
   # Write file

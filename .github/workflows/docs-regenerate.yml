@@ -36,78 +36,12 @@ jobs:
       - name: Rebuild package docs (definitions, indexes, readmes, changelogs)
         shell: pwsh
         run: |
-          function Resolve-First([string[]]$Candidates) {
-            foreach ($cand in $Candidates) {
-              if ([string]::IsNullOrWhiteSpace($cand)) { continue }
-              $full = Join-Path (Get-Location).Path $cand
-              if (Test-Path -LiteralPath $full) {
-                return (Resolve-Path -LiteralPath $full).Path
-              }
-            }
-            return $null
-          }
-
-          $mapPath = Resolve-First @(
-            'scripts/schema-map.psd1',
-            'scripts/schema/schema-map-postgres.psd1',
-            'scripts/schema/schema-map-mysql.psd1'
-          )
-          if (-not $mapPath) { throw "schema map file not found" }
-
-          $engine = ''
-          if ($mapPath -match 'schema-map-(?<eng>[a-z0-9]+)\.psd1$') { $engine = $Matches.eng }
-
-          $defsPath = Resolve-First @(
-            'scripts/schema-defs.psd1',
-            $(if ($engine) { "scripts/schema/schema-defs-$engine.psd1" } else { $null }),
-            'scripts/schema/schema-defs-postgres.psd1',
-            'scripts/schema/schema-defs-mysql.psd1'
-          )
-          if (-not $defsPath) { throw "schema defs file not found" }
-
-          $packagesDir = (Resolve-Path -LiteralPath './packages').Path
-
-          pwsh ./scripts/schema-tools/Build-Definitions.ps1 `
-            -MapPath $mapPath `
-            -DefsPath $defsPath `
-            -PackagesDir $packagesDir `
-            -Force
-
-          pwsh ./scripts/docs/New-PackageReadmes.ps1 `
-            -MapPath $mapPath `
-            -PackagesDir $packagesDir `
-            -Force
-
-          pwsh ./scripts/docs/New-PackageChangelogs.ps1 `
-            -MapPath $mapPath `
-            -PackagesDir $packagesDir `
-            -Force
-
-          pwsh ./scripts/docs/New-DocsIndex.ps1 `
-            -MapPath $mapPath `
-            -PackagesDir $packagesDir `
-            -OutPath ./PACKAGES.md `
-            -Force
-
-          if (Test-Path ./scripts/docs/Update-UmbrellaReadme.ps1) {
-            pwsh ./scripts/docs/Update-UmbrellaReadme.ps1 `
-              -ReadmePath ./README.md `
-              -PackagesPath ./PACKAGES.md
-          }
-
-          pwsh ./scripts/schema-tools/Generate-MermaidERD.ps1 `
-            -PackagesDir $packagesDir `
-            -MapPath $mapPath `
-            -OutPath ./docs/ERD.md
-
-          pwsh ./scripts/packages/Audit-Packages.ps1 `
-            -PackagesDir $packagesDir `
-            -MapPath $mapPath `
-            -OutPath ./docs/AUDIT.md
-
-          pwsh ./scripts/schema-tools/Lint-Sql.ps1 `
-            -PackagesDir $packagesDir `
-            -MapPath $mapPath
+          pwsh ./scripts/schema-tools/Build-Definitions.ps1 -Force
+          pwsh ./scripts/docs/New-PackageReadmes.ps1 -Force
+          pwsh ./scripts/docs/New-PackageChangelogs.ps1 -Force
+          pwsh ./scripts/docs/New-DocsIndex.ps1 -Force
+          pwsh ./scripts/schema-tools/Generate-MermaidERD.ps1 -Force
+          pwsh ./scripts/packages/Audit-Packages.ps1 -Force
 
       - name: Detect changes
         id: diff

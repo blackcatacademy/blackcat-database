@@ -422,6 +422,7 @@ function New-RemotePackageRepo {
     New-Item -ItemType Directory -Path $temp | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $temp 'schema') | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $temp 'docs') | Out-Null
+    Set-Gitattributes -RepoPath $temp
     $readme = @"
 # $RepoName
 
@@ -530,6 +531,35 @@ function New-DirectoryIfMissing {
   param([Parameter(Mandatory)][string]$Path)
   if (-not (Test-Path -LiteralPath $Path)) {
     New-Item -ItemType Directory -Path $Path -Force | Out-Null
+  }
+}
+
+function Get-StandardGitattributesContent {
+  @(
+    '*.php    text eol=lf'
+    '*.phpt   text eol=lf'
+    '*.md     text eol=lf'
+    '*.sql    text eol=lf'
+    '*.ps1    text eol=lf'
+    '*.psm1   text eol=lf'
+    '*.psd1   text eol=lf'
+    '*.yml    text eol=lf'
+    '*.yaml   text eol=lf'
+    '*.json   text eol=lf'
+    '*.sh     text eol=lf'
+  ) -join "`n"
+}
+
+function Set-Gitattributes {
+  param([Parameter(Mandatory)][string]$RepoPath)
+  $target = Join-Path $RepoPath '.gitattributes'
+  $desired = Get-StandardGitattributesContent
+  $current = $null
+  if (Test-Path -LiteralPath $target) {
+    $current = (Get-Content -LiteralPath $target -Raw -ErrorAction SilentlyContinue)
+  }
+  if ($current -ne $desired) {
+    Set-Content -LiteralPath $target -Value $desired -Encoding UTF8
   }
 }
 
@@ -725,11 +755,12 @@ switch ($Action) {
       if ($repoExists) {
         Set-PackageRepoMetadata -RepoFullName $repoFullName -Table $tbl -Slug $slug
       }
-      if ($localExists -and -not $isStub) {
-        Write-Info "Package '$slug' already exists."
-        $stats.AlreadyPresent++
-        continue
-      }
+  if ($localExists -and -not $isStub) {
+    Set-Gitattributes -RepoPath $localPath
+    Write-Info "Package '$slug' already exists."
+    $stats.AlreadyPresent++
+    continue
+  }
       $targetPath = Get-SubmoduleTargetPath -Slug $slug
       $pathTracked = Test-GitPathTracked -GitRelativePath $targetPath
       if ($pathTracked) {

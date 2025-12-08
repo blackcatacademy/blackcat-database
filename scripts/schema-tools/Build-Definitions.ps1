@@ -675,6 +675,7 @@ function Get-ViewList {
 
     $views   = @()
     $repoDir = (Resolve-Path '.').Path
+    $pkgDir  = (Resolve-Path -LiteralPath $PackagePath).Path
 
     $roots = @($PackagePath)
     foreach ($r in $ExtraRoots) {
@@ -719,18 +720,19 @@ function Get-ViewList {
             if ($alg) { $parts += ('algorithm=' + $alg) }
             if ($sec) { $parts += ('security=' + $sec) }
 
-            $url = $null
-            if ($RepoUrl) {
-                $url = $RepoUrl.TrimEnd('/') + '/' + [IO.Path]::GetRelativePath($repoDir, $f.FullName)
-                $url = $url -replace '\\', '/'
+            $relPath = $null
+            if ($f.FullName.StartsWith($pkgDir, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $relPath = [IO.Path]::GetRelativePath($pkgDir, $f.FullName)
+            } else {
+                $relPath = [IO.Path]::GetRelativePath($repoDir, $f.FullName)
             }
 
             $views += [PSCustomObject]@{
                 Name    = $name
                 Engine  = $engine
                 Flags   = ($parts -join ', ')
-                RelPath = [IO.Path]::GetRelativePath($repoDir, $f.FullName)
-                Url     = $url
+                RelPath = $relPath
+                Url     = $null
             }
         }
     }
@@ -1224,7 +1226,6 @@ function Write-DefinitionFile {
         $lines.Add('| --- | --- | --- | --- |')
         foreach ($v in $views) {
             $link = $v.RelPath
-            if ($v.Url) { $link = $v.Url }
             $flags = ''
             if ($v.Flags) { $flags = $v.Flags }
             $lineArgs = @($v.Name, $v.Engine, $flags, $v.RelPath, $link)

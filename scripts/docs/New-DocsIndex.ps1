@@ -103,7 +103,7 @@ foreach ($t in $tables) {
     $warns.Add("WARN: package folder missing for table '$t' -> $pkg")
   }
 
-  function Make-Link {
+  function Get-LinkForPath {
     param([string]$path)
     if (-not (Test-Path -LiteralPath $path)) { return $null }
     $rel = Get-Rel $path
@@ -115,9 +115,9 @@ foreach ($t in $tables) {
   $defLink    = $null
   $chgLink    = $null
 
-  if ($rl = Make-Link $readmePath) { $readmeLink = "[README]($rl)"; $counts.WithReadme++ }
-  if ($dl = Make-Link $defPath)    { $defLink    = "[Docs]($dl)";    $counts.WithDocs++ }
-  if ($cl = Make-Link $chgPath)    { $chgLink    = "[Changelog]($cl)"; $counts.WithChangelog++ }
+  if ($rl = Get-LinkForPath $readmePath) { $readmeLink = "[README]($rl)"; $counts.WithReadme++ }
+  if ($dl = Get-LinkForPath $defPath)    { $defLink    = "[Docs]($dl)";    $counts.WithDocs++ }
+  if ($cl = Get-LinkForPath $chgPath)    { $chgLink    = "[Changelog]($cl)"; $counts.WithChangelog++ }
 
   if (-not $readmeLink) { $readmeLink = '—' }
   if (-not $defLink)    { $defLink    = '—' }

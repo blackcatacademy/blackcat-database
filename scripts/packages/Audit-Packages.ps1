@@ -1,14 +1,20 @@
 param(
-  [Parameter(Mandatory=$true)] [string] $PackagesDir,
-  [Parameter(Mandatory=$true)] [string] $MapPath,
-  [Parameter(Mandatory=$true)] [string] $OutPath
+  [string] $PackagesDir = 'packages',
+  [string] $MapPath = 'scripts/schema/schema-map-postgres.yaml',
+  [string] $ViewsLibraryRoot = 'views-library',
+  [string] $OutPath = 'docs/AUDIT.md',
+  [switch] $Force
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot "../support/SqlDocUtils.psm1") -Force
 
-$map = Import-PowerShellDataFile -Path $MapPath
+if (-not (Test-Path -LiteralPath $MapPath)) { throw "Map not found: $MapPath" }
+if (-not (Test-Path -LiteralPath $PackagesDir)) { throw "PackagesDir not found: $PackagesDir" }
+
+$map = Get-Content -LiteralPath $MapPath -Raw | ConvertFrom-Yaml
+$tables = $map.Tables.Keys | Sort-Object
 
 $rows = @()
 $total = @{
@@ -51,28 +57,46 @@ function Test-IndexForColumns {
   return $false
 }
 
-foreach ($key in $map.Keys) {
-  $m = $map[$key]
-  $pkgDir = Join-Path $PackagesDir $m.Package
-  if (!(Test-Path $pkgDir)) { Write-Warning "Missing $pkgDir"; continue }
+foreach ($tableName in $tables) {
+  $pkgSlug = ($tableName -replace '_','-')
+  $pkgDir = Join-Path $PackagesDir $pkgSlug
 
-  $schema = Get-FileText -Files (Get-SqlFiles -Dir (Join-Path $pkgDir 'schema'))
-  $views  = Get-FileText -Files (Get-SqlFiles -Dir (Join-Path $pkgDir 'views'))
-  $allSql = Format-SqlText -Sql ($schema + "`n" + $views)
+  $schemaDir = Join-Path $pkgDir 'schema'
+  $viewDirs = @()
+  $viewDirPkg = Join-Path $pkgDir 'views'
+  if (Test-Path -LiteralPath $viewDirPkg) { $viewDirs += $viewDirPkg }
+  if ($ViewsLibraryRoot) {
+    $viewLib = Join-Path $ViewsLibraryRoot $pkgSlug
+    if (Test-Path -LiteralPath $viewLib) { $viewDirs += $viewLib }
+  }
+
+  if (-not (Test-Path -LiteralPath $pkgDir) -and $viewDirs.Count -eq 0) {
+    Write-Warning "Missing package folder and views for $tableName ($pkgDir)"; continue
+  }
+
+  $schema = @()
+  if (Test-Path -LiteralPath $schemaDir) {
+    $schema = Get-FileText -Files (Get-SqlFiles -Dir $schemaDir)
+  }
+  $views  = @()
+  foreach ($vd in $viewDirs) {
+    $views += Get-FileText -Files (Get-SqlFiles -Dir $vd)
+  }
+  $allSql = Format-SqlText -Sql (($schema + $views) -join "`n")
 
   $tblBlocks = Get-TableBlocks -Sql $allSql
-  $tbl = $tblBlocks | Where-Object { $_.Table -eq $m.Table } | Select-Object -First 1
+  $tbl = $tblBlocks | Where-Object { $_.Table -eq $tableName } | Select-Object -First 1
   if (-not $tbl) { continue }
 
-  $cols = Get-ColumnMetadata -Body $tbl.Body
+  $cols = @(Get-ColumnMetadata -Body $tbl.Body)
   $pk   = Get-PrimaryKeyInfo -Body $tbl.Body
-  $idx  = Get-IndexMetadata -Sql $allSql -Table $m.Table
-  $fks  = Get-ForeignKeyMetadata -Sql $allSql -Table $m.Table
-  $vws  = Get-ViewNames -Sql $allSql
+  $idx  = @(Get-IndexMetadata -Sql $allSql -Table $tableName)
+  $fks  = @(Get-ForeignKeyMetadata -Sql $allSql -Table $tableName)
+  $vws  = @(Get-ViewNames -Sql $allSql)
 
   $hasPk = [bool]$pk
   $hasTime = Test-TimeColumn $cols
-  $uniqueCount = ($idx | Where-Object { $_.Unique }).Count
+  $uniqueCount = (@($idx | Where-Object { $_.Unique })).Count
   $missingFkIdx = $false
   foreach ($fk in $fks) {
     $refCols = ($fk.Columns -split ',\s*')
@@ -81,7 +105,7 @@ foreach ($key in $map.Keys) {
 
   $score = Measure-TableScore $hasPk $hasTime $uniqueCount $fks.Count $vws.Count $missingFkIdx
 
-  $rows += "| [$($m.Package)](./packages/$($m.Package)) | `$($m.Table)` | $($cols.Count) | $($idx.Count) | $($uniqueCount) | $($fks.Count) | $($vws.Count) | $hasPk | $hasTime | $([bool](-not $missingFkIdx)) | $score |"
+  $rows += "| [$pkgSlug](./packages/$pkgSlug) | `$tableName` | $($cols.Count) | $($idx.Count) | $($uniqueCount) | $($fks.Count) | $($vws.Count) | $hasPk | $hasTime | $([bool](-not $missingFkIdx)) | $score |"
 
   $total.Packages++
   $total.Tables++
@@ -105,5 +129,7 @@ $($rows -join "`n")
 > Score formula: PK(40) + Time(10) + UniqueIdx(10) + FK(10) + FKIndexed(10) + Views(10)
 "@
 
+$outDir = Split-Path -Parent $OutPath
+if ($outDir) { New-Item -ItemType Directory -Force -Path $outDir | Out-Null }
 $md | Out-File -FilePath $OutPath -NoNewline -Encoding UTF8
 Write-Host "Wrote $OutPath"
