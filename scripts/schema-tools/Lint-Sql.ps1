@@ -214,9 +214,9 @@ foreach ($entry in $entries) {
     $colNames = @($cols | ForEach-Object { $_.Name.ToLower() })
   } else {
     # Fallback: extract column names from the raw CREATE TABLE body
-    $matches = [regex]::Matches($schemaText, '(?im)^\s*[`"]?([A-Za-z0-9_]+)[`"]?\s+[A-Za-z]')
-    if ($matches) {
-      $colNames = @($matches | ForEach-Object { $_.Groups[1].Value.ToLower() })
+    $colMatches = [regex]::Matches($schemaText, '(?im)^\s*[`"]?([A-Za-z0-9_]+)[`"]?\s+[A-Za-z]')
+    if ($colMatches) {
+      $colNames = @($colMatches | ForEach-Object { $_.Groups[1].Value.ToLower() })
     }
   }
   foreach ($c in $colNames) {

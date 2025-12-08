@@ -4,7 +4,7 @@
 [![DB CI](https://github.com/blackcatacademy/blackcat-database/actions/workflows/db-ci.yml/badge.svg?branch=dev)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/db-ci.yml)
 [![Core CI](https://github.com/blackcatacademy/blackcat-database/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/ci.yml)
 [![Lint PHP](https://github.com/blackcatacademy/blackcat-database/actions/workflows/lint.yml/badge.svg?branch=dev)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/lint.yml)
-[![SQL Lint](https://github.com/blackcatacademy/blackcat-database/actions/workflows/sql-lint.yml/badge.svg?branch=dev)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/sql-lint.yml)
+
 ![MySQL](https://img.shields.io/badge/SQL-MySQL%208.0%2B-4479A1?logo=mysql&logoColor=white)
 ![MariaDB](https://img.shields.io/badge/SQL-MariaDB%2010.4.x-003545?logo=mariadb&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/SQL-PostgreSQL%2016-336791?logo=postgresql&logoColor=white)

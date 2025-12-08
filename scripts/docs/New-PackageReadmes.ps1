@@ -1,38 +1,92 @@
-<#  New-PackageReadmes.ps1 (EN Cool v3.1 SAFE QUOTING)
-    Generates README.md for each package based on scripts/schema/schema-map-postgres.yaml
-    - Badges
-    - Files tree
-    - Quick apply (bash & PowerShell)
-    - Docker quickstart
-    - Columns preview (parsed from CREATE TABLE)
-    - Mermaid ER diagram for outgoing FKs
+<# 
+  New-PackageReadmes.ps1
+  Regenerates README.md for each package based on the schema map (YAML).
+  - Defaults: MapPath=scripts/schema/schema-map-postgres.yaml, PackagesDir=packages
+  - Links to Docs/Changelog if present
+  - Lists available schema files with engine detection (mysql/postgres)
+  - Uses a stable map stamp (sha1 of the map content)
+  - Optional RepoUrl to emit GitHub-friendly links
 #>
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory=$true)]
-  [string]$MapPath,
-  [Parameter(Mandatory=$true)]
-  [string]$PackagesDir,
-  [switch]$Force
+  [string] $MapPath = 'scripts/schema/schema-map-postgres.yaml',
+  [string] $PackagesDir = 'packages',
+  # Default to the public GitHub repo so links render correctly in generated markdown
+  [string] $RepoUrl = 'https://github.com/blackcatacademy/blackcat-database/blob/main',
+  # Root used to build relative links; default to repo root
+  [string] $MapRoot = '.',
+  [string] $PackagesRoot,
+  [switch] $Force,
+  [switch] $Quiet
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-if (!(Test-Path -LiteralPath $MapPath))     { throw "Map file not found: $MapPath" }
-if (!(Test-Path -LiteralPath $PackagesDir)) { throw "Packages dir not found: $PackagesDir" }
+function Get-RelativePathLegacy {
+  param(
+    [string]$BasePath,
+    [string]$TargetPath
+  )
 
-$map    = Import-PowerShellDataFile -Path $MapPath
-$tables = $map.Tables.Keys | Sort-Object
-$mapLeaf    = Split-Path -Leaf $MapPath
-$mapRev     = (git log -1 --format=%h -- $MapPath) 2>$null
-$mapRevDate = (git log -1 --date=iso-strict --format=%cd -- $MapPath) 2>$null
-if (-not $mapRev) { $mapRev='working-tree'; $mapRevDate=(Get-Date).ToString('s') }
-$GenTag = "<!-- Auto-generated from $mapLeaf @ $mapRev ($mapRevDate) -->"
+  $baseResolved   = (Resolve-Path -LiteralPath $BasePath).Path
+  $targetResolved = (Resolve-Path -LiteralPath $TargetPath).Path
 
-function Get-PackageSlug {
-  param([string]$Table)
-  $Table -replace '_','-'
+  $baseUri   = New-Object System.Uri($baseResolved + [IO.Path]::DirectorySeparatorChar)
+  $targetUri = New-Object System.Uri($targetResolved)
+  $rel = $baseUri.MakeRelativeUri($targetUri).ToString().Replace('/', [IO.Path]::DirectorySeparatorChar)
+  return $rel
+}
+
+function Get-SafeCount {
+    param($Value)
+    if ($null -eq $Value) { return 0 }
+    if ($Value -is [string]) {
+        if ([string]::IsNullOrEmpty($Value)) { return 0 } else { return 1 }
+    }
+    if ($Value -is [System.Collections.IEnumerable]) { return (@($Value) | Measure-Object).Count }
+    return 1
+}
+
+# Resolve repo roots up front (default to repo root = two levels up from this script)
+$scriptRoot = (Resolve-Path -LiteralPath $PSScriptRoot).Path
+if (-not $MapRoot) {
+    # Two levels up from scripts/docs to repo root
+    $MapRoot = (Get-Item -LiteralPath $scriptRoot).Parent.Parent.FullName
+}
+if (-not $PackagesRoot) { $PackagesRoot = (Join-Path $MapRoot $PackagesDir) }
+
+function Import-Map {
+  param([Parameter(Mandatory=$true)][string]$Path)
+  if (-not (Test-Path -LiteralPath $Path)) { throw "Map not found: $Path" }
+  $ext = [IO.Path]::GetExtension($Path).ToLowerInvariant()
+  if ($ext -notin @('.yaml','.yml')) { throw "Unsupported map format: $ext (expected .yaml/.yml)" }
+  if (-not (Get-Command -Name ConvertFrom-Yaml -ErrorAction SilentlyContinue)) {
+    try {
+      Install-Module -Name powershell-yaml -Scope CurrentUser -Force -Repository PSGallery -AllowClobber -ErrorAction Stop | Out-Null
+      Import-Module -Name powershell-yaml -ErrorAction Stop
+    } catch {
+      throw "ConvertFrom-Yaml is required to read '$Path' (install PowerShell 7+ or powershell-yaml). Failed to auto-install: $($_.Exception.Message)"
+    }
+  }
+  Get-Content -LiteralPath $Path -Raw | ConvertFrom-Yaml
+}
+
+function Get-MapStamp {
+  param([string]$MapPathResolved)
+  try {
+    $sha = (& git hash-object -t blob $MapPathResolved 2>$null).Trim()
+    if ($sha) { return "map@sha1:$sha" }
+    $sha = (& git log -1 --format=%H -- $MapPathResolved 2>$null).Trim()
+    if ($sha) { return "map@sha1:$sha" }
+  } catch {}
+  $mt = (Get-Item -LiteralPath $MapPathResolved).LastWriteTimeUtc.ToString('yyyy-MM-dd HH:mm:ss') + 'Z'
+  "map@mtime:$mt"
+}
+
+function ConvertTo-Slug {
+  param([string]$TableName)
+  $TableName -replace '_','-'
 }
 
 function ConvertTo-TitleCase {
@@ -41,298 +95,759 @@ function ConvertTo-TitleCase {
   $ti.ToTitleCase(($Name -replace '[_-]+',' ').ToLowerInvariant())
 }
 
+function Get-LinkForPath {
+  param([string]$Path, [string]$RepoUrl, [string]$Root)
+  if (-not (Test-Path -LiteralPath $Path)) { return $null }
+  $rel = Get-RelativePathLegacy -BasePath $Root -TargetPath (Resolve-Path -LiteralPath $Path)
+  $rel = $rel -replace '\\','/'
+  if ($RepoUrl) { return ($RepoUrl.TrimEnd('/') + '/' + $rel) }
+  $rel
+}
+
+function Get-EngineFromFileName {
+  param([string]$FileName)
+  $n = $FileName.ToLowerInvariant()
+  if ($n -match 'postgres') { return 'postgres' }
+  if ($n -match 'mysql')    { return 'mysql' }
+  if ($n -match 'mariadb')  { return 'mysql' }
+  ''
+}
+
+function ConvertTo-NormalizedType {
+  param([string]$Type)
+  if (-not $Type) { return '' }
+  $t = $Type.Trim().ToLowerInvariant()
+  $t = $t -replace '\s+',''
+  switch -regex ($t) {
+    '^tinyint\(1\)$'        { return 'bool' }
+    '^(bool|boolean)$'      { return 'bool' }
+    '^(int|integer)$'       { return 'int' }
+    '^bigint$'              { return 'bigint' }
+    '^smallint$'            { return 'smallint' }
+    '^(text|mediumtext|longtext)$' { return 'text' }
+    '^varchar.*$'           { return 'varchar' }
+    '^(json|jsonb)$'        { return 'jsonb' }
+    '^bytea$'               { return 'bytea' }
+    '^varbinary.*$'         { return 'bytea' }
+    '^timestamp.*with.*time' { return 'timestamptz' }
+    '^timestamptz'          { return 'timestamptz' }
+    '^timestamp'            { return 'timestamp' }
+    '^interval'             { return 'interval' }
+    default                 { return $t }
+  }
+}
+
+function ConvertTo-NormalizedDefault {
+  param([string]$Default)
+  if ($null -eq $Default) { return '' }
+  $d = $Default.Trim()
+  $d = $d -replace "::jsonb$",''
+  $d = $d.Trim(@("'", '"'))
+  switch ($d.ToLowerInvariant()) {
+    '0'      { return 'false' }
+    '1'      { return 'true' }
+    'false'  { return 'false' }
+    'true'   { return 'true' }
+    default  { return $d }
+  }
+}
+
+function ConvertFrom-ColumnDiffLine {
+  param([string]$Line)
+  if (-not $Line) { return $null }
+  $payload = ($Line -replace '^-+\s*Column differences:\s*','').Trim()
+  if (-not $payload) { return $Line }
+  $parts = $payload -split '\s*\|\s*'
+  $keep = @()
+  foreach ($part in $parts) {
+    if (-not $part) { continue }
+    $m = [regex]::Match($part, '^(?<col>[^=]+)=>\s*mysql:type=(?<mt>[^;]*);null=(?<mn>[^;]*);def=(?<md>[^;]*);\s*postgres:type=(?<pt>[^;]*);null=(?<pn>[^;]*);def=(?<pd>.*)$')
+    if (-not $m.Success) { $keep += $part; continue }
+    $mt = ConvertTo-NormalizedType $m.Groups['mt'].Value
+    $pt = ConvertTo-NormalizedType $m.Groups['pt'].Value
+    $md = ConvertTo-NormalizedDefault $m.Groups['md'].Value
+    $pd = ConvertTo-NormalizedDefault $m.Groups['pd'].Value
+    $mn = $m.Groups['mn'].Value
+    $pn = $m.Groups['pn'].Value
+    $isSame = ($mt -eq $pt) -and ($md -eq $pd) -and ($mn -eq $pn)
+    if (-not $isSame) { $keep += $part }
+  }
+  if ((Get-SafeCount $keep) -eq 0) { return $null }
+  return "- Column differences: " + ($keep -join ' | ')
+}
+
+function Get-SectionRowCount {
+  param([string[]]$Lines, [string]$Header)
+  $linesArr = ConvertTo-Array $Lines
+  if ($linesArr.Length -eq 0) { return 0 }
+  $idx = [Array]::IndexOf($linesArr, $Header)
+  if ($idx -lt 0) { return 0 }
+  $count = 0
+  for ($i = $idx + 1; $i -lt $linesArr.Length; $i++) {
+    $ln = $linesArr[$i]
+    if ($ln -match '^## ') { break }
+    if ($ln.Trim().Length -eq 0) { if ($count -gt 0) { break } else { continue } }
+    if ($ln -match '^\|') { $count++ }
+  }
+  return $count
+}
+
+# Helper to ensure collection semantics
 function ConvertTo-Array {
-  param($Value)
-  if ($null -eq $Value) { return @() }
-  if ($Value -is [string]) { return ,$Value }
-  if ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [string])) { return @($Value) }
-  return ,$Value
+  param($InputObject)
+  if ($null -eq $InputObject) { return @() }
+  if ($InputObject -is [System.Array]) { return $InputObject }
+  if ($InputObject -is [string]) { return @($InputObject) }
+  if ($InputObject -is [System.Collections.IEnumerable]) {
+    $tmp = @()
+    foreach ($item in $InputObject) { $tmp += $item }
+    return $tmp
+  }
+  return @($InputObject)
 }
 
-function Get-ColumnsFromCreate {
-  param([string]$CreateSql)
+function Get-ColumnObjects {
+  param([string[]]$DefsLines)
 
-  $out = @()
-  if ([string]::IsNullOrWhiteSpace($CreateSql)) { return $out }
+  $defsArr = ConvertTo-Array $DefsLines
+  $cols = New-Object 'System.Collections.Generic.List[pscustomobject]'
+  $idx = $defsArr.IndexOf('## Columns')
+  if ($idx -lt 0) { return $cols.ToArray() }
 
-  # Grab block between (...) right before ENGINE=
-  $m = [regex]::Match($CreateSql, 'CREATE\s+TABLE.*?\((?<cols>[\s\S]*?)\)\s*ENGINE\s*=', 'IgnoreCase')
-  $block = if ($m.Success) { $m.Groups['cols'].Value } else {
-    $start = $CreateSql.IndexOf('(')
-    $end   = $CreateSql.LastIndexOf(')')
-    if ($start -ge 0 -and $end -gt $start) { $CreateSql.Substring($start+1, $end-$start-1) } else { $null }
+  for ($i = $idx + 1; $i -lt $defsArr.Length; $i++) {
+    $line = $defsArr[$i].Trim()
+    if ($line -match '^## ') { break }
+    if ($line -notmatch '^\|') { continue }
+    if ($line -match '^\|\s*---') { continue }
+    if ($line -match '^\|\s*Column\s*\|') { continue }
+
+    $m = [regex]::Match($line, '^\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|')
+    if (-not $m.Success) { continue }
+    $cols.Add([pscustomobject]@{
+      Name        = $m.Groups[1].Value.Trim()
+      Type        = $m.Groups[2].Value.Trim()
+      Null        = $m.Groups[3].Value.Trim()
+      Default     = $m.Groups[4].Value.Trim()
+      Description = $m.Groups[5].Value.Trim()
+    }) | Out-Null
   }
-  if (-not $block) { return $out }
-
-  $lines = [regex]::Split($block, '(?:\r\n|\n|\r)')
-
-  foreach($raw in $lines){
-    $line = ($raw -replace '--.*$','').Trim()
-    if ($line -eq '' ) { continue }
-    if ($line -match '^(PRIMARY|UNIQUE|KEY|INDEX|CONSTRAINT|CHECK|FOREIGN)\b') { continue }
-
-    # match [name] [type ...] [constraints ...]
-    $m2 = [regex]::Match($line, '^[`"]?(?<name>[A-Za-z0-9_]+)[`"]?\s+(?<rest>.+?)(,)?$')
-    if (-not $m2.Success){ continue }
-
-    $name = $m2.Groups['name'].Value
-    $rest = $m2.Groups['rest'].Value.Trim()
-
-    # extract type tokens until a keyword
-    $stop = @('NOT','NULL','DEFAULT','AUTO_INCREMENT','PRIMARY','UNIQUE','CHECK','COMMENT','COLLATE','GENERATED','STORED','VIRTUAL','ON','REFERENCES')
-    $tokens = @($rest -split '\s+')
-    $typeTokens = New-Object System.Collections.Generic.List[string]
-    foreach($tok in $tokens){
-      if ($stop -contains $tok.ToUpperInvariant()) { break }
-      $typeTokens.Add($tok)
-    }
-    $type = ($typeTokens -join ' ')
-
-    $isNotNull = $rest -match '\bNOT\s+NULL\b'
-    $isNull    = $rest -match '(^|[\s,])NULL\b' -and -not $isNotNull
-    $nullTxt   = if ($isNotNull) {'NO'} elseif ($isNull) {'YES'} else {'—'}
-
-    $defM = [regex]::Match($rest, 'DEFAULT\s+((?:''[^'']*'')|(?:[A-Za-z0-9_\.\(\)-]+))', 'IgnoreCase')
-    $default = if ($defM.Success) { $defM.Groups[1].Value } else { '—' }
-
-    $extra = @()
-    if ($rest -match 'AUTO_INCREMENT') { $extra += 'AUTO_INCREMENT' }
-    if ($rest -match 'PRIMARY\s+KEY')  { $extra += 'PK' }
-
-    $out += [pscustomobject]@{
-      Name    = $name
-      Type    = $type
-      Null    = $nullTxt
-      Default = $default
-      Extra   = ($extra -join ', ')
-      IsPK    = $extra -contains 'PK'
-    }
-  }
-  return $out
+  return $cols.ToArray()
 }
 
-function Get-Relations {
-  param($FkArray)
+function Get-PiiSignals {
+  param([pscustomobject[]]$Columns)
 
-  $rels = @()
-  foreach($fk in (ConvertTo-Array $FkArray)){
-    if ([string]::IsNullOrWhiteSpace($fk)) { continue }
-    $ref  = [regex]::Match($fk, 'REFERENCES\s+([A-Za-z0-9_]+)\s*\(', 'IgnoreCase').Groups[1].Value
-    $cols = ([regex]::Match($fk, 'FOREIGN\s+KEY\s*\(([^)]+)\)', 'IgnoreCase').Groups[1].Value) -replace '\s',''
-    $onDelete = [regex]::Match($fk, 'ON\s+DELETE\s+(CASCADE|SET\s+NULL|RESTRICT|NO\s+ACTION)', 'IgnoreCase').Groups[1].Value
-    if ($ref) {
-      $rels += [pscustomobject]@{
-        RefTable = $ref
-        Columns  = $cols
-        OnDelete = $( if ($onDelete) { $onDelete.ToUpper() } else { '—' } )
+  $signals = New-Object 'System.Collections.Generic.List[string]'
+  $patterns = @(
+    'email','phone','tel','ssn','tax','vat','passport','license',
+    'token','secret','password','pass','key','card','credit','iban'
+  )
+  foreach ($c in $Columns) {
+    $text = ($c.Name + ' ' + $c.Description) -replace '[^a-zA-Z0-9 ]',' '
+    $text = $text.ToLowerInvariant()
+    foreach ($p in $patterns) {
+      if ($text -match "\b$p\b") {
+        $signals.Add("$($c.Name) ($p)") | Out-Null
+        break
       }
     }
   }
-  $rels | Sort-Object RefTable, Columns -Unique
+  return ($signals | Select-Object -Unique)
 }
+
+function Get-ConstraintSnippets {
+  param([pscustomobject[]]$Columns, [int]$Max = 5)
+
+  $snips = New-Object 'System.Collections.Generic.List[string]'
+  foreach ($c in $Columns) {
+    $desc = $c.Description
+    $hasEnum = ($desc -match '(?i)\benum\b')
+    $hasCheck = ($desc -match '(?i)\bcheck\b')
+    $hasDefault = -not [string]::IsNullOrWhiteSpace($c.Default)
+    if ($hasEnum -or $hasCheck -or $hasDefault) {
+      $parts = @()
+      if ($hasDefault) { $parts += "default=$($c.Default)" }
+      if ($hasEnum) { $parts += "enum" }
+      if ($hasCheck) { $parts += "check" }
+      $snips.Add(('`{0}` – {1}' -f $c.Name, ($parts -join ', '))) | Out-Null
+    }
+    if ($snips.Count -ge $Max) { break }
+  }
+  return $snips.ToArray()
+}
+
+function Get-ForeignKeyRefs {
+  param([string[]]$DefsLines)
+
+  $defsArr = ConvertTo-Array $DefsLines
+  $refs = New-Object 'System.Collections.Generic.List[string]'
+  $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+
+  for ($i = 0; $i -lt $defsArr.Length; $i++) {
+    $line = $defsArr[$i].Trim()
+    if ($line -ne 'Foreign keys:') { continue }
+
+    for ($j = $i + 1; $j -lt $defsArr.Length; $j++) {
+      $row = $defsArr[$j].Trim()
+      if (-not $row) { break }
+      if ($row -match '^### ' -or $row -match '^## ') { break }
+      if ($row -notmatch '^\|') { break }
+      if ($row -match '^\|\s*---') { continue }
+      if ($row -match '^\|\s*Name\s*\|') { continue }
+
+      $m = [regex]::Match($row, '^\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|')
+      if (-not $m.Success) { continue }
+
+      $refCell = $m.Groups[3].Value.Trim()
+      if (-not $refCell) { continue }
+
+      $target = $refCell -replace '\(.*$',''
+      $target = $target.Trim('`','"',"'",'[',']')
+      if (-not $target) { continue }
+
+      if ($seen.Add($target)) { $refs.Add($target) | Out-Null }
+    }
+  }
+
+  return $refs.ToArray()
+}
+
+function New-RelationshipGraph {
+  param(
+    [string]$TableName,
+    [string[]]$Outbound,
+    [string[]]$Inbound
+  )
+
+  $id = ($TableName -replace '[^a-zA-Z0-9_]','_')
+  $colors = '#ff6b6b,#64dfdf,#a855f7,#ffd166,#4ade80'.Split(',')
+  $lines = New-Object System.Collections.Generic.List[string]
+  $lines.Add('```mermaid') | Out-Null
+  $lines.Add('graph LR') | Out-Null
+  $lines.Add('  %% Neon lineage view (auto-parsed from docs/definitions.md)') | Out-Null
+  $lines.Add('  classDef center fill:#0b1021,stroke:#ff6b6b,stroke-width:3px,color:#fefefe;') | Out-Null
+  $lines.Add('  classDef link fill:#0a1f33,stroke:#64dfdf,stroke-width:2px,color:#e8f7ff;') | Out-Null
+  $lines.Add('  classDef accent fill:#1d1b4c,stroke:#a855f7,stroke-width:2px,color:#f5e1ff;') | Out-Null
+  $lines.Add('  classDef inbound fill:#0f172a,stroke:#10b981,stroke-width:2px,color:#e2fcef;') | Out-Null
+  $lines.Add(('  {0}["{1}"]:::center' -f $id, $TableName)) | Out-Null
+
+  $edgeIdx = 0
+  foreach ($ref in $Outbound) {
+    $refId = ($ref -replace '[^a-zA-Z0-9_]','_')
+    $class = if ($edgeIdx % 2 -eq 0) { 'link' } else { 'accent' }
+    $lines.Add(('  {0} -->|FK| {1}["{2}"]:::{3}' -f $id, $refId, $ref, $class)) | Out-Null
+    $edgeIdx++
+  }
+  foreach ($src in $Inbound) {
+    $srcId = ($src -replace '[^a-zA-Z0-9_]','_')
+    $class = 'inbound'
+    $lines.Add(('  {0}["{1}"]:::{2} -->|FK| {3}' -f $srcId, $src, $class, $id)) | Out-Null
+    $edgeIdx++
+  }
+
+  for ($k = 0; $k -lt $edgeIdx; $k++) {
+    $color = $colors[$k % $colors.Length]
+    $lines.Add("  linkStyle $k stroke:$color,stroke-width:3px,opacity:0.92;") | Out-Null
+  }
+
+  $lines.Add('```') | Out-Null
+  return $lines.ToArray()
+}
+
+# Resolve roots
+$root = if ($MapRoot) { (Resolve-Path -LiteralPath $MapRoot).Path } else { (Resolve-Path '.').Path }
+$pkgRoot = if ($PackagesRoot) { (Resolve-Path -LiteralPath $PackagesRoot).Path } else { (Resolve-Path -LiteralPath (Join-Path $root $PackagesDir)).Path }
+$mapPathResolved = (Resolve-Path -LiteralPath (Join-Path $root $MapPath)).Path
+$mapLabel = Split-Path -Path $mapPathResolved -Leaf
+$mapLink = Get-LinkForPath -Path $mapPathResolved -RepoUrl $RepoUrl -Root $MapRoot
+if (-not $mapLink) { $mapLink = (Get-RelativePathLegacy -BasePath $root -TargetPath $mapPathResolved -replace '\\','/') }
+$licensePath = Join-Path $root 'LICENSE'
+$licenseLink = Get-LinkForPath -Path $licensePath -RepoUrl $RepoUrl -Root $root
+$packagesResolved = $pkgRoot
+
+# Build inbound FK index from all package definitions (docs/definitions.md only)
+$inboundIndex = New-Object 'System.Collections.Generic.Dictionary[string,System.Collections.Generic.HashSet[string]]' ([System.StringComparer]::OrdinalIgnoreCase)
+$defsFiles = @()
+try {
+  $defsFiles = Get-ChildItem -LiteralPath $packagesResolved -Filter 'definitions.md' -Recurse -ErrorAction SilentlyContinue
+} catch {}
+foreach ($df in $defsFiles) {
+  $pkgDir = $df.Directory.Parent
+  if (-not $pkgDir) { continue }
+  $srcTable = ($pkgDir.Name -replace '-','_')
+  $defsLinesForIndex = ConvertTo-Array (Get-Content -LiteralPath $df.FullName -ErrorAction SilentlyContinue)
+  $outRefsForIndex = Get-ForeignKeyRefs -DefsLines $defsLinesForIndex
+  foreach ($r in $outRefsForIndex) {
+    if (-not $inboundIndex.ContainsKey($r)) {
+      $inboundIndex[$r] = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    }
+    $null = $inboundIndex[$r].Add($srcTable)
+  }
+}
+function Get-InboundRefsForTable {
+  param([string]$TableName)
+  if ($inboundIndex.ContainsKey($TableName)) { return @($inboundIndex[$TableName]) }
+  return @()
+}
+
+# Load map
+$map = Import-Map -Path $mapPathResolved
+$tables = @($map.Tables.Keys | Sort-Object)
+$stamp = Get-MapStamp -MapPathResolved $mapPathResolved
 
 foreach ($t in $tables) {
-  try {
-    $slug = Get-PackageSlug $t
-    $pkg  = Join-Path $PackagesDir $slug
-    if (!(Test-Path -LiteralPath $pkg)) { Write-Warning "SKIP [$t] – package not found: $pkg"; continue }
+  $slug = ConvertTo-Slug $t
+  $pkgPath = Join-Path $packagesResolved $slug
+  if (-not (Test-Path -LiteralPath $pkgPath)) {
+    if (-not $Quiet) { Write-Warning "SKIP [$t] – package folder not found: $pkgPath" }
+    continue
+  }
 
-    $tbl    = $map.Tables[$t]
-    $create = $tbl['create']
-    $idxArr = ConvertTo-Array ($tbl['indexes'])
-    $fkArr  = ConvertTo-Array ($tbl['foreign_keys'])
-    $cols = Get-ColumnsFromCreate -CreateSql $create
-    $rels = Get-Relations -FkArray $fkArr
+  $readmePath = Join-Path $pkgPath 'README.md'
+  $readmeDir = Split-Path -LiteralPath $readmePath
+  if ((Test-Path -LiteralPath $readmePath) -and -not $Force) {
+    if (-not $Quiet) { Write-Host "SKIP [$t] – README exists (use -Force to overwrite)" }
+    continue
+  }
 
-    $has020 = @( $idxArr | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } ).Count -gt 0
-    $has030 = @( $fkArr  | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } ).Count -gt 0
-
-    # -- helper for a safe Mermaid edge label (no brackets, wrap in quotes)
-    function ConvertTo-MermaidLabel {
-      param([string]$Text)
-      if ([string]::IsNullOrWhiteSpace($Text)) { return '""' }
-      $t = $Text -replace '[`()]','' -replace '\s*,\s*', ', ' -replace '\s+',' '
-      return '"' + $t.Trim() + '"'
+  $docsPath = Join-Path $pkgPath 'docs/definitions.md'
+  $changelogPath = Join-Path $pkgPath 'CHANGELOG.md'
+  $pkgRootRel = (Get-RelativePathLegacy -BasePath $root -TargetPath $pkgPath -replace '\\','/')
+  $pkgRootLink = $null
+  if ($RepoUrl) {
+    $pkgRootLink = ($RepoUrl.TrimEnd('/') + '/' + $pkgRootRel)
+  }
+  function Get-PkgLink {
+    param([string]$Path, [switch]$PreferRelative)
+    $base = $pkgPath
+    if ($Path -match 'views-library') { $base = $MapRoot }
+    elseif ($Path -like "$root*") { $base = $root }
+    if (-not (Test-Path -LiteralPath $Path)) { return $null }
+    $resolved = (Resolve-Path -LiteralPath $Path).Path
+    if ($PreferRelative) {
+      $rel = Get-RelativePathLegacy -BasePath $readmeDir -TargetPath $resolved
+      return ($rel -replace '\\','/')
     }
-    function Get-MermaidType {
-      param([string]$DbType)
+    Get-LinkForPath -Path $resolved -RepoUrl $RepoUrl -Root $base
+  }
+  $docsLink = Get-PkgLink -Path $docsPath -PreferRelative
+  $changelogLink = Get-PkgLink -Path $changelogPath -PreferRelative
+  $engineDiffLink = if ($docsLink) { $docsLink + '#engine-differences' } else { $null }
+  $explorerPath = Join-Path $pkgPath 'docs/schema-explorer.html'
+  $explorerLink = Get-PkgLink -Path $explorerPath -PreferRelative
 
-      if ([string]::IsNullOrWhiteSpace($DbType)) { return 'COL' }
+  # ERD images disabled; rely on mermaid auto-render from definitions
+  $erdImgLink = $null
+  $schemaDir = Join-Path $pkgPath 'schema'
+  $schemaFiles = @()
+  if (Test-Path -LiteralPath $schemaDir) {
+    $schemaFiles = ConvertTo-Array (Get-ChildItem -LiteralPath $schemaDir -File -Recurse | Sort-Object FullName)
+  }
+  $viewFiles = ConvertTo-Array ($schemaFiles | Where-Object { $_.Name -match 'views' })
+  $seedFiles = ConvertTo-Array ($schemaFiles | Where-Object { $_.Name -match 'seed' })
 
-      # strip parentheses and enum values in quotes
-      $t = $DbType -replace '\(.*?\)', ''   # VARCHAR(100) -> VARCHAR
-      $t = $t -replace "'.*?'", ''          # ENUM('a','b') -> ENUM
-      $t = ($t -split '\s+')[0]             # first token
-      $t = $t -replace '[^A-Za-z0-9_]', ''  # keep only safe characters
+  $lines = New-Object System.Collections.Generic.List[string]
+  $title = ConvertTo-TitleCase $slug
 
-      if ([string]::IsNullOrWhiteSpace($t)) { $t = 'COL' }
+  $lines.Add("# 📦 $title") | Out-Null
+  $lines.Add("") | Out-Null
+  $lines.Add("> Auto-generated from [$mapLabel]($mapLink) ($stamp). Do not edit manually.") | Out-Null
+  $lines.Add("> Targets: PHP 8.3; MySQL 8.x / MariaDB 10.4; Postgres 15+.") | Out-Null
+  $lines.Add("") | Out-Null
 
-      # optional reduction of types into several families
-      switch -Regex ($t.ToUpperInvariant()) {
-        '^(VARCHAR|CHAR|TEXT|LONGTEXT|MEDIUMTEXT)$' { return 'VARCHAR' }
-        '^(TINYINT|SMALLINT|MEDIUMINT|INT|BIGINT)$' { return 'INT' }
-        '^(DECIMAL|NUMERIC|FLOAT|DOUBLE)$'          { return 'DECIMAL' }
-        '^(DATETIME|TIMESTAMP|DATE|TIME)$'          { return 'DATETIME' }
-        '^(BOOLEAN|BOOL)$'                          { return 'BOOLEAN' }
-        '^(BINARY|VARBINARY|BLOB|LONGBLOB|MEDIUMBLOB)$' { return 'BLOB' }
-        '^(ENUM|SET)$'                              { return 'ENUM' }
-        default { return $t }
-      }
-    }
+  # Badges
+  $badges = @(
+    '![PHP](https://img.shields.io/badge/PHP-8.3-blueviolet)',
+    '![DB](https://img.shields.io/badge/DB-MySQL%20%7C%20MariaDB%20%7C%20Postgres-informational)',
+    '![License](https://img.shields.io/badge/license-BlackCat%20Proprietary-red)',
+    '![Status](https://img.shields.io/badge/status-stable-success)'
+  )
+  $lines.Add(($badges -join " ")) | Out-Null
+  $lines.Add("") | Out-Null
 
-    # -- Relationships text: always initialize
-    $relText = @()
-    if (@($rels).Count -eq 0) {
-      $relText += '- No outgoing foreign keys.'
-    } else {
-      foreach($r in $rels){
-        $relText += "- FK → **$($r.RefTable)** via `($($r.Columns))` (ON DELETE $($r.OnDelete))."
-      }
-    }
+  function New-StatusBadge {
+    param([string]$Label, [bool]$Ok, [string]$TextIfOk = 'ok', [string]$TextIfFail = 'missing')
+    $val = if ($Ok) { $TextIfOk } else { $TextIfFail }
+    $color = if ($Ok) { 'success' } else { 'critical' }
+    $safeLabel = ($Label -replace ' ','%20')
+    $safeVal   = ($val -replace ' ','%20')
+    "![${safeLabel}](https://img.shields.io/badge/${safeLabel}-${safeVal}-${color})"
+  }
 
-    # -- Mermaid ER diagram (entity + outgoing FKs)
-    $tUp = $t.ToUpperInvariant()
-    $merm = @()
-    $merm += '```mermaid'
-    $merm += 'erDiagram'
-
-    # entity + columns (strip parentheses/quotes from types, mark PK)
-    $merm += "  $tUp {"
-    foreach ($c in $cols) {
-      $firstType = Get-MermaidType $c.Type
-      $pk = if ($c.IsPK) { ' PK' } else { '' }
-
-      # column names are usually safe (e.g., meta_email); still sanitize exotic characters:
-      $colName = $c.Name -replace '[^A-Za-z0-9_]', '_'
-
-      $merm += "    $firstType $colName$pk"
-    }
-    $merm += '  }'
-
-    # edges (label must be quoted and free of parentheses)
-    foreach ($r in $rels) {
-      $refUp = $r.RefTable.ToUpperInvariant()
-      $label = ConvertTo-MermaidLabel $r.Columns
-      # many-to-one visual }o--|| ; label = columns
-      $merm += "  $tUp }o--|| $refUp : $label"
-    }
-    $merm += '```'
-
-    # ---- header & badges
-    $title = ConvertTo-TitleCase $t
-    $badges = @(
-      '![SQL](https://img.shields.io/badge/SQL-MySQL%208.0%2B-4479A1?logo=mysql&logoColor=white)',
-      '![License](https://img.shields.io/badge/license-BlackCat%20Proprietary-red)',
-      '![Status](https://img.shields.io/badge/status-stable-informational)',
-      '![Generated](https://img.shields.io/badge/generated-from%20schema--map-blue)'
-    )
-
-    # ---- structure
-    $structureLines = @('```', 'schema/', '  001_table.sql')
-    if ($has020) { $structureLines += '  020_indexes.sql' } else { $structureLines += '  # (no deferred indexes declared in map)' }
-    if ($has030) { $structureLines += '  030_foreign_keys.sql' } else { $structureLines += '  # (no foreign keys declared in map)' }
-    $structureLines += '```'
-
-    # ---- columns preview table
-    $colPreview = @()
-    if (@($cols).Count -gt 0) {
-      $colPreview += '| Column | Type | Null | Default | Extra |'
-      $colPreview += '|-------:|:-----|:----:|:--------|:------|'
-      foreach($c in $cols){
-        $niceType = if ($c.Type) { $c.Type -replace "''","'" } else { $c.Type }
-        $colPreview += ("| `{0}` | {1} | {2} | {3} | {4} |" -f $c.Name,$niceType,$c.Null,$c.Default,$c.Extra)
-      }
-    } else {
-      $colPreview += '_No columns parsed (the generator could not extract them from CREATE TABLE)._'
-    }
-
-    # ---- indexes summary
-    $indexCount = @( $idxArr | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } ).Count
-    $idxSummary = if ($indexCount -gt 0) { "$indexCount deferred index statement(s) in `schema/020_indexes.sql`." } else { "No deferred indexes declared for this table." }
-
-    # ---- quick apply blocks
-    $quickBash = @(
-      '```bash',
-      '# Apply schema (Linux/macOS):',
-      'mysql -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" < schema/001_table.sql'
-    )
-    if ($has020) { $quickBash += 'mysql -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" < schema/020_indexes.sql' }
-    if ($has030) { $quickBash += 'mysql -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" < schema/030_foreign_keys.sql' }
-    $quickBash += '```'
-
-    $quickPs = @(
-      '```powershell',
-      '# Apply schema (Windows PowerShell):',
-      'mysql -h $env:DB_HOST -u $env:DB_USER -p$env:DB_PASS $env:DB_NAME < schema/001_table.sql'
-    )
-    if ($has020) { $quickPs += 'mysql -h $env:DB_HOST -u $env:DB_USER -p$env:DB_PASS $env:DB_NAME < schema/020_indexes.sql' }
-    if ($has030) { $quickPs += 'mysql -h $env:DB_HOST -u $env:DB_USER -p$env:DB_PASS $env:DB_NAME < schema/030_foreign_keys.sql' }
-    $quickPs += '```'
-
-    $docker = @(
-      '```bash',
-      '# Spin up a throwaway MySQL and apply just this package:',
-      'docker run --rm -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=app -p 3307:3306 -d mysql:8',
-      'sleep 15',
-      'mysql -h 127.0.0.1 -P 3307 -u root -proot app < schema/001_table.sql'
-    )
-    if ($has020) { $docker += 'mysql -h 127.0.0.1 -P 3307 -u root -proot app < schema/020_indexes.sql' }
-    if ($has030) { $docker += 'mysql -h 127.0.0.1 -P 3307 -u root -proot app < schema/030_foreign_keys.sql' }
-    $docker += '```'
-
-    # ---- assemble README
-    $readme = @()
-    $readme += "# 📦 $title"
-    $readme += ""
-    $readme += ($badges -join " ")
-    $readme += ""
-    $readme += $GenTag
-    $readme += ""
-    $readme += ('> Schema package for table **{0}** (repo: `{1}`).' -f $t, $slug)
-    $readme += ""
-    $readme += "## Files"
-    $readme += ($structureLines -join "`n")
-    $readme += ""
-    $readme += "## Quick apply"
-    $readme += ($quickBash -join "`n")
-    $readme += ""
-    $readme += ($quickPs -join "`n")
-    $readme += ""
-    $readme += "## Docker quickstart"
-    $readme += ($docker -join "`n")
-    $readme += ""
-    $readme += "## Columns"
-    $readme += ($colPreview -join "`n")
-    $readme += ""
-    $readme += "## Relationships"
-    $readme += ($relText -join "`n")
-    $readme += ""
-    $readme += ($merm -join "`n")
-    $readme += ""
-    $readme += "## Indexes"
-    $readme += "- $idxSummary"
-    $readme += ""
-    $readme += "## Notes"
-    $readme += '- Generated from the umbrella repository **blackcat-database** using `scripts/schema/schema-map-postgres.yaml`.'
-    $readme += '- To change the schema, update the map and re-run the generators.'
-    $readme += ""
-    $readme += "## License"
-    $readme += 'Distributed under the **BlackCat Store Proprietary License v1.0**. See `LICENSE`.'
-    $readme += ""
-
-    # ---- write
-    $schemaDir  = Join-Path $pkg 'schema'
-    New-Item -ItemType Directory -Force -Path $schemaDir | Out-Null
-
-    $readmePath = Join-Path $pkg 'README.md'
-    if ((Test-Path -LiteralPath $readmePath) -and -not $Force) {
-      Write-Host "SKIP [$t] – README exists (use -Force to overwrite)"
-    } else {
-      Set-Content -Path $readmePath -Value ($readme -join "`n") -Encoding UTF8 -NoNewline
-      Write-Host "WROTE [$t] -> $readmePath"
+  $hasDocs = Test-Path -LiteralPath $docsPath
+  $hasChangelog = Test-Path -LiteralPath $changelogPath
+  $changelogFresh = $null
+  $changelogFreshDays = $null
+  $changelogFreshThreshold = 45
+  if ($hasChangelog) {
+    $clItem = Get-Item -LiteralPath $changelogPath -ErrorAction SilentlyContinue
+    if ($clItem) {
+      $changelogFreshDays = [math]::Round(((Get-Date) - $clItem.LastWriteTime).TotalDays)
+      $changelogFresh = if ($changelogFreshDays -le $changelogFreshThreshold) { 'fresh' } else { 'stale' }
     }
   }
-  catch {
-    Write-Warning "FAILED [$t]: $($_.Exception.Message)"
+  $schemaCount = Get-SafeCount $schemaFiles
+  $viewCount   = Get-SafeCount $viewFiles
+  $seedCount   = Get-SafeCount $seedFiles
+  $hasSeeds = ($seedCount -gt 0)
+  $hasViews = ($viewCount -gt 0)
+
+  # Drift badge (from definitions, normalized)
+  $defsLines = @()
+  if (Test-Path -LiteralPath $docsPath) {
+    $defsLines = ConvertTo-Array (Get-Content -LiteralPath $docsPath -ErrorAction SilentlyContinue)
   }
+  $driftLines = @()
+  $defsCount = Get-SafeCount $defsLines
+  $fkRefs = @()
+  $colObjects = @()
+  $piiSignals = @()
+  $constraintSnips = @()
+  if ($defsCount -gt 0) {
+    $idxDiff = $defsLines.IndexOf('## Engine differences')
+    if ($idxDiff -ge 0) {
+      for ($i = $idxDiff + 1; $i -lt $defsLines.Length; $i++) {
+        if ($defsLines[$i] -match '^## ') { break }
+        $trim = $defsLines[$i].Trim()
+        if (-not $trim) { continue }
+        if ($trim -like '- Column differences:*') {
+          $parsed = ConvertFrom-ColumnDiffLine -Line $trim
+          if ($parsed) { $driftLines += $parsed }
+        } else {
+          $driftLines += $trim
+        }
+      }
+    }
+    $fkRefs = Get-ForeignKeyRefs -DefsLines $defsLines
+    $colObjects = Get-ColumnObjects -DefsLines $defsLines
+    $piiSignals = Get-PiiSignals -Columns $colObjects
+    $constraintSnips = Get-ConstraintSnippets -Columns $colObjects -Max 5
+  }
+
+  $driftCount = Get-SafeCount $driftLines
+  $inboundRefs = Get-InboundRefsForTable -TableName $t
+  $inboundRefCount = Get-SafeCount $inboundRefs
+  $fkRefCount = Get-SafeCount $fkRefs
+  $lineageTotal = $fkRefCount + $inboundRefCount
+  $colCount = Get-SectionRowCount -Lines $defsLines -Header '## Columns'
+  $idxCount = Get-SectionRowCount -Lines $defsLines -Header 'Indexes:'
+  $fkCount  = Get-SectionRowCount -Lines $defsLines -Header 'Foreign keys:'
+  $uniqueCount = Get-SectionRowCount -Lines $defsLines -Header 'Unique keys:'
+  $viewsCount = Get-SectionRowCount -Lines $defsLines -Header '## Views'
+  $hasPrimaryKey = (($defsLines -join "`n") -match '\bPRIMARY\s+KEY\b')
+  # Consider index coverage OK if we at least see a primary key and any secondary index.
+  $indexCoverageOk = $hasPrimaryKey -and ($idxCount -gt 0)
+  $piiCount = Get-SafeCount $piiSignals
+  $constraintCount = Get-SafeCount $constraintSnips
+  $changelogDescriptor = if ($changelogFresh) { "$changelogFresh ($changelogFreshDays d)" } else { 'n/a' }
+  $driftStatus = $null
+  if ($driftCount -gt 0) { $driftStatus = '⚠️ Engine drift detected (see definitions)' }
+  elseif ($defsCount -gt 0) { $driftStatus = '✅ No engine drift detected' }
+
+  $statusBadges = @(
+    New-StatusBadge -Label 'Docs' -Ok $hasDocs -TextIfOk 'ready'
+    New-StatusBadge -Label 'Changelog' -Ok $hasChangelog
+    New-StatusBadge -Label 'Changelog freshness' -Ok (($changelogFresh -eq 'fresh') -or (-not $hasChangelog)) -TextIfOk 'fresh' -TextIfFail 'stale'
+    New-StatusBadge -Label 'Seeds' -Ok $hasSeeds
+    New-StatusBadge -Label 'Views' -Ok $hasViews
+    New-StatusBadge -Label 'Lineage' -Ok (($fkRefCount + $inboundRefCount) -gt 0) -TextIfOk 'linked' -TextIfFail 'solo'
+    New-StatusBadge -Label 'Drift' -Ok (($driftCount -eq 0) -and ($defsCount -gt 0)) -TextIfOk 'clean' -TextIfFail ($(if ($defsCount -gt 0) { 'warn' } else { 'n/a' }))
+    New-StatusBadge -Label 'Index coverage' -Ok $indexCoverageOk -TextIfOk 'ready' -TextIfFail 'todo'
+    New-StatusBadge -Label 'PII' -Ok ($piiCount -eq 0) -TextIfOk 'none' -TextIfFail 'review'
+  )
+  $lines.Add(($statusBadges -join " ")) | Out-Null
+  $lines.Add("") | Out-Null
+
+  if ($lineageTotal -ge 4) {
+    $lines.Add("> 🔥 Lineage hotspot: $lineageTotal FK links detected. Make sure cascades/nullability are intentional.") | Out-Null
+    $lines.Add("") | Out-Null
+  }
+
+  if ($driftStatus) {
+    $lines.Add($driftStatus) | Out-Null
+    $lines.Add("") | Out-Null
+  }
+
+  # Hero/vibe block
+  $docsLabel = if ($docsLink) { "<a href='$docsLink'>definitions</a>" } else { "<span style='opacity:0.65;'>definitions missing</span>" }
+  $driftLabel = if ($driftStatus) { $driftStatus } else { 'Drift: n/a (no definitions yet)' }
+  $lines.Add("<div style='margin:12px 0 18px;padding:14px 16px;border-radius:14px;background:linear-gradient(120deg,#0b1021 0%,#111827 40%,#312e81 100%);color:#e2e8f0;border:1px solid #1f2937;box-shadow:0 18px 55px rgba(49,46,129,0.35);'>") | Out-Null
+  $lines.Add("<div style='font-weight:700;letter-spacing:0.4px;font-size:14px;'>Schema vibe</div>") | Out-Null
+  $lines.Add("<div style='font-size:13px;opacity:0.95;'>Map: <a href='$mapLink' style='color:#a5b4fc;'>$mapLabel</a> · Docs: $docsLabel · Drift warnings: $driftCount</div>") | Out-Null
+  $lines.Add("<div style='font-size:13px;opacity:0.92;'>Lineage heat: $fkRefCount outbound / $inboundRefCount inbound · $driftLabel · Index coverage: " + ($(if ($indexCoverageOk) { 'ready' } else { 'todo' })) + " · PII: " + ($(if ($piiCount -eq 0) { 'none' } else { $piiCount })) + " · Changelog: $changelogDescriptor</div>") | Out-Null
+  $lines.Add("</div>") | Out-Null
+  $lines.Add("") | Out-Null
+
+  # Quick links
+  $lines.Add("## Quick Links") | Out-Null
+  $lines.Add("- Schema map: [$mapLabel]($mapLink)") | Out-Null
+  $pkgLabel = if ($pkgRootRel) { $pkgRootRel } else { $pkgPath }
+  if ($pkgRootLink) {
+    $lines.Add("- Pkg folder: [$pkgLabel]($pkgRootLink)") | Out-Null
+  } else {
+    $lines.Add("- Pkg folder: $pkgLabel") | Out-Null
+  }
+  if ($docsLink) { $lines.Add("- Definitions: [$docsLink]($docsLink)") | Out-Null } else { $lines.Add("- Definitions: _(missing)_") | Out-Null }
+  if ($engineDiffLink) { $lines.Add("- Engine differences: [$engineDiffLink]($engineDiffLink)") | Out-Null }
+  if ($explorerLink) { $lines.Add("- Schema Explorer: [$explorerLink]($explorerLink)") | Out-Null }
+  if ($changelogLink) { $lines.Add("- Changelog: [$changelogLink]($changelogLink)") | Out-Null } else { $lines.Add("- Changelog: _(missing)_") | Out-Null }
+  $lines.Add("") | Out-Null
+  if ($erdImgLink) {
+    $lines.Add("<a href='$erdImgLink'><img src='$erdImgLink' alt='ERD preview' height='160'/></a>") | Out-Null
+    $lines.Add("") | Out-Null
+  } elseif (($fkRefCount + $inboundRefCount) -gt 0) {
+    $lines.Add("> ERD preview: auto-rendered from docs/definitions.md (mermaid).") | Out-Null
+    $miniGraph = New-RelationshipGraph -TableName $t -Outbound $fkRefs -Inbound $inboundRefs
+    foreach ($mg in $miniGraph) { $lines.Add($mg) | Out-Null }
+    $lines.Add("") | Out-Null
+  } elseif ($defsCount -gt 0) {
+    $lines.Add("> ERD preview: auto-rendered from docs/definitions.md (no FK links detected; showing anchor).") | Out-Null
+    $miniGraph = New-RelationshipGraph -TableName $t -Outbound @() -Inbound @()
+    foreach ($mg in $miniGraph) { $lines.Add($mg) | Out-Null }
+    $lines.Add("") | Out-Null
+  } else {
+    $lines.Add("> ERD preview: missing – add docs/erd.svg (or .png/.jpg) to this package.") | Out-Null
+    $lines.Add(([string]::new([char]96,3) + 'mermaid')) | Out-Null
+    $lines.Add("graph TD") | Out-Null
+    $lines.Add("  erd[ERD missing]:::warn --> howto[Add docs/erd.svg|png|jpg]") | Out-Null
+    $lines.Add("  classDef warn fill:#2d1b1b,stroke:#f87171,stroke-width:2px,color:#fecaca;") | Out-Null
+    $lines.Add("  classDef info fill:#0f172a,stroke:#60a5fa,stroke-width:2px,color:#bfdbfe;") | Out-Null
+    $lines.Add("  class howto info;") | Out-Null
+    $lines.Add([string]::new([char]96,3)) | Out-Null
+    $lines.Add("") | Out-Null
+  }
+
+  # Contents / TOC
+  $lines.Add("## Contents") | Out-Null
+  $lines.Add("- [Quick Links](#quick-links)") | Out-Null
+  $lines.Add("- [At a Glance](#at-a-glance)") | Out-Null
+  $lines.Add("- [Summary](#summary)") | Out-Null
+  $lines.Add("- [Relationship Graph](#relationship-graph)") | Out-Null
+  $lines.Add("- [Engine Matrix](#engine-matrix)") | Out-Null
+  $lines.Add("- [Engine Drift](#engine-drift)") | Out-Null
+  $lines.Add("- [Constraints Snapshot](#constraints-snapshot)") | Out-Null
+  $lines.Add("- [Compliance Notes](#compliance-notes)") | Out-Null
+  $lines.Add("- [Schema Files](#schema-files)") | Out-Null
+  $lines.Add("- [Views](#views)") | Out-Null
+  $lines.Add("- [Seeds](#seeds)") | Out-Null
+  $lines.Add("- [Usage](#usage)") | Out-Null
+  $lines.Add("- [Quality Gates](#quality-gates)") | Out-Null
+  $lines.Add("- [Regeneration](#regeneration)") | Out-Null
+  $lines.Add("") | Out-Null
+
+  # Summary
+  $lines.Add("## At a Glance") | Out-Null
+  $lines.Add("| Metric | Count |") | Out-Null
+  $lines.Add("| --- | --- |") | Out-Null
+  $lines.Add("| Columns | $colCount |") | Out-Null
+  $lines.Add("| Indexes | $idxCount |") | Out-Null
+  $lines.Add("| Foreign keys | $fkCount |") | Out-Null
+  $lines.Add("| Unique keys | $uniqueCount |") | Out-Null
+  $lines.Add("| Outbound links (FK targets) | $fkRefCount |") | Out-Null
+  $lines.Add("| Inbound links (tables depending on this) | $inboundRefCount |") | Out-Null
+  $lines.Add("| Views | $viewsCount |") | Out-Null
+  $lines.Add("| Seeds | $seedCount |") | Out-Null
+  $lines.Add("| Drift warnings | $driftCount |") | Out-Null
+  $lines.Add("| PII flags | $piiCount |") | Out-Null
+  $lines.Add("") | Out-Null
+
+  $lines.Add("## Summary") | Out-Null
+  $lines.Add("- Table: $t") | Out-Null
+  $lines.Add("- Schema files: $schemaCount") | Out-Null
+  $lines.Add("- Views: $viewCount") | Out-Null
+  $lines.Add("- Seeds: $seedCount") | Out-Null
+  $lines.Add("- Docs: " + ($(if ($docsLink) { "present" } else { "missing (run Build-Definitions)" }))) | Out-Null
+  $lines.Add("- Changelog: " + ($(if ($changelogLink) { "present" } else { "missing" }))) | Out-Null
+  if ($changelogFresh) { $lines.Add("- Changelog freshness: $changelogFresh ($changelogFreshDays days old; threshold $changelogFreshThreshold)") | Out-Null }
+  $lines.Add("- Outbound FK targets: " + ($(if ($fkRefCount -gt 0) { $fkRefCount } else { 'none' }))) | Out-Null
+  $lines.Add("- Inbound FK sources: " + ($(if ($inboundRefCount -gt 0) { $inboundRefCount } else { 'none (from definitions)' }))) | Out-Null
+  $lines.Add("- Index coverage: " + ($(if ($indexCoverageOk) { 'ready' } else { 'todo (add PK and at least one index)' }))) | Out-Null
+  $lines.Add("- Engine targets: PHP 8.3; MySQL/MariaDB/Postgres") | Out-Null
+  $lines.Add("") | Out-Null
+
+  $lines.Add("## Relationship Graph") | Out-Null
+  if (($defsCount -eq 0) -and ($inboundRefCount -eq 0)) {
+    $lines.Add("_No definitions found, so lineage cannot be rendered._") | Out-Null
+  } elseif (($fkRefCount + $inboundRefCount) -eq 0) {
+    $lines.Add("_No foreign keys declared in docs/definitions.md (inbound or outbound)._") | Out-Null
+  } else {
+    $lines.Add("> ⚡ Neon FK map below is parsed straight from docs/definitions.md for quick orientation.") | Out-Null
+    $graphLines = New-RelationshipGraph -TableName $t -Outbound $fkRefs -Inbound $inboundRefs
+    foreach ($g in $graphLines) { $lines.Add($g) | Out-Null }
+    $lines.Add("") | Out-Null
+    $prettyOutbound = ($fkRefs | Sort-Object) | ForEach-Object { '"{0}"' -f $_ }
+    $prettyInbound = ($inboundRefs | Sort-Object) | ForEach-Object { '"{0}"' -f $_ }
+    $lines.Add("- Outbound (depends on): " + ($(if ($fkRefCount -gt 0) { ($prettyOutbound -join ', ') } else { '_none_' }))) | Out-Null
+    $lines.Add("- Inbound (relies on this): " + ($(if ($inboundRefCount -gt 0) { ($prettyInbound -join ', ') } else { '_none from defs_'}))) | Out-Null
+    $lines.Add("- Legend: central node = this table, teal/purple arrows = outbound FK targets, green arrows = inbound FK sources.") | Out-Null
+  }
+  $lines.Add("") | Out-Null
+
+  # Engine matrix
+  $engineStats = @{
+    mysql    = @{ schema = 0; views = 0 }
+    postgres = @{ schema = 0; views = 0 }
+  }
+  foreach ($f in $schemaFiles) {
+    $eng = Get-EngineFromFileName $f.Name
+    if ($eng -and $engineStats.ContainsKey($eng)) { $engineStats[$eng].schema++ }
+  }
+  foreach ($vf in $viewFiles) {
+    $eng = Get-EngineFromFileName $vf.Name
+    if ($eng -and $engineStats.ContainsKey($eng)) { $engineStats[$eng].views++ }
+  }
+  function Format-EngineCell {
+    param([int]$SchemaCount, [int]$ViewCount, [bool]$HasSeeds)
+    $bits = @()
+    $bits += $(if ($SchemaCount -gt 0) { "✅ schema($SchemaCount)" } else { "⚠️ schema" })
+    $bits += $(if ($ViewCount -gt 0) { "✅ views($ViewCount)" } else { "⚠️ views" })
+    $bits += $(if ($HasSeeds) { "✅ seeds" } else { "⚠️ seeds" })
+    return ($bits -join '<br/>')
+  }
+  $lines.Add("## Engine Matrix") | Out-Null
+  $lines.Add("| Engine | Support |") | Out-Null
+  $lines.Add("| --- | --- |") | Out-Null
+  foreach ($eng in @('mysql','postgres')) {
+    $stat = $engineStats[$eng]
+    $cell = Format-EngineCell -SchemaCount $stat.schema -ViewCount $stat.views -HasSeeds $hasSeeds
+    $lines.Add("| $eng | $cell |") | Out-Null
+  }
+  $lines.Add("") | Out-Null
+
+  $lines.Add("## Engine Drift") | Out-Null
+  if ($driftCount -eq 0) {
+    $lines.Add("_No engine differences detected._") | Out-Null
+  } else {
+    $lines.Add("_Listed after normalizing common equivalents (INT/INTEGER, TINYINT(1)/BOOLEAN, TEXT/JSONB where applicable, defaults 0/1/TRUE/FALSE)._") | Out-Null
+    $lines.Add("") | Out-Null
+    foreach ($d in $driftLines) { $lines.Add("- $d") | Out-Null }
+  }
+  $lines.Add("") | Out-Null
+
+  # Constraints snapshot
+  $lines.Add("## Constraints Snapshot") | Out-Null
+  if ($constraintCount -eq 0) {
+    $lines.Add("_No defaults/enums/checks detected in definitions.md columns._") | Out-Null
+  } else {
+    foreach ($sn in $constraintSnips) { $lines.Add("- $sn") | Out-Null }
+  }
+  $lines.Add("") | Out-Null
+
+  # Schema files
+  $lines.Add("## Schema Files") | Out-Null
+  if ($schemaCount -eq 0) {
+    $lines.Add("_No schema files found in `schema/`._") | Out-Null
+  } else {
+    $lines.Add("| File | Engine |") | Out-Null
+    $lines.Add("| --- | --- |") | Out-Null
+    foreach ($f in $schemaFiles) {
+      $eng = Get-EngineFromFileName $f.Name
+      $link = Get-PkgLink -Path $f.FullName -PreferRelative
+      $lines.Add("| [$($f.Name)]($link) | $eng |") | Out-Null
+    }
+  }
+  $lines.Add("") | Out-Null
+
+  # Views
+  $lines.Add("## Views") | Out-Null
+  if ($viewCount -eq 0) {
+    $lines.Add("_No view files found._") | Out-Null
+  } else {
+    $lines.Add("| File | Engine | Source |") | Out-Null
+    $lines.Add("| --- | --- | --- |") | Out-Null
+    foreach ($vf in $viewFiles) {
+      $eng = Get-EngineFromFileName $vf.Name
+      $link = Get-PkgLink -Path $vf.FullName -PreferRelative
+      $source = 'package'
+      if ($vf.FullName -match 'views-library') {
+        $srcLink = Get-PkgLink -Path $vf.FullName
+        $source = if ($srcLink) { "[views-library]($srcLink)" } else { 'views-library' }
+      }
+      $lines.Add("| [$($vf.Name)]($link) | $eng | $source |") | Out-Null
+    }
+  }
+  $lines.Add("") | Out-Null
+
+  # Seeds / fixtures
+  $lines.Add("## Seeds") | Out-Null
+  if ($seedCount -eq 0) {
+    $lines.Add("_No seed files found._") | Out-Null
+  } else {
+    $lines.Add("| File | Engine |") | Out-Null
+    $lines.Add("| --- | --- |") | Out-Null
+    foreach ($sf in $seedFiles) {
+      $eng = Get-EngineFromFileName $sf.Name
+      $link = Get-PkgLink -Path $sf.FullName -PreferRelative
+      $lines.Add("| [$($sf.Name)]($link) | $eng |") | Out-Null
+    }
+    $preview = ($seedFiles | Select-Object -First 3 | ForEach-Object { $_.Name })
+    if ($preview.Count -gt 0) {
+      $lines.Add("") | Out-Null
+      $lines.Add("_Seed snapshot:_ " + ($preview -join ', ') + ($(if ($seedCount -gt $preview.Count) { " + $(($seedCount - $preview.Count)) more" } else { "" }))) | Out-Null
+    }
+  }
+  $lines.Add("") | Out-Null
+
+  # Compliance notes
+  $lines.Add("## Compliance Notes") | Out-Null
+  if ($piiCount -eq 0) {
+    $lines.Add("_No PII-like columns detected in definitions.md._") | Out-Null
+  } else {
+    $lines.Add("> ⚠️ Potential PII/secret fields – review retention/encryption policies:") | Out-Null
+    foreach ($p in $piiSignals | Sort-Object) { $lines.Add("- $p") | Out-Null }
+  }
+  $lines.Add("") | Out-Null
+
+  # Usage hints
+  $lines.Add("## Usage") | Out-Null
+  $lines.Add("- Install/upgrade schema: pwsh -NoLogo -NoProfile -File scripts/schema-tools/Migrate-DryRun.ps1 -Package $slug -Apply") | Out-Null
+  $lines.Add("- Split schema: pwsh -NoLogo -NoProfile -File scripts/schema-tools/Split-SchemaToPackages.ps1") | Out-Null
+  $lines.Add("- Generate PHP DTO/Repo: pwsh -NoLogo -NoProfile -File scripts/schema-tools/Generate-PhpFromSchema.ps1 -SchemaDir scripts/schema -TemplatesRoot scripts/templates/php -ModulesRoot packages -NameResolution detect -Force") | Out-Null
+  $lines.Add("- Validate SQL: pwsh -NoLogo -NoProfile -File scripts/schema-tools/Lint-Sql.ps1 -PackagesDir $PackagesDir") | Out-Null
+  $lines.Add('- PHPUnit (full DB matrix): set BC_DB=mysql|postgres|mariadb then run `vendor/bin/phpunit --configuration tests/phpunit.xml.dist --testsuite "DB Integration"`') | Out-Null
+  $lines.Add("") | Out-Null
+
+  # Quality gates
+  function Format-Check {
+    param([bool]$Ok, [string]$Label, [string]$HintIfFail = '')
+    $mark = if ($Ok) { '[x]' } else { '[ ]' }
+    $suffix = if ($Ok -or -not $HintIfFail) { '' } else { " – $HintIfFail" }
+    return "$mark $Label$suffix"
+  }
+  $lines.Add("## Quality Gates") | Out-Null
+  $lines.Add($(Format-Check -Ok $hasDocs -Label 'Definitions present' -HintIfFail 'run Build-Definitions')) | Out-Null
+  $lines.Add($(Format-Check -Ok $hasChangelog -Label 'Changelog present')) | Out-Null
+  $lines.Add($(Format-Check -Ok (($changelogFresh -eq 'fresh') -or -not $hasChangelog) -Label 'Changelog fresh' -HintIfFail ('older than {0} d' -f $changelogFreshThreshold))) | Out-Null
+  $lines.Add($(Format-Check -Ok $indexCoverageOk -Label 'Index coverage (PK + index)')) | Out-Null
+  $lines.Add($(Format-Check -Ok ($fkRefCount -gt 0) -Label 'Outbound lineage captured')) | Out-Null
+  $lines.Add($(Format-Check -Ok ($inboundRefCount -gt 0) -Label 'Inbound lineage mapped')) | Out-Null
+  $lines.Add($(Format-Check -Ok ($defsCount -gt 0) -Label 'ERD renderable (mermaid)' -HintIfFail 'add docs/definitions.md')) | Out-Null
+  $lines.Add($(Format-Check -Ok ($seedCount -gt 0) -Label 'Seeds available' -HintIfFail 'add smoke data seeds')) | Out-Null
+  $lines.Add("") | Out-Null
+
+  # Maintenance checklist
+  $lines.Add("## Maintenance Checklist") | Out-Null
+  $lines.Add("- [ ] Update schema map and split: Split-SchemaToPackages.ps1") | Out-Null
+  $lines.Add("- [ ] Regenerate PHP DTO/Repo: Generate-PhpFromSchema.ps1") | Out-Null
+  $lines.Add("- [ ] Rebuild definitions + README + docs index") | Out-Null
+  $lines.Add("- [ ] Lint SQL + run full PHPUnit DB matrix") | Out-Null
+  $lines.Add("") | Out-Null
+
+  # Regeneration
+  $lines.Add("## Regeneration") | Out-Null
+  $lines.Add("- Definitions: pwsh -NoLogo -NoProfile -File scripts/schema-tools/Build-Definitions.ps1 -Force") | Out-Null
+  $lines.Add("- Pkg README: pwsh -NoLogo -NoProfile -File scripts/docs/New-PackageReadmes.ps1 -Force") | Out-Null
+  $lines.Add("- Docs index: pwsh -NoLogo -NoProfile -File scripts/docs/New-DocsIndex.ps1 -Force") | Out-Null
+  $lines.Add("- Pkg changelog: pwsh -NoLogo -NoProfile -File scripts/docs/New-PackageChangelogs.ps1 -Force") | Out-Null
+  $lines.Add("") | Out-Null
+
+  # Footer
+  $lines.Add("---") | Out-Null
+  $lines.Add("Generated by scripts/docs/New-PackageReadmes.ps1 ($stamp)") | Out-Null
+  $licenseNote = if ($licenseLink) { "⚖️ License: Proprietary – see [LICENSE]($licenseLink)." } else { "⚖️ License: Proprietary – see LICENSE at the repo root." }
+  $lines.Add($licenseNote) | Out-Null
+
+  # Write file
+  Set-Content -LiteralPath $readmePath -Value ($lines -join "`n") -Encoding UTF8
+  if (-not $Quiet) { Write-Host "WROTE $readmePath" }
 }

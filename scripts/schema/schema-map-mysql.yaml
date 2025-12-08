@@ -1483,6 +1483,7 @@ Tables:
         id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         tenant_id BIGINT UNSIGNED NOT NULL,
         name VARCHAR(255) NOT NULL,
+        name_ci VARCHAR(255) GENERATED ALWAYS AS (LOWER(name)) STORED,
         slug VARCHAR(255) NOT NULL,
         slug_ci VARCHAR(255) GENERATED ALWAYS AS (LOWER(slug)) STORED,
         parent_id BIGINT UNSIGNED NULL,
@@ -1509,7 +1510,7 @@ Tables:
       - CREATE UNIQUE INDEX ux_categories_tenant_slug_live_ci ON categories (tenant_id, slug_ci, is_live)
       - CREATE UNIQUE INDEX ux_categories_tenant_id ON categories (tenant_id, id)
       - CREATE INDEX idx_categories_tenant_parent ON categories (tenant_id, parent_id)
-      - CREATE INDEX idx_categories_name_ci ON categories (tenant_id, lower(name))
+      - CREATE INDEX idx_categories_name_ci ON categories (tenant_id, name_ci)
     SoftDelete: deleted_at
     foreign_keys:
       - ALTER TABLE categories ADD CONSTRAINT fk_categories_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT
@@ -2333,6 +2334,7 @@ Tables:
         id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         tenant_id BIGINT UNSIGNED NOT NULL,
         name VARCHAR(255) NOT NULL,
+        name_ci VARCHAR(255) GENERATED ALWAYS AS (LOWER(name)) STORED,
         slug VARCHAR(255) NOT NULL,
         slug_ci VARCHAR(255) GENERATED ALWAYS AS (LOWER(slug)) STORED,
         bio TEXT NULL,
@@ -2373,7 +2375,7 @@ Tables:
     indexes:
       - CREATE UNIQUE INDEX ux_authors_tenant_slug_live_ci ON authors (tenant_id, slug_ci, is_live)
       - CREATE UNIQUE INDEX ux_authors_tenant_id ON authors (tenant_id, id)
-      - CREATE INDEX idx_authors_name_ci ON authors (tenant_id, lower(name))
+      - CREATE INDEX idx_authors_name_ci ON authors (tenant_id, name_ci)
     SoftDelete: deleted_at
     foreign_keys:
       - ALTER TABLE authors ADD CONSTRAINT fk_authors_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT
