@@ -39,6 +39,12 @@ jobs:
         run: |
           $PSVersionTable
           git --version
+
+      - name: Install YAML module (ConvertFrom-Yaml)
+        shell: pwsh
+        run: |
+          Install-Module powershell-yaml -Scope CurrentUser -Force -ErrorAction Stop
+          Import-Module powershell-yaml -ErrorAction Stop
       - name: Verify required paths (defaults)
         shell: pwsh
         run: |
