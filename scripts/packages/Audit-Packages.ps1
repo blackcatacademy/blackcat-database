@@ -10,10 +10,17 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot "../support/SqlDocUtils.psm1") -Force
 
-if (-not (Test-Path -LiteralPath $MapPath)) { throw "Map not found: $MapPath" }
-if (-not (Test-Path -LiteralPath $PackagesDir)) { throw "PackagesDir not found: $PackagesDir" }
+# Resolve repo root two levels up from scripts/packages
+$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..' '..') | Select-Object -ExpandProperty Path
+$mapPathResolved = if ([IO.Path]::IsPathRooted($MapPath)) { $MapPath } else { Join-Path $repoRoot $MapPath }
+$packagesResolved = if ([IO.Path]::IsPathRooted($PackagesDir)) { $PackagesDir } else { Join-Path $repoRoot $PackagesDir }
+$viewsResolved = if ([IO.Path]::IsPathRooted($ViewsLibraryRoot)) { $ViewsLibraryRoot } else { Join-Path $repoRoot $ViewsLibraryRoot }
+$outPathResolved = if ([IO.Path]::IsPathRooted($OutPath)) { $OutPath } else { Join-Path $repoRoot $OutPath }
 
-$map = Get-Content -LiteralPath $MapPath -Raw | ConvertFrom-Yaml
+if (-not (Test-Path -LiteralPath $mapPathResolved)) { throw "Map not found: $mapPathResolved" }
+if (-not (Test-Path -LiteralPath $packagesResolved)) { throw "PackagesDir not found: $packagesResolved" }
+
+$map = Get-Content -LiteralPath $mapPathResolved -Raw | ConvertFrom-Yaml
 $tables = $map.Tables.Keys | Sort-Object
 
 $rows = @()
@@ -59,14 +66,14 @@ function Test-IndexForColumns {
 
 foreach ($tableName in $tables) {
   $pkgSlug = ($tableName -replace '_','-')
-  $pkgDir = Join-Path $PackagesDir $pkgSlug
+  $pkgDir = Join-Path $packagesResolved $pkgSlug
 
   $schemaDir = Join-Path $pkgDir 'schema'
   $viewDirs = @()
   $viewDirPkg = Join-Path $pkgDir 'views'
   if (Test-Path -LiteralPath $viewDirPkg) { $viewDirs += $viewDirPkg }
   if ($ViewsLibraryRoot) {
-    $viewLib = Join-Path $ViewsLibraryRoot $pkgSlug
+    $viewLib = Join-Path $viewsResolved $pkgSlug
     if (Test-Path -LiteralPath $viewLib) { $viewDirs += $viewLib }
   }
 
@@ -105,7 +112,8 @@ foreach ($tableName in $tables) {
 
   $score = Measure-TableScore $hasPk $hasTime $uniqueCount $fks.Count $vws.Count $missingFkIdx
 
-  $rows += "| [$pkgSlug](./packages/$pkgSlug) | `$tableName` | $($cols.Count) | $($idx.Count) | $($uniqueCount) | $($fks.Count) | $($vws.Count) | $hasPk | $hasTime | $([bool](-not $missingFkIdx)) | $score |"
+$rows += ("| [`{0}`](./packages/{1}) | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} |" -f `
+  $tableName, $pkgSlug, $cols.Count, $idx.Count, $uniqueCount, $fks.Count, $vws.Count, $hasPk, $hasTime, (-not $missingFkIdx), $score)
 
   $total.Packages++
   $total.Tables++
@@ -120,8 +128,8 @@ foreach ($tableName in $tables) {
 $md = @"
 # Database Audit Report
 
-| Package | Table | Columns | Indexes | UniqueIdx | FKs | Views | HasPK | HasTime | FKIndexed | Score |
-|---|---:|---:|---:|---:|---:|---:|:---:|:---:|:---:|---:|
+| Table (pkg link) | Columns | Indexes | UniqueIdx | FKs | Views | HasPK | HasTime | FKIndexed | Score |
+|---|---:|---:|---:|---:|---:|:---:|:---:|:---:|---:|
 $($rows -join "`n")
 
 **Totals:** packages=$($total.Packages), tables=$($total.Tables), indexes=$($total.Indexes), FKs=$($total.FKs), views=$($total.Views), withPK=$($total.WithPK), withTime=$($total.WithTime), withUnique=$($total.UniqueIdx)
@@ -129,7 +137,7 @@ $($rows -join "`n")
 > Score formula: PK(40) + Time(10) + UniqueIdx(10) + FK(10) + FKIndexed(10) + Views(10)
 "@
 
-$outDir = Split-Path -Parent $OutPath
+$outDir = Split-Path -Parent $outPathResolved
 if ($outDir) { New-Item -ItemType Directory -Force -Path $outDir | Out-Null }
-$md | Out-File -FilePath $OutPath -NoNewline -Encoding UTF8
-Write-Host "Wrote $OutPath"
+$md | Out-File -FilePath $outPathResolved -NoNewline -Encoding UTF8
+Write-Host "Wrote $outPathResolved"

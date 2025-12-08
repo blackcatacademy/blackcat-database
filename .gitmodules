@@ -463,9 +463,9 @@
 	url = https://github.com/blackcatdatabase/table-rewrap-jobs
 	branch = dev
 	shallow = true
-[submodule "packages/tenant-dodevs"]
-	path = packages/tenant-dodevs
-	url = https://github.com/blackcatdatabase/table-tenant-dodevs
+[submodule "packages/tenant-domains"]
+	path = packages/tenant-domains
+	url = https://github.com/blackcatdatabase/table-tenant-domains
 	branch = dev
 [submodule "packages/slo-windows"]
 	path = packages/slo-windows

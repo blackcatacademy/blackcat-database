@@ -1,113 +1,113 @@
 # Database Audit Report
 
-| Package | Table | Columns | Indexes | UniqueIdx | FKs | Views | HasPK | HasTime | FKIndexed | Score |
-|---|---:|---:|---:|---:|---:|---:|:---:|:---:|:---:|---:|
-| [api-keys](./packages/api-keys) | $tableName | 25 | 2 | 2 | 4 | 0 | False | True | True | 40 |
-| [app-settings](./packages/app-settings) | $tableName | 17 | 0 | 0 | 2 | 0 | False | True | False | 20 |
-| [audit-chain](./packages/audit-chain) | $tableName | 12 | 1 | 0 | 2 | 0 | False | True | True | 30 |
-| [audit-log](./packages/audit-log) | $tableName | 21 | 3 | 0 | 2 | 0 | False | False | True | 20 |
-| [auth-events](./packages/auth-events) | $tableName | 17 | 0 | 0 | 2 | 0 | False | False | False | 10 |
-| [authors](./packages/authors) | $tableName | 37 | 3 | 2 | 2 | 0 | False | True | True | 40 |
-| [book-assets](./packages/book-assets) | $tableName | 39 | 3 | 2 | 6 | 0 | False | True | True | 40 |
-| [book-categories](./packages/book-categories) | $tableName | 9 | 2 | 0 | 4 | 0 | True | True | True | 70 |
-| [books](./packages/books) | $tableName | 49 | 5 | 3 | 6 | 0 | False | True | True | 40 |
-| [cart-items](./packages/cart-items) | $tableName | 28 | 4 | 1 | 6 | 0 | True | True | True | 80 |
-| [carts](./packages/carts) | $tableName | 13 | 2 | 1 | 4 | 0 | False | True | True | 40 |
-| [categories](./packages/categories) | $tableName | 23 | 4 | 2 | 4 | 0 | False | True | True | 40 |
-| [countries](./packages/countries) | $tableName | 7 | 0 | 0 | 0 | 0 | False | True | True | 20 |
-| [coupon-redemptions](./packages/coupon-redemptions) | $tableName | 13 | 7 | 1 | 8 | 0 | False | False | True | 30 |
-| [coupons](./packages/coupons) | $tableName | 29 | 3 | 2 | 2 | 0 | False | True | True | 40 |
-| [crypto-algorithms](./packages/crypto-algorithms) | $tableName | 19 | 1 | 0 | 0 | 0 | False | True | True | 20 |
-| [crypto-keys](./packages/crypto-keys) | $tableName | 43 | 0 | 0 | 4 | 0 | False | True | False | 20 |
-| [crypto-standard-aliases](./packages/crypto-standard-aliases) | $tableName | 7 | 1 | 0 | 2 | 0 | False | True | True | 30 |
-| [data-retention-policies](./packages/data-retention-policies) | $tableName | 16 | 0 | 0 | 0 | 0 | False | True | True | 20 |
-| [deletion-jobs](./packages/deletion-jobs) | $tableName | 24 | 0 | 0 | 2 | 0 | False | True | False | 20 |
-| [device-fingerprints](./packages/device-fingerprints) | $tableName | 22 | 1 | 0 | 2 | 0 | False | True | True | 30 |
-| [email-verifications](./packages/email-verifications) | $tableName | 18 | 0 | 0 | 2 | 0 | False | True | False | 20 |
-| [encrypted-fields](./packages/encrypted-fields) | $tableName | 16 | 1 | 0 | 0 | 0 | False | True | True | 20 |
-| [encryption-bindings](./packages/encryption-bindings) | $tableName | 15 | 1 | 0 | 2 | 0 | False | True | True | 30 |
-| [encryption-events](./packages/encryption-events) | $tableName | 21 | 0 | 0 | 0 | 0 | False | True | True | 20 |
-| [encryption-policies](./packages/encryption-policies) | $tableName | 17 | 0 | 0 | 0 | 0 | False | True | True | 20 |
-| [encryption-policy-bindings](./packages/encryption-policy-bindings) | $tableName | 16 | 1 | 0 | 2 | 0 | False | True | True | 30 |
-| [entity-external-ids](./packages/entity-external-ids) | $tableName | 12 | 2 | 0 | 0 | 0 | False | True | True | 20 |
-| [event-dlq](./packages/event-dlq) | $tableName | 17 | 1 | 0 | 0 | 0 | False | False | True | 10 |
-| [event-inbox](./packages/event-inbox) | $tableName | 18 | 2 | 0 | 0 | 0 | False | False | True | 10 |
-| [event-outbox](./packages/event-outbox) | $tableName | 24 | 3 | 0 | 0 | 0 | False | True | True | 20 |
-| [field-hash-policies](./packages/field-hash-policies) | $tableName | 16 | 1 | 0 | 2 | 0 | False | True | True | 30 |
-| [global-id-registry](./packages/global-id-registry) | $tableName | 10 | 0 | 0 | 0 | 0 | False | True | True | 20 |
-| [hash-profiles](./packages/hash-profiles) | $tableName | 13 | 1 | 0 | 2 | 0 | False | True | True | 30 |
-| [idempotency-keys](./packages/idempotency-keys) | $tableName | 15 | 0 | 0 | 6 | 0 | False | True | False | 20 |
-| [inventory-reservations](./packages/inventory-reservations) | $tableName | 17 | 3 | 0 | 6 | 0 | False | True | True | 30 |
-| [invoice-items](./packages/invoice-items) | $tableName | 26 | 0 | 0 | 2 | 0 | False | True | False | 20 |
-| [invoices](./packages/invoices) | $tableName | 29 | 0 | 0 | 4 | 0 | False | True | False | 20 |
-| [jwt-tokens](./packages/jwt-tokens) | $tableName | 34 | 6 | 0 | 4 | 0 | False | True | True | 30 |
-| [key-events](./packages/key-events) | $tableName | 19 | 1 | 0 | 4 | 0 | False | True | True | 30 |
-| [key-rotation-jobs](./packages/key-rotation-jobs) | $tableName | 21 | 0 | 0 | 2 | 0 | False | True | False | 20 |
-| [key-usage](./packages/key-usage) | $tableName | 14 | 0 | 0 | 2 | 0 | False | False | False | 10 |
-| [key-wrapper-layers](./packages/key-wrapper-layers) | $tableName | 20 | 2 | 0 | 6 | 0 | False | True | True | 30 |
-| [key-wrappers](./packages/key-wrappers) | $tableName | 22 | 2 | 1 | 4 | 0 | False | True | True | 40 |
-| [kms-health-checks](./packages/kms-health-checks) | $tableName | 13 | 2 | 0 | 4 | 0 | False | False | True | 20 |
-| [kms-keys](./packages/kms-keys) | $tableName | 13 | 1 | 1 | 2 | 0 | False | True | True | 40 |
-| [kms-providers](./packages/kms-providers) | $tableName | 13 | 1 | 1 | 0 | 0 | False | True | True | 30 |
-| [kms-routing-policies](./packages/kms-routing-policies) | $tableName | 16 | 0 | 0 | 0 | 0 | False | True | True | 20 |
-| [login-attempts](./packages/login-attempts) | $tableName | 13 | 0 | 0 | 4 | 0 | False | False | False | 10 |
-| [merkle-anchors](./packages/merkle-anchors) | $tableName | 12 | 0 | 0 | 2 | 0 | False | False | False | 10 |
-| [merkle-roots](./packages/merkle-roots) | $tableName | 18 | 0 | 0 | 0 | 0 | False | True | True | 20 |
-| [migration-events](./packages/migration-events) | $tableName | 17 | 0 | 0 | 0 | 0 | False | False | True | 10 |
-| [newsletter-subscribers](./packages/newsletter-subscribers) | $tableName | 45 | 0 | 0 | 4 | 0 | False | True | False | 20 |
-| [notifications](./packages/notifications) | $tableName | 39 | 4 | 0 | 4 | 0 | False | True | True | 30 |
-| [order-item-downloads](./packages/order-item-downloads) | $tableName | 29 | 4 | 2 | 8 | 0 | False | False | True | 30 |
-| [order-items](./packages/order-items) | $tableName | 25 | 1 | 1 | 6 | 0 | False | True | True | 40 |
-| [orders](./packages/orders) | $tableName | 43 | 3 | 0 | 4 | 0 | False | True | True | 30 |
-| [payment-gateway-notifications](./packages/payment-gateway-notifications) | $tableName | 20 | 0 | 0 | 4 | 0 | False | False | False | 10 |
-| [payment-logs](./packages/payment-logs) | $tableName | 7 | 1 | 0 | 2 | 0 | False | False | True | 20 |
-| [payment-webhooks](./packages/payment-webhooks) | $tableName | 13 | 1 | 1 | 2 | 0 | False | True | True | 40 |
-| [payments](./packages/payments) | $tableName | 27 | 2 | 0 | 4 | 0 | False | True | True | 30 |
-| [peer-nodes](./packages/peer-nodes) | $tableName | 15 | 2 | 0 | 0 | 0 | False | True | True | 20 |
-| [permissions](./packages/permissions) | $tableName | 9 | 0 | 0 | 0 | 0 | False | True | True | 20 |
-| [policy-algorithms](./packages/policy-algorithms) | $tableName | 13 | 0 | 0 | 4 | 0 | True | True | False | 60 |
-| [policy-kms-keys](./packages/policy-kms-keys) | $tableName | 11 | 0 | 0 | 4 | 0 | True | True | False | 60 |
-| [pq-migration-jobs](./packages/pq-migration-jobs) | $tableName | 25 | 0 | 0 | 6 | 0 | False | True | False | 20 |
-| [privacy-requests](./packages/privacy-requests) | $tableName | 13 | 0 | 0 | 2 | 0 | False | False | False | 10 |
-| [rate-limit-counters](./packages/rate-limit-counters) | $tableName | 16 | 0 | 0 | 0 | 0 | False | True | True | 20 |
-| [rate-limits](./packages/rate-limits) | $tableName | 16 | 0 | 0 | 0 | 0 | False | True | True | 20 |
-| [rbac-repo-snapshots](./packages/rbac-repo-snapshots) | $tableName | 10 | 0 | 0 | 2 | 0 | False | False | False | 10 |
-| [rbac-repositories](./packages/rbac-repositories) | $tableName | 16 | 1 | 0 | 2 | 0 | False | True | True | 30 |
-| [rbac-role-permissions](./packages/rbac-role-permissions) | $tableName | 9 | 0 | 0 | 4 | 0 | True | True | False | 60 |
-| [rbac-roles](./packages/rbac-roles) | $tableName | 18 | 2 | 0 | 2 | 0 | False | True | True | 30 |
-| [rbac-sync-cursors](./packages/rbac-sync-cursors) | $tableName | 7 | 0 | 0 | 2 | 0 | True | False | False | 50 |
-| [rbac-user-permissions](./packages/rbac-user-permissions) | $tableName | 18 | 2 | 0 | 8 | 0 | False | False | True | 20 |
-| [rbac-user-roles](./packages/rbac-user-roles) | $tableName | 18 | 3 | 0 | 8 | 0 | False | False | True | 20 |
-| [refunds](./packages/refunds) | $tableName | 17 | 1 | 0 | 4 | 0 | False | True | True | 30 |
-| [register-events](./packages/register-events) | $tableName | 15 | 0 | 0 | 2 | 0 | False | False | False | 10 |
-| [replication-lag-samples](./packages/replication-lag-samples) | $tableName | 9 | 0 | 0 | 2 | 0 | False | False | False | 10 |
-| [retention-enforcement-jobs](./packages/retention-enforcement-jobs) | $tableName | 17 | 0 | 0 | 2 | 0 | False | True | False | 20 |
-| [reviews](./packages/reviews) | $tableName | 15 | 3 | 1 | 6 | 0 | False | True | True | 40 |
-| [rewrap-jobs](./packages/rewrap-jobs) | $tableName | 21 | 2 | 0 | 6 | 0 | False | True | True | 30 |
-| [session-audit](./packages/session-audit) | $tableName | 27 | 10 | 0 | 2 | 0 | False | True | True | 30 |
-| [sessions](./packages/sessions) | $tableName | 34 | 8 | 0 | 2 | 0 | False | True | True | 30 |
-| [schema-registry](./packages/schema-registry) | $tableName | 14 | 0 | 0 | 0 | 0 | False | False | True | 10 |
-| [signatures](./packages/signatures) | $tableName | 20 | 1 | 0 | 6 | 0 | False | True | True | 30 |
-| [signing-keys](./packages/signing-keys) | $tableName | 28 | 1 | 0 | 6 | 0 | False | True | True | 30 |
-| [slo-status](./packages/slo-status) | $tableName | 14 | 0 | 0 | 2 | 0 | False | False | False | 10 |
-| [slo-windows](./packages/slo-windows) | $tableName | 11 | 0 | 0 | 0 | 0 | False | True | True | 20 |
-| [sync-batch-items](./packages/sync-batch-items) | $tableName | 12 | 0 | 0 | 2 | 0 | False | True | False | 20 |
-| [sync-batches](./packages/sync-batches) | $tableName | 23 | 0 | 0 | 4 | 0 | False | True | False | 20 |
-| [sync-errors](./packages/sync-errors) | $tableName | 11 | 0 | 0 | 2 | 0 | False | True | False | 20 |
-| [system-errors](./packages/system-errors) | $tableName | 50 | 1 | 0 | 4 | 0 | False | True | True | 30 |
-| [system-jobs](./packages/system-jobs) | $tableName | 31 | 0 | 0 | 0 | 0 | False | True | True | 20 |
-| [tax-rates](./packages/tax-rates) | $tableName | 15 | 1 | 1 | 2 | 0 | False | True | True | 40 |
-| [tenant-domains](./packages/tenant-domains) | $tableName | 11 | 1 | 0 | 2 | 0 | False | True | True | 30 |
-| [tenants](./packages/tenants) | $tableName | 19 | 1 | 1 | 0 | 0 | False | True | True | 30 |
-| [two-factor](./packages/two-factor) | $tableName | 17 | 0 | 0 | 2 | 0 | True | True | False | 60 |
-| [user-consents](./packages/user-consents) | $tableName | 15 | 2 | 1 | 2 | 0 | False | False | True | 30 |
-| [user-identities](./packages/user-identities) | $tableName | 12 | 0 | 0 | 2 | 0 | False | True | False | 20 |
-| [user-profiles](./packages/user-profiles) | $tableName | 11 | 0 | 0 | 2 | 0 | False | True | False | 20 |
-| [users](./packages/users) | $tableName | 36 | 4 | 0 | 0 | 0 | False | True | True | 20 |
-| [vat-validations](./packages/vat-validations) | $tableName | 11 | 0 | 0 | 2 | 0 | False | False | False | 10 |
-| [verify-events](./packages/verify-events) | $tableName | 15 | 0 | 0 | 2 | 0 | False | False | False | 10 |
-| [webhook-outbox](./packages/webhook-outbox) | $tableName | 17 | 0 | 0 | 0 | 0 | False | True | True | 20 |
-| [worker-locks](./packages/worker-locks) | $tableName | 7 | 0 | 0 | 0 | 0 | False | True | True | 20 |
+| Table (pkg link) | Columns | Indexes | UniqueIdx | FKs | Views | HasPK | HasTime | FKIndexed | Score |
+|---|---:|---:|---:|---:|---:|:---:|:---:|:---:|---:|
+| [api_keys](./packages/api-keys) | 25 | 2 | 2 | 4 | 0 | False | True | True | 40 |
+| [app_settings](./packages/app-settings) | 17 | 0 | 0 | 2 | 0 | False | True | False | 20 |
+| [audit_chain](./packages/audit-chain) | 12 | 1 | 0 | 2 | 0 | False | True | True | 30 |
+| [audit_log](./packages/audit-log) | 21 | 3 | 0 | 2 | 0 | False | False | True | 20 |
+| [auth_events](./packages/auth-events) | 17 | 0 | 0 | 2 | 0 | False | False | False | 10 |
+| [authors](./packages/authors) | 37 | 3 | 2 | 2 | 0 | False | True | True | 40 |
+| [book_assets](./packages/book-assets) | 39 | 3 | 2 | 6 | 0 | False | True | True | 40 |
+| [book_categories](./packages/book-categories) | 9 | 2 | 0 | 4 | 0 | True | True | True | 70 |
+| [books](./packages/books) | 49 | 5 | 3 | 6 | 0 | False | True | True | 40 |
+| [cart_items](./packages/cart-items) | 28 | 4 | 1 | 6 | 0 | True | True | True | 80 |
+| [carts](./packages/carts) | 13 | 2 | 1 | 4 | 0 | False | True | True | 40 |
+| [categories](./packages/categories) | 23 | 4 | 2 | 4 | 0 | False | True | True | 40 |
+| [countries](./packages/countries) | 7 | 0 | 0 | 0 | 0 | False | True | True | 20 |
+| [coupon_redemptions](./packages/coupon-redemptions) | 13 | 7 | 1 | 8 | 0 | False | False | True | 30 |
+| [coupons](./packages/coupons) | 29 | 3 | 2 | 2 | 0 | False | True | True | 40 |
+| [crypto_algorithms](./packages/crypto-algorithms) | 19 | 1 | 0 | 0 | 0 | False | True | True | 20 |
+| [crypto_keys](./packages/crypto-keys) | 43 | 0 | 0 | 4 | 0 | False | True | False | 20 |
+| [crypto_standard_aliases](./packages/crypto-standard-aliases) | 7 | 1 | 0 | 2 | 0 | False | True | True | 30 |
+| [data_retention_policies](./packages/data-retention-policies) | 16 | 0 | 0 | 0 | 0 | False | True | True | 20 |
+| [deletion_jobs](./packages/deletion-jobs) | 24 | 0 | 0 | 2 | 0 | False | True | False | 20 |
+| [device_fingerprints](./packages/device-fingerprints) | 22 | 1 | 0 | 2 | 0 | False | True | True | 30 |
+| [email_verifications](./packages/email-verifications) | 18 | 0 | 0 | 2 | 0 | False | True | False | 20 |
+| [encrypted_fields](./packages/encrypted-fields) | 16 | 1 | 0 | 0 | 0 | False | True | True | 20 |
+| [encryption_bindings](./packages/encryption-bindings) | 15 | 1 | 0 | 2 | 0 | False | True | True | 30 |
+| [encryption_events](./packages/encryption-events) | 21 | 0 | 0 | 0 | 0 | False | True | True | 20 |
+| [encryption_policies](./packages/encryption-policies) | 17 | 0 | 0 | 0 | 0 | False | True | True | 20 |
+| [encryption_policy_bindings](./packages/encryption-policy-bindings) | 16 | 1 | 0 | 2 | 0 | False | True | True | 30 |
+| [entity_external_ids](./packages/entity-external-ids) | 12 | 2 | 0 | 0 | 0 | False | True | True | 20 |
+| [event_dlq](./packages/event-dlq) | 17 | 1 | 0 | 0 | 0 | False | False | True | 10 |
+| [event_inbox](./packages/event-inbox) | 18 | 2 | 0 | 0 | 0 | False | False | True | 10 |
+| [event_outbox](./packages/event-outbox) | 24 | 3 | 0 | 0 | 0 | False | True | True | 20 |
+| [field_hash_policies](./packages/field-hash-policies) | 16 | 1 | 0 | 2 | 0 | False | True | True | 30 |
+| [global_id_registry](./packages/global-id-registry) | 10 | 0 | 0 | 0 | 0 | False | True | True | 20 |
+| [hash_profiles](./packages/hash-profiles) | 13 | 1 | 0 | 2 | 0 | False | True | True | 30 |
+| [idempotency_keys](./packages/idempotency-keys) | 15 | 0 | 0 | 6 | 0 | False | True | False | 20 |
+| [inventory_reservations](./packages/inventory-reservations) | 17 | 3 | 0 | 6 | 0 | False | True | True | 30 |
+| [invoice_items](./packages/invoice-items) | 26 | 0 | 0 | 2 | 0 | False | True | False | 20 |
+| [invoices](./packages/invoices) | 29 | 0 | 0 | 4 | 0 | False | True | False | 20 |
+| [jwt_tokens](./packages/jwt-tokens) | 34 | 6 | 0 | 4 | 0 | False | True | True | 30 |
+| [key_events](./packages/key-events) | 19 | 1 | 0 | 4 | 0 | False | True | True | 30 |
+| [key_rotation_jobs](./packages/key-rotation-jobs) | 21 | 0 | 0 | 2 | 0 | False | True | False | 20 |
+| [key_usage](./packages/key-usage) | 14 | 0 | 0 | 2 | 0 | False | False | False | 10 |
+| [key_wrapper_layers](./packages/key-wrapper-layers) | 20 | 2 | 0 | 6 | 0 | False | True | True | 30 |
+| [key_wrappers](./packages/key-wrappers) | 22 | 2 | 1 | 4 | 0 | False | True | True | 40 |
+| [kms_health_checks](./packages/kms-health-checks) | 13 | 2 | 0 | 4 | 0 | False | False | True | 20 |
+| [kms_keys](./packages/kms-keys) | 13 | 1 | 1 | 2 | 0 | False | True | True | 40 |
+| [kms_providers](./packages/kms-providers) | 13 | 1 | 1 | 0 | 0 | False | True | True | 30 |
+| [kms_routing_policies](./packages/kms-routing-policies) | 16 | 0 | 0 | 0 | 0 | False | True | True | 20 |
+| [login_attempts](./packages/login-attempts) | 13 | 0 | 0 | 4 | 0 | False | False | False | 10 |
+| [merkle_anchors](./packages/merkle-anchors) | 12 | 0 | 0 | 2 | 0 | False | False | False | 10 |
+| [merkle_roots](./packages/merkle-roots) | 18 | 0 | 0 | 0 | 0 | False | True | True | 20 |
+| [migration_events](./packages/migration-events) | 17 | 0 | 0 | 0 | 0 | False | False | True | 10 |
+| [newsletter_subscribers](./packages/newsletter-subscribers) | 45 | 0 | 0 | 4 | 0 | False | True | False | 20 |
+| [notifications](./packages/notifications) | 39 | 4 | 0 | 4 | 0 | False | True | True | 30 |
+| [order_item_downloads](./packages/order-item-downloads) | 29 | 4 | 2 | 8 | 0 | False | False | True | 30 |
+| [order_items](./packages/order-items) | 25 | 1 | 1 | 6 | 0 | False | True | True | 40 |
+| [orders](./packages/orders) | 43 | 3 | 0 | 4 | 0 | False | True | True | 30 |
+| [payment_gateway_notifications](./packages/payment-gateway-notifications) | 20 | 0 | 0 | 4 | 0 | False | False | False | 10 |
+| [payment_logs](./packages/payment-logs) | 7 | 1 | 0 | 2 | 0 | False | False | True | 20 |
+| [payment_webhooks](./packages/payment-webhooks) | 13 | 1 | 1 | 2 | 0 | False | True | True | 40 |
+| [payments](./packages/payments) | 27 | 2 | 0 | 4 | 0 | False | True | True | 30 |
+| [peer_nodes](./packages/peer-nodes) | 15 | 2 | 0 | 0 | 0 | False | True | True | 20 |
+| [permissions](./packages/permissions) | 9 | 0 | 0 | 0 | 0 | False | True | True | 20 |
+| [policy_algorithms](./packages/policy-algorithms) | 13 | 0 | 0 | 4 | 0 | True | True | False | 60 |
+| [policy_kms_keys](./packages/policy-kms-keys) | 11 | 0 | 0 | 4 | 0 | True | True | False | 60 |
+| [pq_migration_jobs](./packages/pq-migration-jobs) | 25 | 0 | 0 | 6 | 0 | False | True | False | 20 |
+| [privacy_requests](./packages/privacy-requests) | 13 | 0 | 0 | 2 | 0 | False | False | False | 10 |
+| [rate_limit_counters](./packages/rate-limit-counters) | 16 | 0 | 0 | 0 | 0 | False | True | True | 20 |
+| [rate_limits](./packages/rate-limits) | 16 | 0 | 0 | 0 | 0 | False | True | True | 20 |
+| [rbac_repo_snapshots](./packages/rbac-repo-snapshots) | 10 | 0 | 0 | 2 | 0 | False | False | False | 10 |
+| [rbac_repositories](./packages/rbac-repositories) | 16 | 1 | 0 | 2 | 0 | False | True | True | 30 |
+| [rbac_role_permissions](./packages/rbac-role-permissions) | 9 | 0 | 0 | 4 | 0 | True | True | False | 60 |
+| [rbac_roles](./packages/rbac-roles) | 18 | 2 | 0 | 2 | 0 | False | True | True | 30 |
+| [rbac_sync_cursors](./packages/rbac-sync-cursors) | 7 | 0 | 0 | 2 | 0 | True | False | False | 50 |
+| [rbac_user_permissions](./packages/rbac-user-permissions) | 18 | 2 | 0 | 8 | 0 | False | False | True | 20 |
+| [rbac_user_roles](./packages/rbac-user-roles) | 18 | 3 | 0 | 8 | 0 | False | False | True | 20 |
+| [refunds](./packages/refunds) | 17 | 1 | 0 | 4 | 0 | False | True | True | 30 |
+| [register_events](./packages/register-events) | 15 | 0 | 0 | 2 | 0 | False | False | False | 10 |
+| [replication_lag_samples](./packages/replication-lag-samples) | 9 | 0 | 0 | 2 | 0 | False | False | False | 10 |
+| [retention_enforcement_jobs](./packages/retention-enforcement-jobs) | 17 | 0 | 0 | 2 | 0 | False | True | False | 20 |
+| [reviews](./packages/reviews) | 15 | 3 | 1 | 6 | 0 | False | True | True | 40 |
+| [rewrap_jobs](./packages/rewrap-jobs) | 21 | 2 | 0 | 6 | 0 | False | True | True | 30 |
+| [session_audit](./packages/session-audit) | 27 | 10 | 0 | 2 | 0 | False | True | True | 30 |
+| [sessions](./packages/sessions) | 34 | 8 | 0 | 2 | 0 | False | True | True | 30 |
+| [schema_registry](./packages/schema-registry) | 14 | 0 | 0 | 0 | 0 | False | False | True | 10 |
+| [signatures](./packages/signatures) | 20 | 1 | 0 | 6 | 0 | False | True | True | 30 |
+| [signing_keys](./packages/signing-keys) | 28 | 1 | 0 | 6 | 0 | False | True | True | 30 |
+| [slo_status](./packages/slo-status) | 14 | 0 | 0 | 2 | 0 | False | False | False | 10 |
+| [slo_windows](./packages/slo-windows) | 11 | 0 | 0 | 0 | 0 | False | True | True | 20 |
+| [sync_batch_items](./packages/sync-batch-items) | 12 | 0 | 0 | 2 | 0 | False | True | False | 20 |
+| [sync_batches](./packages/sync-batches) | 23 | 0 | 0 | 4 | 0 | False | True | False | 20 |
+| [sync_errors](./packages/sync-errors) | 11 | 0 | 0 | 2 | 0 | False | True | False | 20 |
+| [system_errors](./packages/system-errors) | 50 | 1 | 0 | 4 | 0 | False | True | True | 30 |
+| [system_jobs](./packages/system-jobs) | 31 | 0 | 0 | 0 | 0 | False | True | True | 20 |
+| [tax_rates](./packages/tax-rates) | 15 | 1 | 1 | 2 | 0 | False | True | True | 40 |
+| [tenant_domains](./packages/tenant-domains) | 11 | 1 | 0 | 2 | 0 | False | True | True | 30 |
+| [tenants](./packages/tenants) | 19 | 1 | 1 | 0 | 0 | False | True | True | 30 |
+| [two_factor](./packages/two-factor) | 17 | 0 | 0 | 2 | 0 | True | True | False | 60 |
+| [user_consents](./packages/user-consents) | 15 | 2 | 1 | 2 | 0 | False | False | True | 30 |
+| [user_identities](./packages/user-identities) | 12 | 0 | 0 | 2 | 0 | False | True | False | 20 |
+| [user_profiles](./packages/user-profiles) | 11 | 0 | 0 | 2 | 0 | False | True | False | 20 |
+| [users](./packages/users) | 36 | 4 | 0 | 0 | 0 | False | True | True | 20 |
+| [vat_validations](./packages/vat-validations) | 11 | 0 | 0 | 2 | 0 | False | False | False | 10 |
+| [verify_events](./packages/verify-events) | 15 | 0 | 0 | 2 | 0 | False | False | False | 10 |
+| [webhook_outbox](./packages/webhook-outbox) | 17 | 0 | 0 | 0 | 0 | False | True | True | 20 |
+| [worker_locks](./packages/worker-locks) | 7 | 0 | 0 | 0 | 0 | False | True | True | 20 |
 
 **Totals:** packages=106, tables=106, indexes=135, FKs=276, views=0, withPK=7, withTime=81, withUnique=19
 

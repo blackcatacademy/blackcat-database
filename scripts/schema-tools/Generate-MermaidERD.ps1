@@ -171,14 +171,14 @@ if ($MaxEdges -gt 0 -and $edgesSorted.Count -gt $MaxEdges) {
 }
 $lines += $(if ($edgesSorted.Count -gt 0) { $edgesSorted } else { @('  %% No FK edges detected – verify foreign_keys in map/DDL.') })
 $lines += '  %% styling'
-$lines += '  classDef linked fill:#0b1021,stroke:#38bdf8,stroke-width:2px,color:#e2e8f0;'
-$lines += '  classDef orphan fill:#111827,stroke:#94a3b8,stroke-width:1px,color:#cbd5e1;'
-$lines += '  classDef hub fill:#0f172a,stroke:#f59e0b,stroke-width:3px,color:#fef3c7;'
+$lines += '  classDef linked fill:#0b1021,stroke:#38bdf8,stroke-width:2px,color:#e2e8f0'
+$lines += '  classDef orphan fill:#111827,stroke:#94a3b8,stroke-width:1px,color:#cbd5e1'
+$lines += '  classDef hub fill:#0f172a,stroke:#f59e0b,stroke-width:3px,color:#fef3c7'
 foreach ($kv in $nodeDegree.GetEnumerator()) {
   if ($kv.Value -ge $HubThreshold) { $nodeClasses[$kv.Key] = 'hub' }
 }
 foreach ($kv in $nodeClasses.GetEnumerator()) {
-  $lines += ("  class {0} {1};" -f $kv.Key, $kv.Value)
+  $lines += ("  class {0} {1}" -f $kv.Key, $kv.Value)
 }
 $summary = @{
   Tables  = $tableListOrdered.Count

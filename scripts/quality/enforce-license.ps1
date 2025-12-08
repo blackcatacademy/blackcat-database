@@ -18,8 +18,8 @@ param(
 
 Set-StrictMode -Version Latest
 
-# Resolve repo root (one level above scripts/quality by default) and packages path
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..') | Select-Object -ExpandProperty Path
+# Resolve repo root (two levels above scripts/quality by default) and packages path
+$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..' '..') | Select-Object -ExpandProperty Path
 $packagesPath = if ([IO.Path]::IsPathRooted($Packages)) { $Packages } else { Join-Path $repoRoot $Packages }
 
 # ----------------- Helpers -----------------
@@ -182,8 +182,8 @@ if (-not (Test-Path -LiteralPath $packagesPath)) {
   throw "Packages folder '$packagesPath' not found. Run from repo root or set -Packages explicitly."
 }
 
-$modules = Get-ChildItem -Directory $packagesPath | Sort-Object Name
-if ($modules.Count -eq 0) { Write-Host "No modules found under '$packagesPath'." ; return }
+$modules = @(Get-ChildItem -Directory $packagesPath | Sort-Object Name)
+if (-not $modules -or $modules.Count -eq 0) { Write-Host "No modules found under '$packagesPath'." ; return }
 
 $changed = @()
 foreach ($m in $modules) {
@@ -210,7 +210,7 @@ foreach ($m in $modules) {
 }
 
 # --- umbrella (root) files ---
-$umbrellaRoot = (Get-Item $PSScriptRoot).Parent.FullName   # more robust than Resolve-Path ..
+$umbrellaRoot = $repoRoot
 
 # write files individually and capture the results
 $u1 = Set-FileContentSafe -Path (Join-Path $umbrellaRoot 'LICENSE')  -Content $LicenseText -Force:$Force
