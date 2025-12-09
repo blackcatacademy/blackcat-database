@@ -19,22 +19,31 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot "../support/SqlDocUtils.psm1") -Force
 
-if (-not (Test-Path -LiteralPath $MapPath)) { throw "Map not found: $MapPath" }
-if (-not (Test-Path -LiteralPath $PackagesDir)) { throw "PackagesDir not found: $PackagesDir" }
 # Enable defaults for switches if caller omitted them (keeps PSSA happy).
 if (-not $PSBoundParameters.ContainsKey('ShowLegend'))         { $ShowLegend = $true }
 if (-not $PSBoundParameters.ContainsKey('ShowStatsTable'))     { $ShowStatsTable = $true }
 if (-not $PSBoundParameters.ContainsKey('ShowConsoleSummary')) { $ShowConsoleSummary = $true }
 
-$map = Get-Content -LiteralPath $MapPath -Raw | ConvertFrom-Yaml
+# Resolve repo root (two levels up from scripts/schema-tools) and normalize paths
+$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..' '..') | Select-Object -ExpandProperty Path
+$mapPathResolved = if ([IO.Path]::IsPathRooted($MapPath)) { $MapPath } else { Join-Path $repoRoot $MapPath }
+$packagesResolved = if ([IO.Path]::IsPathRooted($PackagesDir)) { $PackagesDir } else { Join-Path $repoRoot $PackagesDir }
+$outPathResolved = if ([IO.Path]::IsPathRooted($OutPath)) { $OutPath } else { Join-Path $repoRoot $OutPath }
+
+$viewsResolved = if ([string]::IsNullOrWhiteSpace($ViewsLibraryRoot)) { $null } else { if ([IO.Path]::IsPathRooted($ViewsLibraryRoot)) { $ViewsLibraryRoot } else { Join-Path $repoRoot $ViewsLibraryRoot } }
+
+if (-not (Test-Path -LiteralPath $mapPathResolved)) { throw "Map not found: $mapPathResolved" }
+if (-not (Test-Path -LiteralPath $packagesResolved)) { throw "PackagesDir not found: $packagesResolved" }
+
+$map = Get-Content -LiteralPath $mapPathResolved -Raw | ConvertFrom-Yaml
 $engine = ''
-if ($MapPath -match 'postgres') { $engine = 'postgres' }
-elseif ($MapPath -match 'mysql') { $engine = 'mysql' }
+if ($mapPathResolved -match 'postgres') { $engine = 'postgres' }
+elseif ($mapPathResolved -match 'mysql') { $engine = 'mysql' }
 
 $lines = @(
   '```mermaid',
   $ThemeInit,
-  ("%% ERD generated from {0} (engine: {1})" -f $MapPath, $(if ([string]::IsNullOrWhiteSpace($engine)) { 'any' } else { $engine })),
+  ("%% ERD generated from {0} (engine: {1})" -f $mapPathResolved, $(if ([string]::IsNullOrWhiteSpace($engine)) { 'any' } else { $engine })),
   ("erDiagram"),
   ("  %% direction: {0}" -f $Direction)
 )
@@ -44,6 +53,12 @@ $rels = New-Object System.Collections.Generic.List[string]
 $edgeSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
 $nodeClasses = New-Object 'System.Collections.Generic.Dictionary[string,string]' ([System.StringComparer]::OrdinalIgnoreCase)
 $nodeDegree = New-Object 'System.Collections.Generic.Dictionary[string,int]' ([System.StringComparer]::OrdinalIgnoreCase)
+$pkgLinkBase = $packagesResolved
+$outDir = Split-Path -Parent $outPathResolved
+if ($outDir) {
+  $pkgLinkBase = [IO.Path]::GetRelativePath($outDir, $packagesResolved)
+}
+$pkgLinkBase = ($pkgLinkBase -replace '\\','/')
 
 function Get-EngineFiles {
   param(
@@ -102,8 +117,8 @@ foreach ($tableName in $tablesKeys) {
   $viewDirs = @()
   $viewDirPkg = Join-Path $pkgDir 'views'
   if (Test-Path -LiteralPath $viewDirPkg) { $viewDirs += $viewDirPkg }
-  if ($ViewsLibraryRoot) {
-    $viewLib = Join-Path $ViewsLibraryRoot $pkgSlug
+  if ($viewsResolved) {
+    $viewLib = Join-Path $viewsResolved $pkgSlug
     if (Test-Path -LiteralPath $viewLib) { $viewDirs += $viewLib }
   }
 
@@ -193,7 +208,6 @@ $ts = Get-Date -Format 'yyyy-MM-ddTHH:mm:ssK'
 $lines += ("  %% Summary: tables={0}, edges={1}, linked={2}, orphans={3}, hubs={4}, generated={5}" -f $summary.Tables,$summary.Edges,$summary.Linked,$summary.Orphans,$summary.Hubs,$ts)
 $lines += '```'
 
-$outDir = Split-Path -Parent $OutPath
 if ($outDir) { New-Item -ItemType Directory -Force -Path $outDir | Out-Null }
 $content = $lines -join [Environment]::NewLine
 {
@@ -214,9 +228,27 @@ $content = $lines -join [Environment]::NewLine
   if ($MaxTables -gt 0) { $md.Add(("| Truncated tables (max={0}) | {1} |" -f $MaxTables, $summary.TruncTables)) | Out-Null }
   if ($MaxEdges  -gt 0) { $md.Add(("| Truncated edges (max={0}) | {1} |" -f $MaxEdges,  $summary.TruncEdges)) | Out-Null }
   $md.Add(("| Direction | {0} |" -f $Direction)) | Out-Null
+  # Quick navigation to top hubs (clickable to packages)
+  $topHubs = @(
+    $nodeDegree.GetEnumerator() |
+      Sort-Object -Property Value, Key -Descending |
+      Where-Object { $_.Value -gt 0 } |
+      Select-Object -First 20
+  )
+  if ($topHubs.Count -gt 0) {
+    $md.Add("") | Out-Null
+    $md.Add("**Quick navigation (top hubs)**") | Out-Null
+    $md.Add("| Table | Degree | Package |") | Out-Null
+    $md.Add("| --- | ---: | --- |") | Out-Null
+    foreach ($hub in $topHubs) {
+      $pkgSlug = ($hub.Key -replace '_','-')
+      $pkgLink = ("{0}/{1}" -f $pkgLinkBase, $pkgSlug) -replace '\\','/'
+      $md.Add(("| [`{0}`]({1}) | {2} | [{3}]({1}) |" -f $hub.Key, $pkgLink, $hub.Value, $pkgSlug)) | Out-Null
+    }
+  }
   $content = $md -join [Environment]::NewLine
 }
-Set-Content -LiteralPath $OutPath -Value $content -Encoding UTF8
+Set-Content -LiteralPath $outPathResolved -Value $content -Encoding UTF8
 if ($ShowConsoleSummary) {
   Write-Host ("ERD written to {0} (tables={1}, edges={2}, hubs={3}, generated={4})" -f $OutPath,$summary.Tables,$summary.Edges,$summary.Hubs,$ts)
   if ($summary.TruncTables -or $summary.TruncEdges) {

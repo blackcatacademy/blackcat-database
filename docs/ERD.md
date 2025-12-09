@@ -1,6 +1,6 @@
 ```mermaid
 %%{init: {"theme":"forest","themeVariables":{"primaryColor":"#0b1021","primaryBorderColor":"#4ade80","primaryTextColor":"#e2e8f0","edgeLabelBackground":"#0b1021","tertiaryColor":"#111827","tertiaryTextColor":"#cbd5e1","lineColor":"#67e8f9","nodeBorder":"#38bdf8","textColor":"#e2e8f0"}} }%%
-%% ERD generated from scripts/schema/schema-map-postgres.yaml (engine: postgres)
+%% ERD generated from C:\Users\jaine\Desktop\blackcatacademy\blackcat-database\scripts\schema\schema-map-postgres.yaml (engine: postgres)
 erDiagram
   %% direction: LR
   api_keys {
@@ -1506,5 +1506,5 @@ verify_events }o--|| users : fk_verify_user
   class system_jobs orphan
   class webhook_outbox orphan
   class worker_locks orphan
-  %% Summary: tables=106, edges=138, linked=58, orphans=15, hubs=33, generated=2025-12-09T00:05:21+01:00
+  %% Summary: tables=106, edges=138, linked=58, orphans=15, hubs=33, generated=2025-12-09T12:37:39+01:00
 ```
