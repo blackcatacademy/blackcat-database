@@ -1,8 +1,8 @@
 ```mermaid
-%%{init: {"theme":"forest","themeVariables":{"primaryColor":"#0b1021","primaryBorderColor":"#4ade80","primaryTextColor":"#e2e8f0","edgeLabelBackground":"#0b1021","tertiaryColor":"#111827","tertiaryTextColor":"#cbd5e1","lineColor":"#67e8f9","nodeBorder":"#38bdf8","textColor":"#e2e8f0"}} }%%
+%%{init: {"theme":"forest","themeVariables":{"primaryColor":"#e5e7eb","primaryBorderColor":"#111827","primaryTextColor":"#0b1021","edgeLabelBackground":"#f8fafc","tertiaryColor":"#cbd5e1","tertiaryTextColor":"#0f172a","lineColor":"#0f172a","nodeBorder":"#111827","textColor":"#0b1021","fontSize":"14px"}} }%%
 %% Detail ERD for rbac_repositories (engine: postgres, neighbors: 4)
 erDiagram
-  %% direction: TB
+  direction TB
   rbac_repositories {
     BIGINT id
     VARCHAR(120) name
@@ -20,22 +20,6 @@ erDiagram
     TIMESTAMPTZ(6) taken_at
     JSONB metadata
   }
-  signing_keys {
-    BIGINT id
-    BIGINT algo_id
-    VARCHAR(120) name
-    BYTEA public_key
-    BYTEA private_key_enc
-    BIGINT kms_key_id
-    TEXT origin
-    TEXT status
-    VARCHAR(120) scope
-    BIGINT created_by
-    TIMESTAMPTZ(6) created_at
-    TIMESTAMPTZ(6) activated_at
-    TIMESTAMPTZ(6) retired_at
-    TEXT notes
-  }
   rbac_roles {
     BIGINT id
     BIGINT repo_id
@@ -52,6 +36,22 @@ erDiagram
     VARCHAR(120) peer
     VARCHAR(128) last_commit
     TIMESTAMPTZ(6) last_synced_at
+  }
+  signing_keys {
+    BIGINT id
+    BIGINT algo_id
+    VARCHAR(120) name
+    BYTEA public_key
+    BYTEA private_key_enc
+    BIGINT kms_key_id
+    TEXT origin
+    TEXT status
+    VARCHAR(120) scope
+    BIGINT created_by
+    TIMESTAMPTZ(6) created_at
+    TIMESTAMPTZ(6) activated_at
+    TIMESTAMPTZ(6) retired_at
+    TEXT notes
   }
 rbac_repo_snapshots }o--|| rbac_repositories : fk_rbac_snap_repo
 rbac_repositories }o--|| signing_keys : fk_rbac_repos_sign_key

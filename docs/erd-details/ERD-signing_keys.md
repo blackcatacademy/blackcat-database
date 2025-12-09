@@ -1,8 +1,8 @@
 ```mermaid
-%%{init: {"theme":"forest","themeVariables":{"primaryColor":"#0b1021","primaryBorderColor":"#4ade80","primaryTextColor":"#e2e8f0","edgeLabelBackground":"#0b1021","tertiaryColor":"#111827","tertiaryTextColor":"#cbd5e1","lineColor":"#67e8f9","nodeBorder":"#38bdf8","textColor":"#e2e8f0"}} }%%
+%%{init: {"theme":"forest","themeVariables":{"primaryColor":"#e5e7eb","primaryBorderColor":"#111827","primaryTextColor":"#0b1021","edgeLabelBackground":"#f8fafc","tertiaryColor":"#cbd5e1","tertiaryTextColor":"#0f172a","lineColor":"#0f172a","nodeBorder":"#111827","textColor":"#0b1021","fontSize":"14px"}} }%%
 %% Detail ERD for signing_keys (engine: postgres, neighbors: 5)
 erDiagram
-  %% direction: TB
+  direction TB
   signing_keys {
     BIGINT id
     BIGINT algo_id
@@ -18,6 +18,26 @@ erDiagram
     TIMESTAMPTZ(6) activated_at
     TIMESTAMPTZ(6) retired_at
     TEXT notes
+  }
+  crypto_algorithms {
+    BIGINT id
+    TEXT class
+    VARCHAR(120) name
+    VARCHAR(80) variant
+    TEXT variant_norm
+    SMALLINT nist_level
+    TEXT status
+    JSONB params
+    TIMESTAMPTZ(6) created_at
+  }
+  kms_keys {
+    BIGINT id
+    BIGINT provider_id
+    VARCHAR(512) external_key_ref
+    TEXT purpose
+    VARCHAR(64) algorithm
+    TEXT status
+    TIMESTAMPTZ(6) created_at
   }
   rbac_repositories {
     BIGINT id
@@ -39,26 +59,6 @@ erDiagram
     BYTEA signature
     BYTEA payload_hash
     BIGINT hash_algo_id
-    TIMESTAMPTZ(6) created_at
-  }
-  crypto_algorithms {
-    BIGINT id
-    TEXT class
-    VARCHAR(120) name
-    VARCHAR(80) variant
-    TEXT variant_norm
-    SMALLINT nist_level
-    TEXT status
-    JSONB params
-    TIMESTAMPTZ(6) created_at
-  }
-  kms_keys {
-    BIGINT id
-    BIGINT provider_id
-    VARCHAR(512) external_key_ref
-    TEXT purpose
-    VARCHAR(64) algorithm
-    TEXT status
     TIMESTAMPTZ(6) created_at
   }
   users {

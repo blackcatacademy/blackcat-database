@@ -1,8 +1,8 @@
 ```mermaid
-%%{init: {"theme":"forest","themeVariables":{"primaryColor":"#0b1021","primaryBorderColor":"#4ade80","primaryTextColor":"#e2e8f0","edgeLabelBackground":"#0b1021","tertiaryColor":"#111827","tertiaryTextColor":"#cbd5e1","lineColor":"#67e8f9","nodeBorder":"#38bdf8","textColor":"#e2e8f0"}} }%%
+%%{init: {"theme":"forest","themeVariables":{"primaryColor":"#e5e7eb","primaryBorderColor":"#111827","primaryTextColor":"#0b1021","edgeLabelBackground":"#f8fafc","tertiaryColor":"#cbd5e1","tertiaryTextColor":"#0f172a","lineColor":"#0f172a","nodeBorder":"#111827","textColor":"#0b1021","fontSize":"14px"}} }%%
 %% Detail ERD for books (engine: postgres, neighbors: 10)
 erDiagram
-  %% direction: TB
+  direction TB
   books {
     BIGINT id
     BIGINT tenant_id
@@ -24,6 +24,27 @@ erDiagram
     BOOLEAN is_active
     BOOLEAN is_available
     INTEGER stock_quantity
+    TIMESTAMPTZ(6) created_at
+    TIMESTAMPTZ(6) updated_at
+    INTEGER version
+    TIMESTAMPTZ(6) deleted_at
+    BOOLEAN is_live
+  }
+  authors {
+    BIGINT id
+    BIGINT tenant_id
+    VARCHAR(255) name
+    TEXT name_ci
+    VARCHAR(255) slug
+    TEXT slug_ci
+    TEXT bio
+    VARCHAR(255) photo_url
+    TEXT story
+    INTEGER books_count
+    INTEGER ratings_count
+    INTEGER rating_sum
+    NUMERIC(3) avg_rating
+    TIMESTAMPTZ(6) last_rating_at
     TIMESTAMPTZ(6) created_at
     TIMESTAMPTZ(6) updated_at
     INTEGER version
@@ -59,53 +80,6 @@ erDiagram
     TIMESTAMPTZ(6) created_at
     TIMESTAMPTZ(6) updated_at
   }
-  authors {
-    BIGINT id
-    BIGINT tenant_id
-    VARCHAR(255) name
-    TEXT name_ci
-    VARCHAR(255) slug
-    TEXT slug_ci
-    TEXT bio
-    VARCHAR(255) photo_url
-    TEXT story
-    INTEGER books_count
-    INTEGER ratings_count
-    INTEGER rating_sum
-    NUMERIC(3) avg_rating
-    TIMESTAMPTZ(6) last_rating_at
-    TIMESTAMPTZ(6) created_at
-    TIMESTAMPTZ(6) updated_at
-    INTEGER version
-    TIMESTAMPTZ(6) deleted_at
-    BOOLEAN is_live
-  }
-  categories {
-    BIGINT id
-    BIGINT tenant_id
-    VARCHAR(255) name
-    TEXT name_ci
-    VARCHAR(255) slug
-    TEXT slug_ci
-    BIGINT parent_id
-    TIMESTAMPTZ(6) created_at
-    TIMESTAMPTZ(6) updated_at
-    INTEGER version
-    TIMESTAMPTZ(6) deleted_at
-    BOOLEAN is_live
-  }
-  tenants {
-    BIGINT id
-    VARCHAR(200) name
-    VARCHAR(200) slug
-    TEXT slug_ci
-    TEXT status
-    TIMESTAMPTZ(6) created_at
-    TIMESTAMPTZ(6) updated_at
-    INTEGER version
-    TIMESTAMPTZ(6) deleted_at
-    BOOLEAN is_live
-  }
   cart_items {
     BIGINT id
     BIGINT tenant_id
@@ -121,6 +95,20 @@ erDiagram
     JSONB meta
     TIMESTAMPTZ(6) created_at
     TIMESTAMPTZ(6) updated_at
+  }
+  categories {
+    BIGINT id
+    BIGINT tenant_id
+    VARCHAR(255) name
+    TEXT name_ci
+    VARCHAR(255) slug
+    TEXT slug_ci
+    BIGINT parent_id
+    TIMESTAMPTZ(6) created_at
+    TIMESTAMPTZ(6) updated_at
+    INTEGER version
+    TIMESTAMPTZ(6) deleted_at
+    BOOLEAN is_live
   }
   inventory_reservations {
     BIGINT id
@@ -174,6 +162,18 @@ erDiagram
     TEXT review_text
     TIMESTAMPTZ(6) created_at
     TIMESTAMPTZ(6) updated_at
+  }
+  tenants {
+    BIGINT id
+    VARCHAR(200) name
+    VARCHAR(200) slug
+    TEXT slug_ci
+    TEXT status
+    TIMESTAMPTZ(6) created_at
+    TIMESTAMPTZ(6) updated_at
+    INTEGER version
+    TIMESTAMPTZ(6) deleted_at
+    BOOLEAN is_live
   }
 api_keys }o--|| tenants : fk_api_keys_tenant
 authors }o--|| tenants : fk_authors_tenant

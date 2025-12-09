@@ -29,6 +29,12 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      - name: Enforce LF checkout (disable autocrlf)
+        shell: bash
+        run: |
+          git config --global core.autocrlf false
+          git config core.autocrlf false
+
       - if: ${{ github.event_name == 'pull_request' }}
         uses: actions/labeler@v6
         with:
@@ -65,11 +71,6 @@ jobs:
         shell: pwsh
         run: |
           pwsh ./scripts/docs/New-PackageReadmes.ps1 -Force
-      - name: Build changelogs
-        shell: pwsh
-        run: |
-          pwsh ./scripts/docs/New-PackageChangelogs.ps1 -Force
-
       - name: Build packages index
         shell: pwsh
         run: |

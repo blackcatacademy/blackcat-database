@@ -1,8 +1,8 @@
 ```mermaid
-%%{init: {"theme":"forest","themeVariables":{"primaryColor":"#0b1021","primaryBorderColor":"#4ade80","primaryTextColor":"#e2e8f0","edgeLabelBackground":"#0b1021","tertiaryColor":"#111827","tertiaryTextColor":"#cbd5e1","lineColor":"#67e8f9","nodeBorder":"#38bdf8","textColor":"#e2e8f0"}} }%%
+%%{init: {"theme":"forest","themeVariables":{"primaryColor":"#e5e7eb","primaryBorderColor":"#111827","primaryTextColor":"#0b1021","edgeLabelBackground":"#f8fafc","tertiaryColor":"#cbd5e1","tertiaryTextColor":"#0f172a","lineColor":"#0f172a","nodeBorder":"#111827","textColor":"#0b1021","fontSize":"14px"}} }%%
 %% Detail ERD for sync_batches (engine: postgres, neighbors: 2)
 erDiagram
-  %% direction: TB
+  direction TB
   sync_batches {
     BIGINT id
     VARCHAR(120) channel
@@ -17,14 +17,6 @@ erDiagram
     TIMESTAMPTZ(6) started_at
     TIMESTAMPTZ(6) finished_at
   }
-  sync_batch_items {
-    BIGINT id
-    BIGINT batch_id
-    CHAR(36) event_key
-    TEXT status
-    TEXT error
-    TIMESTAMPTZ(6) created_at
-  }
   peer_nodes {
     BIGINT id
     VARCHAR(120) name
@@ -33,6 +25,14 @@ erDiagram
     TEXT status
     TIMESTAMPTZ(6) last_seen
     JSONB meta
+    TIMESTAMPTZ(6) created_at
+  }
+  sync_batch_items {
+    BIGINT id
+    BIGINT batch_id
+    CHAR(36) event_key
+    TEXT status
+    TEXT error
     TIMESTAMPTZ(6) created_at
   }
 replication_lag_samples }o--|| peer_nodes : fk_lag_peer

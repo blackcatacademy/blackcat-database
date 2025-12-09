@@ -1,8 +1,8 @@
 ```mermaid
-%%{init: {"theme":"forest","themeVariables":{"primaryColor":"#0b1021","primaryBorderColor":"#4ade80","primaryTextColor":"#e2e8f0","edgeLabelBackground":"#0b1021","tertiaryColor":"#111827","tertiaryTextColor":"#cbd5e1","lineColor":"#67e8f9","nodeBorder":"#38bdf8","textColor":"#e2e8f0"}} }%%
+%%{init: {"theme":"forest","themeVariables":{"primaryColor":"#e5e7eb","primaryBorderColor":"#111827","primaryTextColor":"#0b1021","edgeLabelBackground":"#f8fafc","tertiaryColor":"#cbd5e1","tertiaryTextColor":"#0f172a","lineColor":"#0f172a","nodeBorder":"#111827","textColor":"#0b1021","fontSize":"14px"}} }%%
 %% Detail ERD for crypto_keys (engine: postgres, neighbors: 4)
 erDiagram
-  %% direction: TB
+  direction TB
   crypto_keys {
     BIGINT id
     VARCHAR(100) basename
@@ -49,26 +49,6 @@ erDiagram
     BIGINT key_id
     TIMESTAMPTZ(6) created_at
   }
-  users {
-    BIGINT id
-    BYTEA email_hash
-    VARCHAR(64) email_hash_key_version
-    VARCHAR(255) password_hash
-    VARCHAR(64) password_algo
-    VARCHAR(64) password_key_version
-    BOOLEAN is_active
-    BOOLEAN is_locked
-    INTEGER failed_logins
-    BOOLEAN must_change_password
-    TIMESTAMPTZ(6) last_login_at
-    BYTEA last_login_ip_hash
-    VARCHAR(64) last_login_ip_key_version
-    TIMESTAMPTZ(6) created_at
-    TIMESTAMPTZ(6) updated_at
-    INTEGER version
-    TIMESTAMPTZ(6) deleted_at
-    TEXT actor_role
-  }
   key_events {
     BIGINT id
     BIGINT key_id
@@ -89,6 +69,26 @@ erDiagram
     INTEGER decrypt_count
     INTEGER verify_count
     TIMESTAMPTZ(6) last_used_at
+  }
+  users {
+    BIGINT id
+    BYTEA email_hash
+    VARCHAR(64) email_hash_key_version
+    VARCHAR(255) password_hash
+    VARCHAR(64) password_algo
+    VARCHAR(64) password_key_version
+    BOOLEAN is_active
+    BOOLEAN is_locked
+    INTEGER failed_logins
+    BOOLEAN must_change_password
+    TIMESTAMPTZ(6) last_login_at
+    BYTEA last_login_ip_hash
+    VARCHAR(64) last_login_ip_key_version
+    TIMESTAMPTZ(6) created_at
+    TIMESTAMPTZ(6) updated_at
+    INTEGER version
+    TIMESTAMPTZ(6) deleted_at
+    TEXT actor_role
   }
 api_keys }o--|| users : fk_api_keys_user
 app_settings }o--|| users : fk_app_settings_user

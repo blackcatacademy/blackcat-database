@@ -1,8 +1,8 @@
 ```mermaid
-%%{init: {"theme":"forest","themeVariables":{"primaryColor":"#0b1021","primaryBorderColor":"#4ade80","primaryTextColor":"#e2e8f0","edgeLabelBackground":"#0b1021","tertiaryColor":"#111827","tertiaryTextColor":"#cbd5e1","lineColor":"#67e8f9","nodeBorder":"#38bdf8","textColor":"#e2e8f0"}} }%%
+%%{init: {"theme":"forest","themeVariables":{"primaryColor":"#e5e7eb","primaryBorderColor":"#111827","primaryTextColor":"#0b1021","edgeLabelBackground":"#f8fafc","tertiaryColor":"#cbd5e1","tertiaryTextColor":"#0f172a","lineColor":"#0f172a","nodeBorder":"#111827","textColor":"#0b1021","fontSize":"14px"}} }%%
 %% ERD generated from C:\Users\jaine\Desktop\blackcatacademy\blackcat-database\scripts\schema\schema-map-postgres.yaml (engine: postgres)
 erDiagram
-  %% direction: TB
+  direction TB
   api_keys {
     BIGSERIAL id
     BIGINT tenant_id
@@ -1506,7 +1506,7 @@ verify_events }o--|| users : fk_verify_user
   class system_jobs orphan
   class webhook_outbox orphan
   class worker_locks orphan
-  %% Summary: tables=106, edges=138, linked=58, orphans=15, hubs=33, generated=2025-12-09T13:08:32+01:00
+  %% Summary: tables=106, edges=138, linked=58, orphans=15, hubs=33, generated=2025-12-09T13:47:36+01:00
 ```
 
 > Legend: linked = tables with FK edges; orphan = no FK in/out; hub = degree >= 5.
@@ -1519,10 +1519,10 @@ verify_events }o--|| users : fk_verify_user
 | Orphans | 15 |
 | Hubs (≥5) | 33 |
 | Engine | postgres |
-| Generated | 2025-12-09T13:08:32+01:00 |
+| Generated | 2025-12-09T13:47:36+01:00 |
 | Direction | TB |
 
-**Quick navigation (top hubs)**
+**Quick navigation (hubs)**
 | Table | Degree | Package |
 | --- | ---: | --- |
 | [users](erd-details/ERD-users.md) | 70 | [users](../packages/users) |
@@ -1545,3 +1545,74 @@ verify_events }o--|| users : fk_verify_user
 | [coupon_redemptions](erd-details/ERD-coupon_redemptions.md) | 8 | [coupon-redemptions](../packages/coupon-redemptions) |
 | [book_assets](erd-details/ERD-book_assets.md) | 8 | [book-assets](../packages/book-assets) |
 | [sync_batches](erd-details/ERD-sync_batches.md) | 6 | [sync-batches](../packages/sync-batches) |
+| [signatures](erd-details/ERD-signatures.md) | 6 | [signatures](../packages/signatures) |
+| [rewrap_jobs](erd-details/ERD-rewrap_jobs.md) | 6 | [rewrap-jobs](../packages/rewrap-jobs) |
+| [reviews](erd-details/ERD-reviews.md) | 6 | [reviews](../packages/reviews) |
+| [rbac_roles](erd-details/ERD-rbac_roles.md) | 6 | [rbac-roles](../packages/rbac-roles) |
+| [pq_migration_jobs](erd-details/ERD-pq_migration_jobs.md) | 6 | [pq-migration-jobs](../packages/pq-migration-jobs) |
+| [order_items](erd-details/ERD-order_items.md) | 6 | [order-items](../packages/order-items) |
+| [key_wrapper_layers](erd-details/ERD-key_wrapper_layers.md) | 6 | [key-wrapper-layers](../packages/key-wrapper-layers) |
+| [jwt_tokens](erd-details/ERD-jwt_tokens.md) | 6 | [jwt-tokens](../packages/jwt-tokens) |
+| [invoices](erd-details/ERD-invoices.md) | 6 | [invoices](../packages/invoices) |
+| [inventory_reservations](erd-details/ERD-inventory_reservations.md) | 6 | [inventory-reservations](../packages/inventory-reservations) |
+| [idempotency_keys](erd-details/ERD-idempotency_keys.md) | 6 | [idempotency-keys](../packages/idempotency-keys) |
+| [carts](erd-details/ERD-carts.md) | 6 | [carts](../packages/carts) |
+| [cart_items](erd-details/ERD-cart_items.md) | 6 | [cart-items](../packages/cart-items) |
+| [system_errors](erd-details/ERD-system_errors.md) | 4 | [system-errors](../packages/system-errors) |
+| [refunds](erd-details/ERD-refunds.md) | 4 | [refunds](../packages/refunds) |
+| [rbac_role_permissions](erd-details/ERD-rbac_role_permissions.md) | 4 | [rbac-role-permissions](../packages/rbac-role-permissions) |
+| [policy_kms_keys](erd-details/ERD-policy_kms_keys.md) | 4 | [policy-kms-keys](../packages/policy-kms-keys) |
+| [policy_algorithms](erd-details/ERD-policy_algorithms.md) | 4 | [policy-algorithms](../packages/policy-algorithms) |
+| [permissions](erd-details/ERD-permissions.md) | 4 | [permissions](../packages/permissions) |
+| [payment_gateway_notifications](erd-details/ERD-payment_gateway_notifications.md) | 4 | [payment-gateway-notifications](../packages/payment-gateway-notifications) |
+| [notifications](erd-details/ERD-notifications.md) | 4 | [notifications](../packages/notifications) |
+| [newsletter_subscribers](erd-details/ERD-newsletter_subscribers.md) | 4 | [newsletter-subscribers](../packages/newsletter-subscribers) |
+| [login_attempts](erd-details/ERD-login_attempts.md) | 4 | [login-attempts](../packages/login-attempts) |
+| [kms_providers](erd-details/ERD-kms_providers.md) | 4 | [kms-providers](../packages/kms-providers) |
+| [kms_health_checks](erd-details/ERD-kms_health_checks.md) | 4 | [kms-health-checks](../packages/kms-health-checks) |
+| [key_events](erd-details/ERD-key_events.md) | 4 | [key-events](../packages/key-events) |
+| [hash_profiles](erd-details/ERD-hash_profiles.md) | 4 | [hash-profiles](../packages/hash-profiles) |
+| [coupons](erd-details/ERD-coupons.md) | 4 | [coupons](../packages/coupons) |
+| [countries](erd-details/ERD-countries.md) | 4 | [countries](../packages/countries) |
+| [book_categories](erd-details/ERD-book_categories.md) | 4 | [book-categories](../packages/book-categories) |
+| [authors](erd-details/ERD-authors.md) | 4 | [authors](../packages/authors) |
+| [auth_events](erd-details/ERD-auth_events.md) | 4 | [auth-events](../packages/auth-events) |
+| [audit_log](erd-details/ERD-audit_log.md) | 4 | [audit-log](../packages/audit-log) |
+| [api_keys](erd-details/ERD-api_keys.md) | 4 | [api-keys](../packages/api-keys) |
+| [verify_events](erd-details/ERD-verify_events.md) | 2 | [verify-events](../packages/verify-events) |
+| [vat_validations](erd-details/ERD-vat_validations.md) | 2 | [vat-validations](../packages/vat-validations) |
+| [user_profiles](erd-details/ERD-user_profiles.md) | 2 | [user-profiles](../packages/user-profiles) |
+| [user_identities](erd-details/ERD-user_identities.md) | 2 | [user-identities](../packages/user-identities) |
+| [user_consents](erd-details/ERD-user_consents.md) | 2 | [user-consents](../packages/user-consents) |
+| [two_factor](erd-details/ERD-two_factor.md) | 2 | [two-factor](../packages/two-factor) |
+| [tenant_domains](erd-details/ERD-tenant_domains.md) | 2 | [tenant-domains](../packages/tenant-domains) |
+| [tax_rates](erd-details/ERD-tax_rates.md) | 2 | [tax-rates](../packages/tax-rates) |
+| [sync_errors](erd-details/ERD-sync_errors.md) | 2 | [sync-errors](../packages/sync-errors) |
+| [sync_batch_items](erd-details/ERD-sync_batch_items.md) | 2 | [sync-batch-items](../packages/sync-batch-items) |
+| [slo_windows](erd-details/ERD-slo_windows.md) | 2 | [slo-windows](../packages/slo-windows) |
+| [slo_status](erd-details/ERD-slo_status.md) | 2 | [slo-status](../packages/slo-status) |
+| [sessions](erd-details/ERD-sessions.md) | 2 | [sessions](../packages/sessions) |
+| [session_audit](erd-details/ERD-session_audit.md) | 2 | [session-audit](../packages/session-audit) |
+| [retention_enforcement_jobs](erd-details/ERD-retention_enforcement_jobs.md) | 2 | [retention-enforcement-jobs](../packages/retention-enforcement-jobs) |
+| [replication_lag_samples](erd-details/ERD-replication_lag_samples.md) | 2 | [replication-lag-samples](../packages/replication-lag-samples) |
+| [register_events](erd-details/ERD-register_events.md) | 2 | [register-events](../packages/register-events) |
+| [rbac_sync_cursors](erd-details/ERD-rbac_sync_cursors.md) | 2 | [rbac-sync-cursors](../packages/rbac-sync-cursors) |
+| [rbac_repo_snapshots](erd-details/ERD-rbac_repo_snapshots.md) | 2 | [rbac-repo-snapshots](../packages/rbac-repo-snapshots) |
+| [privacy_requests](erd-details/ERD-privacy_requests.md) | 2 | [privacy-requests](../packages/privacy-requests) |
+| [payment_webhooks](erd-details/ERD-payment_webhooks.md) | 2 | [payment-webhooks](../packages/payment-webhooks) |
+| [payment_logs](erd-details/ERD-payment_logs.md) | 2 | [payment-logs](../packages/payment-logs) |
+| [merkle_roots](erd-details/ERD-merkle_roots.md) | 2 | [merkle-roots](../packages/merkle-roots) |
+| [merkle_anchors](erd-details/ERD-merkle_anchors.md) | 2 | [merkle-anchors](../packages/merkle-anchors) |
+| [key_usage](erd-details/ERD-key_usage.md) | 2 | [key-usage](../packages/key-usage) |
+| [key_rotation_jobs](erd-details/ERD-key_rotation_jobs.md) | 2 | [key-rotation-jobs](../packages/key-rotation-jobs) |
+| [invoice_items](erd-details/ERD-invoice_items.md) | 2 | [invoice-items](../packages/invoice-items) |
+| [field_hash_policies](erd-details/ERD-field_hash_policies.md) | 2 | [field-hash-policies](../packages/field-hash-policies) |
+| [encryption_policy_bindings](erd-details/ERD-encryption_policy_bindings.md) | 2 | [encryption-policy-bindings](../packages/encryption-policy-bindings) |
+| [encryption_bindings](erd-details/ERD-encryption_bindings.md) | 2 | [encryption-bindings](../packages/encryption-bindings) |
+| [email_verifications](erd-details/ERD-email_verifications.md) | 2 | [email-verifications](../packages/email-verifications) |
+| [device_fingerprints](erd-details/ERD-device_fingerprints.md) | 2 | [device-fingerprints](../packages/device-fingerprints) |
+| [deletion_jobs](erd-details/ERD-deletion_jobs.md) | 2 | [deletion-jobs](../packages/deletion-jobs) |
+| [data_retention_policies](erd-details/ERD-data_retention_policies.md) | 2 | [data-retention-policies](../packages/data-retention-policies) |
+| [crypto_standard_aliases](erd-details/ERD-crypto_standard_aliases.md) | 2 | [crypto-standard-aliases](../packages/crypto-standard-aliases) |
+| [audit_chain](erd-details/ERD-audit_chain.md) | 2 | [audit-chain](../packages/audit-chain) |
+| [app_settings](erd-details/ERD-app_settings.md) | 2 | [app-settings](../packages/app-settings) |

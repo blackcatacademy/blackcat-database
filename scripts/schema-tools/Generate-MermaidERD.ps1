@@ -11,7 +11,7 @@ param(
   [int] $HubThreshold = 5,
   [switch] $ShowLegend,
   [switch] $ShowStatsTable,
-  [string] $ThemeInit = '%%{init: {"theme":"forest","themeVariables":{"primaryColor":"#0b1021","primaryBorderColor":"#4ade80","primaryTextColor":"#e2e8f0","edgeLabelBackground":"#0b1021","tertiaryColor":"#111827","tertiaryTextColor":"#cbd5e1","lineColor":"#67e8f9","nodeBorder":"#38bdf8","textColor":"#e2e8f0"}} }%%',
+  [string] $ThemeInit = '%%{init: {"theme":"forest","themeVariables":{"primaryColor":"#e5e7eb","primaryBorderColor":"#111827","primaryTextColor":"#0b1021","edgeLabelBackground":"#f8fafc","tertiaryColor":"#cbd5e1","tertiaryTextColor":"#0f172a","lineColor":"#0f172a","nodeBorder":"#111827","textColor":"#0b1021","fontSize":"14px"}} }%%',
   [switch] $ShowConsoleSummary,
   [switch] $Force
 )
@@ -45,7 +45,7 @@ $lines = @(
   $ThemeInit,
   ("%% ERD generated from {0} (engine: {1})" -f $mapPathResolved, $(if ([string]::IsNullOrWhiteSpace($engine)) { 'any' } else { $engine })),
   ("erDiagram"),
-  ("  %% direction: {0}" -f $Direction)
+  ("  direction {0}" -f $Direction)
 )
 
 $tables = @{}
@@ -111,7 +111,7 @@ function New-DetailErDiagram {
     $ThemeInit,
     ("%% Detail ERD for {0} (engine: {1}, neighbors: {2})" -f $Table, $(if ([string]::IsNullOrWhiteSpace($engine)) { 'any' } else { $engine }), $Neighbors.Count),
     'erDiagram',
-    ("  %% direction: {0}" -f $Direction)
+    ("  direction {0}" -f $Direction)
   )
   $nodeSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
   $null = $nodeSet.Add($Table)
@@ -273,21 +273,20 @@ $md.Add(("| Generated | {0} |" -f $ts)) | Out-Null
 if ($MaxTables -gt 0) { $md.Add(("| Truncated tables (max={0}) | {1} |" -f $MaxTables, $summary.TruncTables)) | Out-Null }
 if ($MaxEdges  -gt 0) { $md.Add(("| Truncated edges (max={0}) | {1} |" -f $MaxEdges,  $summary.TruncEdges)) | Out-Null }
 $md.Add(("| Direction | {0} |" -f $Direction)) | Out-Null
-# Quick navigation to top hubs (clickable to packages)
-$topHubs = @(
+# Quick navigation to hubs (all with degree > 0) and per-table detail ERDs (neighbors limited to 10)
+$hubList = @(
   $nodeDegree.GetEnumerator() |
-    Sort-Object -Property Value, Key -Descending |
     Where-Object { $_.Value -gt 0 } |
-    Select-Object -First 20
+    Sort-Object -Property Value, Key -Descending
 )
 $detailLinks = @()
-if ($topHubs.Count -gt 0) {
+if ($hubList.Count -gt 0) {
   if ($detailDir) { New-Item -ItemType Directory -Force -Path $detailDir | Out-Null }
   $md.Add("") | Out-Null
-  $md.Add("**Quick navigation (top hubs)**") | Out-Null
+  $md.Add("**Quick navigation (hubs)**") | Out-Null
   $md.Add("| Table | Degree | Package |") | Out-Null
   $md.Add("| --- | ---: | --- |") | Out-Null
-  foreach ($hub in $topHubs) {
+  foreach ($hub in $hubList) {
     $pkgSlug = ($hub.Key -replace '_','-')
     $pkgLink = ("{0}/{1}" -f $pkgLinkBase, $pkgSlug) -replace '\\','/'
     $detailFileName = "ERD-{0}.md" -f $hub.Key
@@ -300,7 +299,9 @@ if ($topHubs.Count -gt 0) {
         elseif ($b -eq $hub.Key -and $a -ne $hub.Key) { $null = $neighbors.Add($a) }
       }
     }
-    $detailContent = New-DetailErDiagram -Table $hub.Key -Neighbors $neighbors -Edges $edgesSorted
+    # limit neighbors to 10 for readability
+    $neighborsLimited = @($neighbors | Sort-Object -CaseSensitive | Select-Object -First 10)
+    $detailContent = New-DetailErDiagram -Table $hub.Key -Neighbors $neighborsLimited -Edges $edgesSorted
     Set-Content -LiteralPath $detailPath -Value $detailContent -Encoding UTF8
     $detailRel = if ($outDir) { [IO.Path]::GetRelativePath($outDir, $detailPath) } else { $detailFileName }
     $detailRel = ($detailRel -replace '\\','/')

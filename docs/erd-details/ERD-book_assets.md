@@ -1,8 +1,8 @@
 ```mermaid
-%%{init: {"theme":"forest","themeVariables":{"primaryColor":"#0b1021","primaryBorderColor":"#4ade80","primaryTextColor":"#e2e8f0","edgeLabelBackground":"#0b1021","tertiaryColor":"#111827","tertiaryTextColor":"#cbd5e1","lineColor":"#67e8f9","nodeBorder":"#38bdf8","textColor":"#e2e8f0"}} }%%
+%%{init: {"theme":"forest","themeVariables":{"primaryColor":"#e5e7eb","primaryBorderColor":"#111827","primaryTextColor":"#0b1021","edgeLabelBackground":"#f8fafc","tertiaryColor":"#cbd5e1","tertiaryTextColor":"#0f172a","lineColor":"#0f172a","nodeBorder":"#111827","textColor":"#0b1021","fontSize":"14px"}} }%%
 %% Detail ERD for book_assets (engine: postgres, neighbors: 4)
 erDiagram
-  %% direction: TB
+  direction TB
   book_assets {
     BIGINT id
     BIGINT tenant_id
@@ -76,18 +76,6 @@ erDiagram
     BIGINT replaced_by
     TEXT notes
   }
-  tenants {
-    BIGINT id
-    VARCHAR(200) name
-    VARCHAR(200) slug
-    TEXT slug_ci
-    TEXT status
-    TIMESTAMPTZ(6) created_at
-    TIMESTAMPTZ(6) updated_at
-    INTEGER version
-    TIMESTAMPTZ(6) deleted_at
-    BOOLEAN is_live
-  }
   order_item_downloads {
     BIGINT id
     BIGINT tenant_id
@@ -104,6 +92,18 @@ erDiagram
     TIMESTAMPTZ(6) last_used_at
     BYTEA ip_hash
     VARCHAR(64) ip_hash_key_version
+  }
+  tenants {
+    BIGINT id
+    VARCHAR(200) name
+    VARCHAR(200) slug
+    TEXT slug_ci
+    TEXT status
+    TIMESTAMPTZ(6) created_at
+    TIMESTAMPTZ(6) updated_at
+    INTEGER version
+    TIMESTAMPTZ(6) deleted_at
+    BOOLEAN is_live
   }
 api_keys }o--|| tenants : fk_api_keys_tenant
 authors }o--|| tenants : fk_authors_tenant

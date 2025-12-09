@@ -1,8 +1,8 @@
 ```mermaid
-%%{init: {"theme":"forest","themeVariables":{"primaryColor":"#0b1021","primaryBorderColor":"#4ade80","primaryTextColor":"#e2e8f0","edgeLabelBackground":"#0b1021","tertiaryColor":"#111827","tertiaryTextColor":"#cbd5e1","lineColor":"#67e8f9","nodeBorder":"#38bdf8","textColor":"#e2e8f0"}} }%%
+%%{init: {"theme":"forest","themeVariables":{"primaryColor":"#e5e7eb","primaryBorderColor":"#111827","primaryTextColor":"#0b1021","edgeLabelBackground":"#f8fafc","tertiaryColor":"#cbd5e1","tertiaryTextColor":"#0f172a","lineColor":"#0f172a","nodeBorder":"#111827","textColor":"#0b1021","fontSize":"14px"}} }%%
 %% Detail ERD for orders (engine: postgres, neighbors: 9)
 erDiagram
-  %% direction: TB
+  direction TB
   orders {
     BIGINT id
     BIGINT tenant_id
@@ -103,6 +103,21 @@ erDiagram
     TIMESTAMPTZ(6) created_at
     TIMESTAMPTZ(6) updated_at
   }
+  payments {
+    BIGINT id
+    BIGINT tenant_id
+    BIGINT order_id
+    VARCHAR(100) gateway
+    VARCHAR(255) transaction_id
+    VARCHAR(255) provider_event_id
+    TEXT status
+    NUMERIC(12) amount
+    CHAR(3) currency
+    JSONB details
+    TIMESTAMPTZ(6) created_at
+    TIMESTAMPTZ(6) updated_at
+    INTEGER version
+  }
   tenants {
     BIGINT id
     VARCHAR(200) name
@@ -134,21 +149,6 @@ erDiagram
     INTEGER version
     TIMESTAMPTZ(6) deleted_at
     TEXT actor_role
-  }
-  payments {
-    BIGINT id
-    BIGINT tenant_id
-    BIGINT order_id
-    VARCHAR(100) gateway
-    VARCHAR(255) transaction_id
-    VARCHAR(255) provider_event_id
-    TEXT status
-    NUMERIC(12) amount
-    CHAR(3) currency
-    JSONB details
-    TIMESTAMPTZ(6) created_at
-    TIMESTAMPTZ(6) updated_at
-    INTEGER version
   }
 api_keys }o--|| tenants : fk_api_keys_tenant
 api_keys }o--|| users : fk_api_keys_user

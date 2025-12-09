@@ -1,8 +1,8 @@
 ```mermaid
-%%{init: {"theme":"forest","themeVariables":{"primaryColor":"#0b1021","primaryBorderColor":"#4ade80","primaryTextColor":"#e2e8f0","edgeLabelBackground":"#0b1021","tertiaryColor":"#111827","tertiaryTextColor":"#cbd5e1","lineColor":"#67e8f9","nodeBorder":"#38bdf8","textColor":"#e2e8f0"}} }%%
+%%{init: {"theme":"forest","themeVariables":{"primaryColor":"#e5e7eb","primaryBorderColor":"#111827","primaryTextColor":"#0b1021","edgeLabelBackground":"#f8fafc","tertiaryColor":"#cbd5e1","tertiaryTextColor":"#0f172a","lineColor":"#0f172a","nodeBorder":"#111827","textColor":"#0b1021","fontSize":"14px"}} }%%
 %% Detail ERD for payments (engine: postgres, neighbors: 7)
 erDiagram
-  %% direction: TB
+  direction TB
   payments {
     BIGINT id
     BIGINT tenant_id
@@ -27,6 +27,28 @@ erDiagram
     VARCHAR(1024) redirect_url
     TIMESTAMPTZ(6) created_at
     INTEGER ttl_seconds
+  }
+  orders {
+    BIGINT id
+    BIGINT tenant_id
+    CHAR(36) uuid
+    BYTEA uuid_bin
+    VARCHAR(64) public_order_no
+    BIGINT user_id
+    TEXT status
+    BYTEA encrypted_customer_blob
+    VARCHAR(64) encrypted_customer_blob_key_version
+    JSONB encryption_meta
+    CHAR(3) currency
+    JSONB metadata
+    NUMERIC(12) subtotal
+    NUMERIC(12) discount_total
+    NUMERIC(12) tax_total
+    NUMERIC(12) total
+    VARCHAR(100) payment_method
+    TIMESTAMPTZ(6) created_at
+    TIMESTAMPTZ(6) updated_at
+    INTEGER version
   }
   payment_gateway_notifications {
     BIGINT id
@@ -55,27 +77,16 @@ erDiagram
     BOOLEAN from_cache
     TIMESTAMPTZ(6) created_at
   }
-  orders {
+  refunds {
     BIGINT id
     BIGINT tenant_id
-    CHAR(36) uuid
-    BYTEA uuid_bin
-    VARCHAR(64) public_order_no
-    BIGINT user_id
-    TEXT status
-    BYTEA encrypted_customer_blob
-    VARCHAR(64) encrypted_customer_blob_key_version
-    JSONB encryption_meta
+    BIGINT payment_id
+    NUMERIC(12) amount
     CHAR(3) currency
-    JSONB metadata
-    NUMERIC(12) subtotal
-    NUMERIC(12) discount_total
-    NUMERIC(12) tax_total
-    NUMERIC(12) total
-    VARCHAR(100) payment_method
+    TEXT reason
+    VARCHAR(50) status
     TIMESTAMPTZ(6) created_at
-    TIMESTAMPTZ(6) updated_at
-    INTEGER version
+    JSONB details
   }
   tenants {
     BIGINT id
@@ -88,17 +99,6 @@ erDiagram
     INTEGER version
     TIMESTAMPTZ(6) deleted_at
     BOOLEAN is_live
-  }
-  refunds {
-    BIGINT id
-    BIGINT tenant_id
-    BIGINT payment_id
-    NUMERIC(12) amount
-    CHAR(3) currency
-    TEXT reason
-    VARCHAR(50) status
-    TIMESTAMPTZ(6) created_at
-    JSONB details
   }
 api_keys }o--|| tenants : fk_api_keys_tenant
 authors }o--|| tenants : fk_authors_tenant
