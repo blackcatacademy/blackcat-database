@@ -64,9 +64,7 @@ function Test-IndexForColumns {
   return $false
 }
 
-$auditDir = Split-Path -Parent $outPathResolved
-$pkgLinkBase = if ($auditDir) { [IO.Path]::GetRelativePath($auditDir, $packagesResolved) } else { $packagesResolved }
-$pkgLinkBase = ($pkgLinkBase -replace '\\','/')
+$repoBase = 'https://github.com/blackcatdatabase/table-'
 
 foreach ($tableName in $tables) {
   $pkgSlug = ($tableName -replace '_','-')
@@ -116,8 +114,9 @@ foreach ($tableName in $tables) {
 
   $score = Measure-TableScore $hasPk $hasTime $uniqueCount $fks.Count $vws.Count $missingFkIdx
 
-  $rows += ("| [`{0}`]({1}/{2}) | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} |" -f `
-  $tableName, $pkgLinkBase, $pkgSlug, $cols.Count, $idx.Count, $uniqueCount, $fks.Count, $vws.Count, $hasPk, $hasTime, (-not $missingFkIdx), $score)
+  $pkgUrl = "$repoBase$pkgSlug"
+  $rows += ("| [`{0}`]({1}) | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | **{10}** |" -f `
+  $tableName, $pkgUrl, $cols.Count, $idx.Count, $uniqueCount, $fks.Count, $vws.Count, $hasPk, $hasTime, (-not $missingFkIdx), $score)
 
   $total.Packages++
   $total.Tables++

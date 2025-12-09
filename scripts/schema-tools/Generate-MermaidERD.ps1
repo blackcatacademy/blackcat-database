@@ -3,7 +3,7 @@ param(
   [string] $MapPath = 'scripts/schema/schema-map-postgres.yaml',
   [string] $ViewsLibraryRoot = 'views-library',
   [string] $OutPath = 'docs/ERD.md',
-  [ValidateSet('LR','TB')] [string] $Direction = 'LR',
+  [ValidateSet('LR','TB','RL','BT')] [string] $Direction = 'TB',
   [string[]] $IncludeTables = @(),
   [string[]] $ExcludeTables = @(),
   [int] $MaxTables = 0,
@@ -59,6 +59,7 @@ if ($outDir) {
   $pkgLinkBase = [IO.Path]::GetRelativePath($outDir, $packagesResolved)
 }
 $pkgLinkBase = ($pkgLinkBase -replace '\\','/')
+$detailDir = if ($outDir) { Join-Path $outDir 'erd-details' } else { 'erd-details' }
 
 function Get-EngineFiles {
   param(
@@ -97,6 +98,51 @@ function Add-Edge {
   if (-not $nodeDegree.ContainsKey($To))   { $nodeDegree[$To]   = 0 }
   $nodeDegree[$From]++
   $nodeDegree[$To]++
+}
+
+function New-DetailErDiagram {
+  param(
+    [string]$Table,
+    [System.Collections.Generic.HashSet[string]]$Neighbors,
+    [string[]]$Edges
+  )
+  $detailLines = @(
+    '```mermaid',
+    $ThemeInit,
+    ("%% Detail ERD for {0} (engine: {1}, neighbors: {2})" -f $Table, $(if ([string]::IsNullOrWhiteSpace($engine)) { 'any' } else { $engine }), $Neighbors.Count),
+    'erDiagram',
+    ("  %% direction: {0}" -f $Direction)
+  )
+  $nodeSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+  $null = $nodeSet.Add($Table)
+  foreach ($n in $Neighbors) { $null = $nodeSet.Add($n) }
+
+  foreach ($t in $nodeSet) {
+    if (-not $tables.ContainsKey($t)) { continue }
+    $detailLines += ("  " + $t + " {")
+    foreach ($c in $tables[$t]) {
+      $tNorm = Repair-TypeString $c.Type
+      $detailLines += ("    {0} {1}" -f $tNorm, $c.Name)
+    }
+    $detailLines += "  }"
+  }
+
+  $edgeFiltered = @()
+  foreach ($e in $Edges) {
+    if ($e -match '^(?<a>\S+)\s+.\S+\s+(?<b>\S+)\s*:') {
+      $a=$matches.a; $b=$matches.b
+      if ($nodeSet.Contains($a) -or $nodeSet.Contains($b)) {
+        $edgeFiltered += $e
+      }
+    }
+  }
+  if ($edgeFiltered.Count -gt 0) {
+    $detailLines += ($edgeFiltered | Sort-Object -Unique)
+  } else {
+    $detailLines += '  %% No edges for this detail view.'
+  }
+  $detailLines += '```'
+  return ($detailLines -join [Environment]::NewLine)
 }
 $tablesKeys = $map.Tables.Keys | Sort-Object
 $truncatedTables = $false
@@ -210,44 +256,58 @@ $lines += '```'
 
 if ($outDir) { New-Item -ItemType Directory -Force -Path $outDir | Out-Null }
 $content = $lines -join [Environment]::NewLine
-{
-  $md = New-Object System.Collections.Generic.List[string]
-  $md.Add($content) | Out-Null
+$md = New-Object System.Collections.Generic.List[string]
+$md.Add($content) | Out-Null
+$md.Add("") | Out-Null
+$md.Add("> Legend: linked = tables with FK edges; orphan = no FK in/out; hub = degree >= $HubThreshold.") | Out-Null
+$md.Add("") | Out-Null
+$md.Add("| Metric | Value |") | Out-Null
+$md.Add("| --- | ---: |") | Out-Null
+$md.Add(("| Tables | {0} |" -f $summary.Tables)) | Out-Null
+$md.Add(("| Edges | {0} |" -f $summary.Edges)) | Out-Null
+$md.Add(("| Linked | {0} |" -f $summary.Linked)) | Out-Null
+$md.Add(("| Orphans | {0} |" -f $summary.Orphans)) | Out-Null
+$md.Add(("| Hubs (≥{0}) | {1} |" -f $HubThreshold, $summary.Hubs)) | Out-Null
+$md.Add(("| Engine | {0} |" -f $(if ([string]::IsNullOrWhiteSpace($engine)) { 'any' } else { $engine }))) | Out-Null
+$md.Add(("| Generated | {0} |" -f $ts)) | Out-Null
+if ($MaxTables -gt 0) { $md.Add(("| Truncated tables (max={0}) | {1} |" -f $MaxTables, $summary.TruncTables)) | Out-Null }
+if ($MaxEdges  -gt 0) { $md.Add(("| Truncated edges (max={0}) | {1} |" -f $MaxEdges,  $summary.TruncEdges)) | Out-Null }
+$md.Add(("| Direction | {0} |" -f $Direction)) | Out-Null
+# Quick navigation to top hubs (clickable to packages)
+$topHubs = @(
+  $nodeDegree.GetEnumerator() |
+    Sort-Object -Property Value, Key -Descending |
+    Where-Object { $_.Value -gt 0 } |
+    Select-Object -First 20
+)
+$detailLinks = @()
+if ($topHubs.Count -gt 0) {
+  if ($detailDir) { New-Item -ItemType Directory -Force -Path $detailDir | Out-Null }
   $md.Add("") | Out-Null
-  $md.Add("> Legend: linked = tables with FK edges; orphan = no FK in/out; hub = degree >= $HubThreshold.") | Out-Null
-  $md.Add("") | Out-Null
-  $md.Add("| Metric | Value |") | Out-Null
-  $md.Add("| --- | ---: |") | Out-Null
-  $md.Add(("| Tables | {0} |" -f $summary.Tables)) | Out-Null
-  $md.Add(("| Edges | {0} |" -f $summary.Edges)) | Out-Null
-  $md.Add(("| Linked | {0} |" -f $summary.Linked)) | Out-Null
-  $md.Add(("| Orphans | {0} |" -f $summary.Orphans)) | Out-Null
-  $md.Add(("| Hubs (≥{0}) | {1} |" -f $HubThreshold, $summary.Hubs)) | Out-Null
-  $md.Add(("| Engine | {0} |" -f $(if ([string]::IsNullOrWhiteSpace($engine)) { 'any' } else { $engine }))) | Out-Null
-  $md.Add(("| Generated | {0} |" -f $ts)) | Out-Null
-  if ($MaxTables -gt 0) { $md.Add(("| Truncated tables (max={0}) | {1} |" -f $MaxTables, $summary.TruncTables)) | Out-Null }
-  if ($MaxEdges  -gt 0) { $md.Add(("| Truncated edges (max={0}) | {1} |" -f $MaxEdges,  $summary.TruncEdges)) | Out-Null }
-  $md.Add(("| Direction | {0} |" -f $Direction)) | Out-Null
-  # Quick navigation to top hubs (clickable to packages)
-  $topHubs = @(
-    $nodeDegree.GetEnumerator() |
-      Sort-Object -Property Value, Key -Descending |
-      Where-Object { $_.Value -gt 0 } |
-      Select-Object -First 20
-  )
-  if ($topHubs.Count -gt 0) {
-    $md.Add("") | Out-Null
-    $md.Add("**Quick navigation (top hubs)**") | Out-Null
-    $md.Add("| Table | Degree | Package |") | Out-Null
-    $md.Add("| --- | ---: | --- |") | Out-Null
-    foreach ($hub in $topHubs) {
-      $pkgSlug = ($hub.Key -replace '_','-')
-      $pkgLink = ("{0}/{1}" -f $pkgLinkBase, $pkgSlug) -replace '\\','/'
-      $md.Add(("| [`{0}`]({1}) | {2} | [{3}]({1}) |" -f $hub.Key, $pkgLink, $hub.Value, $pkgSlug)) | Out-Null
+  $md.Add("**Quick navigation (top hubs)**") | Out-Null
+  $md.Add("| Table | Degree | Package |") | Out-Null
+  $md.Add("| --- | ---: | --- |") | Out-Null
+  foreach ($hub in $topHubs) {
+    $pkgSlug = ($hub.Key -replace '_','-')
+    $pkgLink = ("{0}/{1}" -f $pkgLinkBase, $pkgSlug) -replace '\\','/'
+    $detailFileName = "ERD-{0}.md" -f $hub.Key
+    $detailPath = if ($detailDir) { Join-Path $detailDir $detailFileName } else { $detailFileName }
+    $neighbors = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($edge in $edgesSorted) {
+      if ($edge -match '^(?<a>\S+)\s+.\S+\s+(?<b>\S+)\s*:') {
+        $a=$matches.a; $b=$matches.b
+        if ($a -eq $hub.Key -and $b -ne $hub.Key) { $null = $neighbors.Add($b) }
+        elseif ($b -eq $hub.Key -and $a -ne $hub.Key) { $null = $neighbors.Add($a) }
+      }
     }
+    $detailContent = New-DetailErDiagram -Table $hub.Key -Neighbors $neighbors -Edges $edgesSorted
+    Set-Content -LiteralPath $detailPath -Value $detailContent -Encoding UTF8
+    $detailRel = if ($outDir) { [IO.Path]::GetRelativePath($outDir, $detailPath) } else { $detailFileName }
+    $detailRel = ($detailRel -replace '\\','/')
+    $md.Add(("| [`{0}`]({1}) | {2} | [{3}]({4}) |" -f $hub.Key, $detailRel, $hub.Value, $pkgSlug, $pkgLink)) | Out-Null
   }
-  $content = $md -join [Environment]::NewLine
 }
+$content = $md -join [Environment]::NewLine
 Set-Content -LiteralPath $outPathResolved -Value $content -Encoding UTF8
 if ($ShowConsoleSummary) {
   Write-Host ("ERD written to {0} (tables={1}, edges={2}, hubs={3}, generated={4})" -f $OutPath,$summary.Tables,$summary.Edges,$summary.Hubs,$ts)

@@ -2,7 +2,7 @@
 %%{init: {"theme":"forest","themeVariables":{"primaryColor":"#0b1021","primaryBorderColor":"#4ade80","primaryTextColor":"#e2e8f0","edgeLabelBackground":"#0b1021","tertiaryColor":"#111827","tertiaryTextColor":"#cbd5e1","lineColor":"#67e8f9","nodeBorder":"#38bdf8","textColor":"#e2e8f0"}} }%%
 %% ERD generated from C:\Users\jaine\Desktop\blackcatacademy\blackcat-database\scripts\schema\schema-map-postgres.yaml (engine: postgres)
 erDiagram
-  %% direction: LR
+  %% direction: TB
   api_keys {
     BIGSERIAL id
     BIGINT tenant_id
@@ -1506,5 +1506,42 @@ verify_events }o--|| users : fk_verify_user
   class system_jobs orphan
   class webhook_outbox orphan
   class worker_locks orphan
-  %% Summary: tables=106, edges=138, linked=58, orphans=15, hubs=33, generated=2025-12-09T12:37:39+01:00
+  %% Summary: tables=106, edges=138, linked=58, orphans=15, hubs=33, generated=2025-12-09T13:08:32+01:00
 ```
+
+> Legend: linked = tables with FK edges; orphan = no FK in/out; hub = degree >= 5.
+
+| Metric | Value |
+| --- | ---: |
+| Tables | 106 |
+| Edges | 138 |
+| Linked | 58 |
+| Orphans | 15 |
+| Hubs (≥5) | 33 |
+| Engine | postgres |
+| Generated | 2025-12-09T13:08:32+01:00 |
+| Direction | TB |
+
+**Quick navigation (top hubs)**
+| Table | Degree | Package |
+| --- | ---: | --- |
+| [users](erd-details/ERD-users.md) | 70 | [users](../packages/users) |
+| [tenants](erd-details/ERD-tenants.md) | 48 | [tenants](../packages/tenants) |
+| [books](erd-details/ERD-books.md) | 20 | [books](../packages/books) |
+| [orders](erd-details/ERD-orders.md) | 18 | [orders](../packages/orders) |
+| [kms_keys](erd-details/ERD-kms_keys.md) | 18 | [kms-keys](../packages/kms-keys) |
+| [crypto_algorithms](erd-details/ERD-crypto_algorithms.md) | 16 | [crypto-algorithms](../packages/crypto-algorithms) |
+| [payments](erd-details/ERD-payments.md) | 14 | [payments](../packages/payments) |
+| [crypto_keys](erd-details/ERD-crypto_keys.md) | 12 | [crypto-keys](../packages/crypto-keys) |
+| [signing_keys](erd-details/ERD-signing_keys.md) | 10 | [signing-keys](../packages/signing-keys) |
+| [key_wrappers](erd-details/ERD-key_wrappers.md) | 10 | [key-wrappers](../packages/key-wrappers) |
+| [categories](erd-details/ERD-categories.md) | 10 | [categories](../packages/categories) |
+| [rbac_user_roles](erd-details/ERD-rbac_user_roles.md) | 8 | [rbac-user-roles](../packages/rbac-user-roles) |
+| [rbac_user_permissions](erd-details/ERD-rbac_user_permissions.md) | 8 | [rbac-user-permissions](../packages/rbac-user-permissions) |
+| [rbac_repositories](erd-details/ERD-rbac_repositories.md) | 8 | [rbac-repositories](../packages/rbac-repositories) |
+| [peer_nodes](erd-details/ERD-peer_nodes.md) | 8 | [peer-nodes](../packages/peer-nodes) |
+| [order_item_downloads](erd-details/ERD-order_item_downloads.md) | 8 | [order-item-downloads](../packages/order-item-downloads) |
+| [encryption_policies](erd-details/ERD-encryption_policies.md) | 8 | [encryption-policies](../packages/encryption-policies) |
+| [coupon_redemptions](erd-details/ERD-coupon_redemptions.md) | 8 | [coupon-redemptions](../packages/coupon-redemptions) |
+| [book_assets](erd-details/ERD-book_assets.md) | 8 | [book-assets](../packages/book-assets) |
+| [sync_batches](erd-details/ERD-sync_batches.md) | 6 | [sync-batches](../packages/sync-batches) |
