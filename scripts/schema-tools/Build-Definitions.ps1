@@ -795,9 +795,13 @@ function Write-DefinitionFile {
         $lines.Add('| Column | Type | Null | Default | Description |')
         $lines.Add('| --- | --- | --- | --- | --- |')
 
-        $colMeta = @{}
-        $sampleMap = $EngineMaps.Values | Select-Object -First 1
-        if ($sampleMap) { $colMeta = Convert-CreateColumns -CreateText $sampleMap.create }
+        # collect column metadata per engine (type, nullable, default)
+        $colMetaPerEngine = @{}
+        foreach ($engKey in $EngineMaps.Keys) {
+            $engMap = $EngineMaps[$engKey]
+            $colMetaPerEngine[$engKey] = Convert-CreateColumns -CreateText $engMap.create
+        }
+        $colMetaSample = $colMetaPerEngine.Values | Select-Object -First 1
 
         $missingDesc = 0
         foreach ($col in ($DefEntry.Columns.GetEnumerator() | Sort-Object Name)) {
@@ -822,14 +826,33 @@ function Write-DefinitionFile {
                 $suffix = ' (enum: ' + (($enumValues | ForEach-Object { $_ }) -join ', ') + ')'
             }
 
-            $meta = $null
-            if ($colMeta.ContainsKey($col.Key)) { $meta = $colMeta[$col.Key] }
-
+            # combine types per engine; if identical, show single type, otherwise eng:type separated by " / "
+            $typeParts = @()
+            $typeSet   = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+            foreach ($engKey in ($colMetaPerEngine.Keys | Sort-Object)) {
+                $engCols = $colMetaPerEngine[$engKey]
+                if ($engCols -and $engCols.ContainsKey($col.Key) -and $engCols[$col.Key].Type) {
+                    $type = $engCols[$col.Key].Type
+                    if (-not $typeSet.Contains($type)) { $null = $typeSet.Add($type) }
+                    $typeParts += @{ Engine = $engKey; Type = $type }
+                }
+            }
             $colType = ''
+            if ($typeParts.Count -gt 0) {
+                if ($typeSet.Count -eq 1) {
+                    $colType = $typeParts[0].Type
+                } else {
+                    $colType = ($typeParts | ForEach-Object { "{0}: {1}" -f $_.Engine, $_.Type }) -join ' / '
+                }
+            }
+
+            # null/default from sample engine
+            $meta = $null
+            if ($colMetaSample -and $colMetaSample.ContainsKey($col.Key)) { $meta = $colMetaSample[$col.Key] }
+
             $colNull = 'YES'
             $colDef  = ''
             if ($meta) {
-                if ($meta.Type) { $colType = $meta.Type }
                 if (-not $meta.Nullable) { $colNull = 'NO' }
                 if ($null -ne $meta.Default) { $colDef = $meta.Default }
             }
