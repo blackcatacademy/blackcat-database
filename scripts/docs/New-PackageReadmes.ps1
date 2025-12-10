@@ -480,7 +480,8 @@ foreach ($t in $tables) {
   if ($hasChangelog) {
     $clItem = Get-Item -LiteralPath $changelogPath -ErrorAction SilentlyContinue
     if ($clItem) {
-      $changelogFreshDays = [math]::Round(((Get-Date) - $clItem.LastWriteTime).TotalDays)
+      # use UTC + whole days to avoid day-to-day drift between environments/timezones
+      $changelogFreshDays = [int](([datetime]::UtcNow.Date - $clItem.LastWriteTimeUtc.Date).TotalDays)
       $changelogFresh = if ($changelogFreshDays -le $changelogFreshThreshold) { 'fresh' } else { 'stale' }
     }
   }
@@ -537,7 +538,7 @@ foreach ($t in $tables) {
   $indexCoverageOk = $hasPrimaryKey -and ($idxCount -gt 0)
   $piiCount = Get-SafeCount $piiSignals
   $constraintCount = Get-SafeCount $constraintSnips
-  $changelogDescriptor = if ($changelogFresh) { "$changelogFresh ($changelogFreshDays d)" } else { 'n/a' }
+  $changelogDescriptor = if ($changelogFresh) { $changelogFresh } else { 'n/a' }
   $driftStatus = $null
   if ($driftCount -gt 0) { $driftStatus = '⚠️ Engine drift detected (see definitions)' }
   elseif ($defsCount -gt 0) { $driftStatus = '✅ No engine drift detected' }
@@ -635,7 +636,7 @@ foreach ($t in $tables) {
   $lines.Add(("| Seeds | **{0}** |" -f $seedCount)) | Out-Null
   $lines.Add("| Docs | " + ($(if ($docsLink) { "**present**" } else { "_missing (run Build-Definitions)_" })) + " |") | Out-Null
   $lines.Add("| Changelog | " + ($(if ($changelogLink) { "**present**" } else { "_missing_" })) + " |") | Out-Null
-  if ($changelogFresh) { $lines.Add(("| Changelog freshness | {0} ({1} days; threshold {2}) |" -f $changelogFresh, $changelogFreshDays, $changelogFreshThreshold)) | Out-Null }
+  if ($changelogFresh) { $lines.Add(("| Changelog freshness | {0} (threshold {1} d) |" -f $changelogFresh, $changelogFreshThreshold)) | Out-Null }
   $lines.Add(("| Lineage | outbound **{0}** / inbound **{1}** |" -f $fkRefCount, $inboundRefCount)) | Out-Null
   $lines.Add("| Index coverage | " + ($(if ($indexCoverageOk) { '**ready**' } else { '_todo (add PK and at least one index)_' })) + " |") | Out-Null
   $lines.Add("| Engine targets | PHP 8.3; MySQL/MariaDB/Postgres |") | Out-Null
