@@ -417,6 +417,7 @@ foreach ($t in $tables) {
   if ($RepoUrl) {
     $pkgRootLink = ($RepoUrl.TrimEnd('/') + '/' + $pkgRootRel)
   }
+  if ($pkgRootLink) { $pkgRootLink = ($pkgRootLink -replace '\\','/') }
   function Get-PkgLink {
     param([string]$Path, [switch]$PreferRelative)
     $base = $pkgPath
@@ -428,7 +429,9 @@ foreach ($t in $tables) {
       $rel = Get-RelativePathLegacy -BasePath $readmeDir -TargetPath $resolved
       return ($rel -replace '\\','/')
     }
-    Get-LinkForPath -Path $resolved -RepoUrl $RepoUrl -Root $base
+    $link = Get-LinkForPath -Path $resolved -RepoUrl $RepoUrl -Root $base
+    if ($link) { $link = ($link -replace '\\','/') }
+    return $link
   }
   $docsLink = Get-PkgLink -Path $docsPath -PreferRelative
   $changelogLink = Get-PkgLink -Path $changelogPath -PreferRelative

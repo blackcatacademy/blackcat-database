@@ -811,7 +811,8 @@ function Write-DefinitionFile {
         }
 
         $missingDesc = 0
-        foreach ($col in ($DefEntry.Columns.GetEnumerator() | Sort-Object Name)) {
+        # Preserve column order as defined in the source map/definitions to avoid cross-environment reordering
+        foreach ($col in $DefEntry.Columns.GetEnumerator()) {
             $desc = $col.Value.Description
             if (-not $desc) { $desc = '' }
             if ([string]::IsNullOrWhiteSpace($desc)) { $missingDesc++ }
