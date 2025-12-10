@@ -788,6 +788,9 @@ function Write-DefinitionFile {
     if ([string]::IsNullOrWhiteSpace($summary)) { $summary = 'Definition not provided.' }
     $lines.Add('')
     $lines.Add($summary.Trim())
+    $docDir = Split-Path -Parent $OutPath
+    $pkgRelForLinks = if ($docDir) { [IO.Path]::GetRelativePath($docDir, $PackagePath) } else { '.' }
+    $pkgRelForLinks = ($pkgRelForLinks -replace '\\','/')
 
     if ($DefEntry -and $DefEntry.Columns) {
         $lines.Add('')
@@ -801,7 +804,11 @@ function Write-DefinitionFile {
             $engMap = $EngineMaps[$engKey]
             $colMetaPerEngine[$engKey] = Convert-CreateColumns -CreateText $engMap.create
         }
-        $colMetaSample = $colMetaPerEngine.Values | Select-Object -First 1
+        $colMetaSample = $null
+        foreach ($engKey in ($colMetaPerEngine.Keys | Sort-Object)) {
+            $colMetaSample = $colMetaPerEngine[$engKey]
+            break
+        }
 
         $missingDesc = 0
         foreach ($col in ($DefEntry.Columns.GetEnumerator() | Sort-Object Name)) {
@@ -854,7 +861,27 @@ function Write-DefinitionFile {
             $colDef  = ''
             if ($meta) {
                 if (-not $meta.Nullable) { $colNull = 'NO' }
-                if ($null -ne $meta.Default) { $colDef = $meta.Default }
+            }
+            # defaults per engine
+            $defParts = @()
+            $defSet   = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+            foreach ($engKey in ($colMetaPerEngine.Keys | Sort-Object)) {
+                $engCols = $colMetaPerEngine[$engKey]
+                if ($engCols -and $engCols.ContainsKey($col.Key)) {
+                    $defVal = $engCols[$col.Key].Default
+                    if ($null -ne $defVal -and $defVal -ne '') {
+                        $txt = [string]$defVal
+                        if (-not $defSet.Contains($txt)) { $null = $defSet.Add($txt) }
+                        $defParts += @{ Engine = $engKey; Value = $txt }
+                    }
+                }
+            }
+            if ($defParts.Count -gt 0) {
+                if ($defSet.Count -eq 1) {
+                    $colDef = $defParts[0].Value
+                } else {
+                    $colDef = ($defParts | ForEach-Object { "{0}: {1}" -f $_.Engine, $_.Value }) -join ' / '
+                }
             }
 
             $lines.Add( ("| {0} | {1} | {2} | {3} | {4}{5} |" -f $col.Key, $colType, $colNull, $colDef, ($desc -replace '\r?\n', '<br/>'), $suffix) )
@@ -1248,10 +1275,14 @@ function Write-DefinitionFile {
         $lines.Add('| View | Engine | Flags | File |')
         $lines.Add('| --- | --- | --- | --- |')
         foreach ($v in $views) {
-            $link = $v.RelPath
+            $rel = ($v.RelPath -replace '\\','/')
+            if ($pkgRelForLinks -and $pkgRelForLinks -ne '.') {
+                $rel = ("{0}/{1}" -f ($pkgRelForLinks.TrimEnd('/')), $rel)
+            }
+            $link = $rel
             $flags = ''
             if ($v.Flags) { $flags = $v.Flags }
-            $lineArgs = @($v.Name, $v.Engine, $flags, $v.RelPath, $link)
+            $lineArgs = @($v.Name, $v.Engine, $flags, $rel, $link)
             $lines.Add(("| {0} | {1} | {2} | [{3}]({4}) |" -f $lineArgs))
         }
 
