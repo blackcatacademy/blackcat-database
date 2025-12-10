@@ -812,30 +812,35 @@ function Write-DefinitionFile {
         }
 
         $missingDesc = 0
-        # Use deterministic, culture-invariant ordering so output is stable across platforms
-        $colEntries = New-Object 'System.Collections.Generic.List[System.Collections.DictionaryEntry]'
-        foreach ($c in $DefEntry.Columns.GetEnumerator()) { $null = $colEntries.Add($c) }
-        $colsOrdered = [System.Linq.Enumerable]::OrderBy(
-            $colEntries,
-            [System.Func[System.Collections.DictionaryEntry,string]]{ param($e) [string]$e.Key },
-            [System.StringComparer]::OrdinalIgnoreCase
-        )
-        foreach ($col in $colsOrdered) {
-            $desc = $col.Value.Description
+        # Prefer column order from CREATE statement to avoid churn; append any extra columns deterministically
+        $colOrder = New-Object 'System.Collections.Generic.List[string]'
+        $colSeen = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+        if ($colMetaSample) {
+            foreach ($k in $colMetaSample.Keys) {
+                if ($DefEntry.Columns.ContainsKey($k) -and $colSeen.Add($k)) { $null = $colOrder.Add($k) }
+            }
+        }
+        foreach ($c in ($DefEntry.Columns.Keys | Sort-Object -Stable)) {
+            if ($colSeen.Add($c)) { $null = $colOrder.Add($c) }
+        }
+
+        foreach ($colName in $colOrder) {
+            $col = $DefEntry.Columns[$colName]
+            $desc = $col.Description
             if (-not $desc) { $desc = '' }
             if ([string]::IsNullOrWhiteSpace($desc)) { $missingDesc++ }
 
             $suffix = ''
             $hasEnum = $false
             $enumValues = $null
-            if ($col.Value) {
-                if ($col.Value -is [hashtable] -and $col.Value.ContainsKey('Enum')) {
+            if ($col) {
+                if ($col -is [hashtable] -and $col.ContainsKey('Enum')) {
                     $hasEnum = $true
-                    $enumValues = $col.Value['Enum']
+                    $enumValues = $col['Enum']
                 }
-                elseif ($col.Value.PSObject.Properties.Match('Enum').Count -gt 0) {
+                elseif ($col.PSObject -and $col.PSObject.Properties.Match('Enum').Count -gt 0) {
                     $hasEnum = $true
-                    $enumValues = $col.Value.Enum
+                    $enumValues = $col.Enum
                 }
             }
             if ($hasEnum) {
@@ -847,8 +852,8 @@ function Write-DefinitionFile {
             $typeSet   = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
             foreach ($engKey in ($colMetaPerEngine.Keys | Sort-Object)) {
                 $engCols = $colMetaPerEngine[$engKey]
-                if ($engCols -and $engCols.Contains($col.Key) -and $engCols[$col.Key].Type) {
-                    $type = $engCols[$col.Key].Type
+                if ($engCols -and $engCols.Contains($colName) -and $engCols[$colName].Type) {
+                    $type = $engCols[$colName].Type
                     if (-not $typeSet.Contains($type)) { $null = $typeSet.Add($type) }
                     $typeParts += @{ Engine = $engKey; Type = $type }
                 }
@@ -864,7 +869,7 @@ function Write-DefinitionFile {
 
             # null/default from sample engine
             $meta = $null
-            if ($colMetaSample -and $colMetaSample.Contains($col.Key)) { $meta = $colMetaSample[$col.Key] }
+            if ($colMetaSample -and $colMetaSample.Contains($colName)) { $meta = $colMetaSample[$colName] }
 
             $colNull = 'YES'
             $colDef  = ''
@@ -876,8 +881,8 @@ function Write-DefinitionFile {
             $defSet   = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
             foreach ($engKey in ($colMetaPerEngine.Keys | Sort-Object)) {
                 $engCols = $colMetaPerEngine[$engKey]
-                if ($engCols -and $engCols.Contains($col.Key)) {
-                    $defVal = $engCols[$col.Key].Default
+                if ($engCols -and $engCols.Contains($colName)) {
+                    $defVal = $engCols[$colName].Default
                     if ($null -ne $defVal -and $defVal -ne '') {
                         $txt = [string]$defVal
                         if (-not $defSet.Contains($txt)) { $null = $defSet.Add($txt) }
@@ -893,7 +898,7 @@ function Write-DefinitionFile {
                 }
             }
 
-            $lines.Add( ("| {0} | {1} | {2} | {3} | {4}{5} |" -f $col.Key, $colType, $colNull, $colDef, ($desc -replace '\r?\n', '<br/>'), $suffix) )
+            $lines.Add( ("| {0} | {1} | {2} | {3} | {4}{5} |" -f $colName, $colType, $colNull, $colDef, ($desc -replace '\r?\n', '<br/>'), $suffix) )
         }
 
         if ($missingDesc -gt 0) {
