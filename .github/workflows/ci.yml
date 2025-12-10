@@ -1,0 +1,10 @@
+name: Stub - core CI (see dev branch)
+
+on:
+  workflow_call:
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Stub only; real CI workflow lives on the dev branch."
