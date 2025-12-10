@@ -1,6 +1,0 @@
-{
-  "UmbrellaTitle": "feat: add feature-view toggle and fix schema tooling",
-  "UmbrellaBody": "installer skips/loads feature views via BC_INCLUDE_FEATURE_VIEWS, adds view dependency checks, and improves DDL tracing\r\ngenerator merges multiple view maps per dialect, handles feature views, and makes schema split/merge append-safe\r\nquality scripts now read per-dialect outputs; sqlfluff lint script bootstraps pip when ensurepip is missing\r\nDev-Workflow “Test Schema Output” points to generated schema/ outputs",
-  "PackagesTitle": "chore: regenerate packages after feature-view split",
-  "PackagesBody": "regenerated package PHP/SQL for dialect-aware view maps (core vs feature)\r\nfixed MySQL FK/index drift (users/email hash, payments/orders, invoices, idempotency_keys, inventory_reservations, order_items, coupons index)\r\ncleaned privacy/rbac view defs to match real columns\r\nremoved stub package pq-readiness"
-}
