@@ -528,6 +528,8 @@ foreach ($t in $tables) {
 
   $driftCount = Get-SafeCount $driftLines
   $inboundRefs = Get-InboundRefsForTable -TableName $t
+  $fkRefs = @($fkRefs | Sort-Object)
+  $inboundRefs = @($inboundRefs | Sort-Object)
   $inboundRefCount = Get-SafeCount $inboundRefs
   $fkRefCount = Get-SafeCount $fkRefs
   $lineageTotal = $fkRefCount + $inboundRefCount
