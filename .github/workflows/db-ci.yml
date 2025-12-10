@@ -12,7 +12,6 @@ jobs:
     services:
       mysql:
         image: mysql:8.0
-        command: ['--host-cache-size=0']
         ports: ['3306:3306']
         env:
           MYSQL_ROOT_PASSWORD: root
