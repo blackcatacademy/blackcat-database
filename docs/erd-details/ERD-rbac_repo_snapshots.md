@@ -1,0 +1,27 @@
+```mermaid
+%%{init: {"theme":"forest","themeVariables":{"primaryColor":"#e5e7eb","primaryBorderColor":"#111827","primaryTextColor":"#0b1021","edgeLabelBackground":"#f8fafc","tertiaryColor":"#cbd5e1","tertiaryTextColor":"#0f172a","lineColor":"#0f172a","nodeBorder":"#111827","textColor":"#0b1021","fontSize":"14px"}} }%%
+%% Detail ERD for rbac_repo_snapshots (engine: postgres, neighbors: 1)
+erDiagram
+  direction TB
+  rbac_repo_snapshots {
+    BIGINT id
+    BIGINT repo_id
+    VARCHAR(128) commit_id
+    TIMESTAMPTZ(6) taken_at
+    JSONB metadata
+  }
+  rbac_repositories {
+    BIGINT id
+    VARCHAR(120) name
+    VARCHAR(1024) url
+    BIGINT signing_key_id
+    TEXT status
+    TIMESTAMPTZ(6) last_synced_at
+    VARCHAR(128) last_commit
+    TIMESTAMPTZ(6) created_at
+  }
+rbac_repo_snapshots }o--|| rbac_repositories : fk_rbac_snap_repo
+rbac_repositories }o--|| signing_keys : fk_rbac_repos_sign_key
+rbac_roles }o--|| rbac_repositories : fk_rbac_roles_repo
+rbac_sync_cursors }o--|| rbac_repositories : fk_rbac_cursors_repo
+```
