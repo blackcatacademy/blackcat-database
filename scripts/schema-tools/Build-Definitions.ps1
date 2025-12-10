@@ -812,7 +812,9 @@ function Write-DefinitionFile {
 
         $missingDesc = 0
         # Use deterministic ordering so output is stable across environments
-        foreach ($col in ($DefEntry.Columns.GetEnumerator() | Sort-Object Name)) {
+        $colsOrdered = $DefEntry.Columns.GetEnumerator() |
+          Sort-Object -Stable -Property @{Expression = { $_.Name.ToLowerInvariant() }}
+        foreach ($col in $colsOrdered) {
             $desc = $col.Value.Description
             if (-not $desc) { $desc = '' }
             if ([string]::IsNullOrWhiteSpace($desc)) { $missingDesc++ }
