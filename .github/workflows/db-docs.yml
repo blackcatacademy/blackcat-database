@@ -71,11 +71,6 @@ jobs:
         shell: pwsh
         run: |
           pwsh ./scripts/docs/New-PackageReadmes.ps1 -Force
-      - name: Build packages index
-        shell: pwsh
-        run: |
-          pwsh ./scripts/docs/New-DocsIndex.ps1 -Force
-
       - name: Lint PowerShell (errors only)
         shell: pwsh
         run: |
@@ -85,11 +80,16 @@ jobs:
       - name: Verify no uncommitted changes
         shell: pwsh
         run: |
-          git update-index -q --refresh
+          git submodule foreach --recursive '
+            st=$(git status --short)
+            if [ -n "$st" ]; then
+              echo "=== DIRTY SUBMODULE: $name ($path) ==="
+              git status --short
+              echo "--- Worktree diff ---"
+              git diff --stat
+            fi'
           $dirty = git status --porcelain
           if ($dirty) {
-            Write-Host "Dirty files:`n$dirty"
-            git --no-pager diff --name-only
-            git --no-pager diff --ignore-cr-at-eol -- . | Out-Host
+            Write-Host "Repository not clean after doc generation:`n$dirty" -ForegroundColor Red
             throw "Generated artifacts are out of date. Run generators locally and commit the results."
           }
