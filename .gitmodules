@@ -1,534 +1,529 @@
 [submodule "packages/encryption-events"]
 	path = packages/encryption-events
 	url = https://github.com/blackcatdatabase/table-encryption-events
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/policy-kms-keys"]
 	path = packages/policy-kms-keys
 	url = https://github.com/blackcatdatabase/table-policy-kms-keys
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/encryption-policies"]
 	path = packages/encryption-policies
 	url = https://github.com/blackcatdatabase/table-encryption-policies
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/kms-keys"]
 	path = packages/kms-keys
 	url = https://github.com/blackcatdatabase/table-kms-keys
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/kms-providers"]
 	path = packages/kms-providers
 	url = https://github.com/blackcatdatabase/table-kms-providers
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/encrypted-fields"]
 	path = packages/encrypted-fields
 	url = https://github.com/blackcatdatabase/table-encrypted-fields
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/worker-locks"]
 	path = packages/worker-locks
 	url = https://github.com/blackcatdatabase/table-worker-locks
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/system-jobs"]
 	path = packages/system-jobs
 	url = https://github.com/blackcatdatabase/table-system-jobs
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/newsletter-subscribers"]
 	path = packages/newsletter-subscribers
 	url = https://github.com/blackcatdatabase/table-newsletter-subscribers
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/notifications"]
 	path = packages/notifications
 	url = https://github.com/blackcatdatabase/table-notifications
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/email-verifications"]
 	path = packages/email-verifications
 	url = https://github.com/blackcatdatabase/table-email-verifications
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/payment-gateway-notifications"]
 	path = packages/payment-gateway-notifications
 	url = https://github.com/blackcatdatabase/table-payment-gateway-notifications
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/webhook-outbox"]
 	path = packages/webhook-outbox
 	url = https://github.com/blackcatdatabase/table-webhook-outbox
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/audit-log"]
 	path = packages/audit-log
 	url = https://github.com/blackcatdatabase/table-audit-log
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/app-settings"]
 	path = packages/app-settings
 	url = https://github.com/blackcatdatabase/table-app-settings
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/vat-validations"]
 	path = packages/vat-validations
 	url = https://github.com/blackcatdatabase/table-vat-validations
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/tax-rates"]
 	path = packages/tax-rates
 	url = https://github.com/blackcatdatabase/table-tax-rates
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/countries"]
 	path = packages/countries
 	url = https://github.com/blackcatdatabase/table-countries
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/coupon-redemptions"]
 	path = packages/coupon-redemptions
 	url = https://github.com/blackcatdatabase/table-coupon-redemptions
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/coupons"]
 	path = packages/coupons
 	url = https://github.com/blackcatdatabase/table-coupons
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/refunds"]
 	path = packages/refunds
 	url = https://github.com/blackcatdatabase/table-refunds
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/idempotency-keys"]
 	path = packages/idempotency-keys
 	url = https://github.com/blackcatdatabase/table-idempotency-keys
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/payment-webhooks"]
 	path = packages/payment-webhooks
 	url = https://github.com/blackcatdatabase/table-payment-webhooks
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/payment-logs"]
 	path = packages/payment-logs
 	url = https://github.com/blackcatdatabase/table-payment-logs
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/payments"]
 	path = packages/payments
 	url = https://github.com/blackcatdatabase/table-payments
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/invoice-items"]
 	path = packages/invoice-items
 	url = https://github.com/blackcatdatabase/table-invoice-items
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/invoices"]
 	path = packages/invoices
 	url = https://github.com/blackcatdatabase/table-invoices
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/order-item-downloads"]
 	path = packages/order-item-downloads
 	url = https://github.com/blackcatdatabase/table-order-item-downloads
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/order-items"]
 	path = packages/order-items
 	url = https://github.com/blackcatdatabase/table-order-items
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/orders"]
 	path = packages/orders
 	url = https://github.com/blackcatdatabase/table-orders
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/cart-items"]
 	path = packages/cart-items
 	url = https://github.com/blackcatdatabase/table-cart-items
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/carts"]
 	path = packages/carts
 	url = https://github.com/blackcatdatabase/table-carts
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/inventory-reservations"]
 	path = packages/inventory-reservations
 	url = https://github.com/blackcatdatabase/table-inventory-reservations
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/book-categories"]
 	path = packages/book-categories
 	url = https://github.com/blackcatdatabase/table-book-categories
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/book-assets"]
 	path = packages/book-assets
 	url = https://github.com/blackcatdatabase/table-book-assets
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/jwt-tokens"]
 	path = packages/jwt-tokens
 	url = https://github.com/blackcatdatabase/table-jwt-tokens
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/key-usage"]
 	path = packages/key-usage
 	url = https://github.com/blackcatdatabase/table-key-usage
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/key-rotation-jobs"]
 	path = packages/key-rotation-jobs
 	url = https://github.com/blackcatdatabase/table-key-rotation-jobs
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/key-events"]
 	path = packages/key-events
 	url = https://github.com/blackcatdatabase/table-key-events
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/crypto-keys"]
 	path = packages/crypto-keys
 	url = https://github.com/blackcatdatabase/table-crypto-keys
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/reviews"]
 	path = packages/reviews
 	url = https://github.com/blackcatdatabase/table-reviews
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/books"]
 	path = packages/books
 	url = https://github.com/blackcatdatabase/table-books
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/categories"]
 	path = packages/categories
 	url = https://github.com/blackcatdatabase/table-categories
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/authors"]
 	path = packages/authors
 	url = https://github.com/blackcatdatabase/table-authors
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/user-consents"]
 	path = packages/user-consents
 	url = https://github.com/blackcatdatabase/table-user-consents
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/system-errors"]
 	path = packages/system-errors
 	url = https://github.com/blackcatdatabase/table-system-errors
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/verify-events"]
 	path = packages/verify-events
 	url = https://github.com/blackcatdatabase/table-verify-events
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/register-events"]
 	path = packages/register-events
 	url = https://github.com/blackcatdatabase/table-register-events
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/auth-events"]
 	path = packages/auth-events
 	url = https://github.com/blackcatdatabase/table-auth-events
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/sessions"]
 	path = packages/sessions
 	url = https://github.com/blackcatdatabase/table-sessions
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/session-audit"]
 	path = packages/session-audit
 	url = https://github.com/blackcatdatabase/table-session-audit
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/two-factor"]
 	path = packages/two-factor
 	url = https://github.com/blackcatdatabase/table-two-factor
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/permissions"]
 	path = packages/permissions
 	url = https://github.com/blackcatdatabase/table-permissions
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/user-identities"]
 	path = packages/user-identities
 	url = https://github.com/blackcatdatabase/table-user-identities
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/user-profiles"]
 	path = packages/user-profiles
 	url = https://github.com/blackcatdatabase/table-user-profiles
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/login-attempts"]
 	path = packages/login-attempts
 	url = https://github.com/blackcatdatabase/table-login-attempts
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/users"]
 	path = packages/users
 	url = https://github.com/blackcatdatabase/table-users
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/tenants"]
 	path = packages/tenants
 	url = https://github.com/blackcatdatabase/table-tenants
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/rbac-user-permissions"]
 	path = packages/rbac-user-permissions
 	url = https://github.com/blackcatdatabase/table-rbac-user-permissions
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/rate-limits"]
 	path = packages/rate-limits
 	url = https://github.com/blackcatdatabase/table-rate-limits
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/rbac-repositories"]
 	path = packages/rbac-repositories
 	url = https://github.com/blackcatdatabase/table-rbac-repositories
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/crypto-standard-aliases"]
 	path = packages/crypto-standard-aliases
 	url = https://github.com/blackcatdatabase/table-crypto-standard-aliases
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/pq-migration-jobs"]
 	path = packages/pq-migration-jobs
 	url = https://github.com/blackcatdatabase/table-pq-migration-jobs
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/privacy-requests"]
 	path = packages/privacy-requests
 	url = https://github.com/blackcatdatabase/table-privacy-requests
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/sync-errors"]
 	path = packages/sync-errors
 	url = https://github.com/blackcatdatabase/table-sync-errors
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/rbac-repo-snapshots"]
 	path = packages/rbac-repo-snapshots
 	url = https://github.com/blackcatdatabase/table-rbac-repo-snapshots
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/rbac-roles"]
 	path = packages/rbac-roles
 	url = https://github.com/blackcatdatabase/table-rbac-roles
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/api-keys"]
 	path = packages/api-keys
 	url = https://github.com/blackcatdatabase/table-api-keys
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/event-outbox"]
 	path = packages/event-outbox
 	url = https://github.com/blackcatdatabase/table-event-outbox
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/rbac-role-permissions"]
 	path = packages/rbac-role-permissions
 	url = https://github.com/blackcatdatabase/table-rbac-role-permissions
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/deletion-jobs"]
 	path = packages/deletion-jobs
 	url = https://github.com/blackcatdatabase/table-deletion-jobs
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/replication-lag-samples"]
 	path = packages/replication-lag-samples
 	url = https://github.com/blackcatdatabase/table-replication-lag-samples
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/slo-status"]
 	path = packages/slo-status
 	url = https://github.com/blackcatdatabase/table-slo-status
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/rate-limit-counters"]
 	path = packages/rate-limit-counters
 	url = https://github.com/blackcatdatabase/table-rate-limit-counters
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/schema-registry"]
 	path = packages/schema-registry
 	url = https://github.com/blackcatdatabase/table-schema-registry
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/field-hash-policies"]
 	path = packages/field-hash-policies
 	url = https://github.com/blackcatdatabase/table-field-hash-policies
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/policy-algorithms"]
 	path = packages/policy-algorithms
 	url = https://github.com/blackcatdatabase/table-policy-algorithms
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/entity-external-ids"]
 	path = packages/entity-external-ids
 	url = https://github.com/blackcatdatabase/table-entity-external-ids
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/crypto-algorithms"]
 	path = packages/crypto-algorithms
 	url = https://github.com/blackcatdatabase/table-crypto-algorithms
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/signing-keys"]
 	path = packages/signing-keys
 	url = https://github.com/blackcatdatabase/table-signing-keys
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/data-retention-policies"]
 	path = packages/data-retention-policies
 	url = https://github.com/blackcatdatabase/table-data-retention-policies
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/kms-routing-policies"]
 	path = packages/kms-routing-policies
 	url = https://github.com/blackcatdatabase/table-kms-routing-policies
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/hash-profiles"]
 	path = packages/hash-profiles
 	url = https://github.com/blackcatdatabase/table-hash-profiles
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/merkle-roots"]
 	path = packages/merkle-roots
 	url = https://github.com/blackcatdatabase/table-merkle-roots
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/event-dlq"]
 	path = packages/event-dlq
 	url = https://github.com/blackcatdatabase/table-event-dlq
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/global-id-registry"]
 	path = packages/global-id-registry
 	url = https://github.com/blackcatdatabase/table-global-id-registry
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/device-fingerprints"]
 	path = packages/device-fingerprints
 	url = https://github.com/blackcatdatabase/table-device-fingerprints
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/signatures"]
 	path = packages/signatures
 	url = https://github.com/blackcatdatabase/table-signatures
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/encryption-policy-bindings"]
 	path = packages/encryption-policy-bindings
 	url = https://github.com/blackcatdatabase/table-encryption-policy-bindings
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/sync-batches"]
 	path = packages/sync-batches
 	url = https://github.com/blackcatdatabase/table-sync-batches
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/audit-chain"]
 	path = packages/audit-chain
 	url = https://github.com/blackcatdatabase/table-audit-chain
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/retention-enforcement-jobs"]
 	path = packages/retention-enforcement-jobs
 	url = https://github.com/blackcatdatabase/table-retention-enforcement-jobs
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/rewrap-jobs"]
 	path = packages/rewrap-jobs
 	url = https://github.com/blackcatdatabase/table-rewrap-jobs
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/tenant-domains"]
 	path = packages/tenant-domains
 	url = https://github.com/blackcatdatabase/table-tenant-domains
-	branch = dev
+	branch = main
 [submodule "packages/slo-windows"]
 	path = packages/slo-windows
 	url = https://github.com/blackcatdatabase/table-slo-windows
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/merkle-anchors"]
 	path = packages/merkle-anchors
 	url = https://github.com/blackcatdatabase/table-merkle-anchors
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/rbac-sync-cursors"]
 	path = packages/rbac-sync-cursors
 	url = https://github.com/blackcatdatabase/table-rbac-sync-cursors
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/migration-events"]
 	path = packages/migration-events
 	url = https://github.com/blackcatdatabase/table-migration-events
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/rbac-user-roles"]
 	path = packages/rbac-user-roles
 	url = https://github.com/blackcatdatabase/table-rbac-user-roles
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/key-wrapper-layers"]
 	path = packages/key-wrapper-layers
 	url = https://github.com/blackcatdatabase/table-key-wrapper-layers
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/event-inbox"]
 	path = packages/event-inbox
 	url = https://github.com/blackcatdatabase/table-event-inbox
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/kms-health-checks"]
 	path = packages/kms-health-checks
 	url = https://github.com/blackcatdatabase/table-kms-health-checks
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/sync-batch-items"]
 	path = packages/sync-batch-items
 	url = https://github.com/blackcatdatabase/table-sync-batch-items
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/peer-nodes"]
 	path = packages/peer-nodes
 	url = https://github.com/blackcatdatabase/table-peer-nodes
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/encryption-bindings"]
 	path = packages/encryption-bindings
 	url = https://github.com/blackcatdatabase/table-encryption-bindings
-	branch = dev
+	branch = main
 	shallow = true
 [submodule "packages/key-wrappers"]
 	path = packages/key-wrappers
 	url = https://github.com/blackcatdatabase/table-key-wrappers
-	branch = dev
-	shallow = true
-[submodule "views-library"]
-	path = views-library
-	url = https://github.com/blackcatdatabase/blackcat-view-schema.git
-	branch = dev
+	branch = main
 	shallow = true

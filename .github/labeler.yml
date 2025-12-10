@@ -1,7 +1,0 @@
-# .github/labeler.yml
-"scripts/**":  ["area:scripts"]
-"packages/**": ["area:packages"]
-"schema/**":   ["area:schema"]
-"*.ps1":       ["lang:powershell"]
-".github/**":  ["area:ci"]
-"**/*.md":     ["docs"]
