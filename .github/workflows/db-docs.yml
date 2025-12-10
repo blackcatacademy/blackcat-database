@@ -17,17 +17,14 @@ concurrency:
 jobs:
   verify:
     name: Generate & verify docs
-    strategy:
-      matrix: { os: [ubuntu-latest, windows-latest] }
-      fail-fast: false
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout (with submodules)
         uses: actions/checkout@v6
         with:
-          fetch-depth: 0
           submodules: recursive
+          fetch-depth: 0
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
       - if: ${{ github.event_name == 'pull_request' }}
         uses: actions/labeler@v6
