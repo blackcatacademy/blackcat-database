@@ -37,6 +37,12 @@ jobs:
           $PSVersionTable
           git --version
 
+      - name: Normalize git perms (ignore filemode)
+        shell: bash
+        run: |
+          git config core.filemode false
+          git submodule foreach --recursive 'git config core.filemode false'
+
       - name: Install YAML module (ConvertFrom-Yaml)
         shell: pwsh
         run: |
