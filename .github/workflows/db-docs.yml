@@ -71,7 +71,10 @@ jobs:
       - name: Lint PowerShell (errors only)
         shell: pwsh
         run: |
-          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -ErrorAction Stop
+          if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
+            Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -ErrorAction Stop
+          }
+          Import-Module PSScriptAnalyzer -Force
           Invoke-ScriptAnalyzer -Path ./scripts -Recurse -Severity Error
 
       - name: Verify no uncommitted changes
@@ -94,18 +97,26 @@ jobs:
           git diff --stat
           Write-Host "----- ROOT DIFF (head) -----"
           git diff | Select-Object -First 400
-          Write-Host "----- SAMPLE SUBMODULE DIFFS -----"
-          foreach ($p in @(
-            'packages/users',
-            'packages/system-jobs',
-            'packages/notifications'
-          )) {
-            if (Test-Path -LiteralPath $p) {
-              Write-Host "=== $p/README.md ==="
-              git -C $p diff -- README.md | Select-Object -First 200
-              if (Test-Path -LiteralPath (Join-Path $p 'docs/definitions.md')) {
-                Write-Host "=== $p/docs/definitions.md ==="
-                git -C $p diff -- docs/definitions.md | Select-Object -First 200
+          $dirtyPaths = @()
+          foreach ($line in ($st -split "`n")) {
+            if (-not $line) { continue }
+            $parts = $line.Trim() -split '\s+',2
+            if ($parts.Count -eq 2) { $dirtyPaths += $parts[1] }
+          }
+          $dirtyPaths = $dirtyPaths | Select-Object -Unique
+
+          if ($dirtyPaths.Count -gt 0) {
+            Write-Host "----- SAMPLE SUBMODULE DIFFS -----"
+            foreach ($p in $dirtyPaths) {
+              if (Test-Path -LiteralPath $p) {
+                if (Test-Path -LiteralPath (Join-Path $p 'README.md')) {
+                  Write-Host "=== $p/README.md ==="
+                  git -C $p diff -- README.md | Select-Object -First 200
+                }
+                if (Test-Path -LiteralPath (Join-Path $p 'docs/definitions.md')) {
+                  Write-Host "=== $p/docs/definitions.md ==="
+                  git -C $p diff -- docs/definitions.md | Select-Object -First 200
+                }
               }
             }
           }

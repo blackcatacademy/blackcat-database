@@ -256,10 +256,10 @@ function Get-PiiSignals {
 }
 
 function Get-ConstraintSnippets {
-  param([pscustomobject[]]$Columns, [int]$Max = 5)
+  param([pscustomobject[]]$Columns, [int]$Max = 0)
 
   $snips = New-Object 'System.Collections.Generic.List[string]'
-  foreach ($c in ($Columns | Sort-Object -Stable -Property @{Expression = { $_.Name.ToLowerInvariant() }})) {
+  foreach ($c in $Columns) { # preserve order as in definitions to keep output stable
     $desc = $c.Description
     $hasEnum = ($desc -match '(?i)\benum\b')
     $hasCheck = ($desc -match '(?i)\bcheck\b')
@@ -271,7 +271,7 @@ function Get-ConstraintSnippets {
       if ($hasCheck) { $parts += "check" }
       $snips.Add(('`{0}` – {1}' -f $c.Name, ($parts -join ', '))) | Out-Null
     }
-    if ($snips.Count -ge $Max) { break }
+    if ($Max -gt 0 -and $snips.Count -ge $Max) { break }
   }
   return $snips.ToArray()
 }
@@ -523,7 +523,7 @@ foreach ($t in $tables) {
     $fkRefs = Get-ForeignKeyRefs -DefsLines $defsLines
     $colObjects = Get-ColumnObjects -DefsLines $defsLines
     $piiSignals = Get-PiiSignals -Columns $colObjects
-    $constraintSnips = Get-ConstraintSnippets -Columns $colObjects -Max 5
+    $constraintSnips = Get-ConstraintSnippets -Columns $colObjects -Max 0
   }
 
   $driftCount = Get-SafeCount $driftLines
