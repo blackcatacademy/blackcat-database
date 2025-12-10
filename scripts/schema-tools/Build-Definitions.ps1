@@ -239,7 +239,8 @@ function Get-ForeignKeys {
 function Convert-CreateColumns {
     param([string]$CreateText)
 
-    $result = @{}
+    # preserve column order as written in the CREATE TABLE statement
+    $result = [ordered]@{}
     if (-not $CreateText) { return $result }
     if ($CreateText -isnot [string]) { $CreateText = ($CreateText -join "`n") }
 
@@ -811,9 +812,14 @@ function Write-DefinitionFile {
         }
 
         $missingDesc = 0
-        # Use deterministic ordering so output is stable across environments
-        $colsOrdered = $DefEntry.Columns.GetEnumerator() |
-          Sort-Object -Stable -Property @{Expression = { $_.Name.ToLowerInvariant() }}
+        # Use deterministic, culture-invariant ordering so output is stable across platforms
+        $colEntries = New-Object 'System.Collections.Generic.List[System.Collections.DictionaryEntry]'
+        foreach ($c in $DefEntry.Columns.GetEnumerator()) { $null = $colEntries.Add($c) }
+        $colsOrdered = [System.Linq.Enumerable]::OrderBy(
+            $colEntries,
+            [System.Func[System.Collections.DictionaryEntry,string]]{ param($e) [string]$e.Key },
+            [System.StringComparer]::OrdinalIgnoreCase
+        )
         foreach ($col in $colsOrdered) {
             $desc = $col.Value.Description
             if (-not $desc) { $desc = '' }
@@ -841,7 +847,7 @@ function Write-DefinitionFile {
             $typeSet   = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
             foreach ($engKey in ($colMetaPerEngine.Keys | Sort-Object)) {
                 $engCols = $colMetaPerEngine[$engKey]
-                if ($engCols -and $engCols.ContainsKey($col.Key) -and $engCols[$col.Key].Type) {
+                if ($engCols -and $engCols.Contains($col.Key) -and $engCols[$col.Key].Type) {
                     $type = $engCols[$col.Key].Type
                     if (-not $typeSet.Contains($type)) { $null = $typeSet.Add($type) }
                     $typeParts += @{ Engine = $engKey; Type = $type }
@@ -858,7 +864,7 @@ function Write-DefinitionFile {
 
             # null/default from sample engine
             $meta = $null
-            if ($colMetaSample -and $colMetaSample.ContainsKey($col.Key)) { $meta = $colMetaSample[$col.Key] }
+            if ($colMetaSample -and $colMetaSample.Contains($col.Key)) { $meta = $colMetaSample[$col.Key] }
 
             $colNull = 'YES'
             $colDef  = ''
@@ -870,7 +876,7 @@ function Write-DefinitionFile {
             $defSet   = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
             foreach ($engKey in ($colMetaPerEngine.Keys | Sort-Object)) {
                 $engCols = $colMetaPerEngine[$engKey]
-                if ($engCols -and $engCols.ContainsKey($col.Key)) {
+                if ($engCols -and $engCols.Contains($col.Key)) {
                     $defVal = $engCols[$col.Key].Default
                     if ($null -ne $defVal -and $defVal -ne '') {
                         $txt = [string]$defVal
@@ -1125,7 +1131,7 @@ function Write-DefinitionFile {
             foreach ($eng in $engineColMeta.Keys) {
                 $m = $engineColMeta[$eng]
                 $valStr = ''
-                if ($m.ContainsKey($c)) {
+                if ($m.Contains($c)) {
                     $v = $m[$c]
                     if ($v -is [System.Collections.DictionaryEntry]) { $v = $v.Value }
                     elseif ($v -is [string]) { $v = @{ Type = $v; Nullable = $true; Default = $null } }

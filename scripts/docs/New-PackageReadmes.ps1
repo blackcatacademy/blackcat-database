@@ -586,6 +586,7 @@ foreach ($t in $tables) {
   $lines.Add("| --- | --- | --- |") | Out-Null
   $lines.Add(("| Schema map | [{0}]({1}) | Source for table metadata |" -f $mapLabel, $mapLink)) | Out-Null
   $pkgLabel = if ($pkgRootRel) { $pkgRootRel } else { $pkgPath }
+  if ($pkgLabel) { $pkgLabel = ($pkgLabel -replace '\\','/') }
   if ($pkgRootLink) {
     $lines.Add(("| Pkg folder | [{0}]({1}) | Repo location |" -f $pkgLabel, $pkgRootLink)) | Out-Null
   } else {
