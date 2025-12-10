@@ -259,7 +259,7 @@ function Get-ConstraintSnippets {
   param([pscustomobject[]]$Columns, [int]$Max = 5)
 
   $snips = New-Object 'System.Collections.Generic.List[string]'
-  foreach ($c in $Columns) {
+  foreach ($c in ($Columns | Sort-Object Name)) {
     $desc = $c.Description
     $hasEnum = ($desc -match '(?i)\benum\b')
     $hasCheck = ($desc -match '(?i)\bcheck\b')
