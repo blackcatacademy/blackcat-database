@@ -26,11 +26,6 @@ jobs:
           submodules: recursive
           fetch-depth: 0
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
-      - if: ${{ github.event_name == 'pull_request' }}
-        uses: actions/labeler@v6
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Show environment
         shell: pwsh
         run: |
