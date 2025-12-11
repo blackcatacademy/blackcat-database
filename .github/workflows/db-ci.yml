@@ -1,0 +1,10 @@
+name: Stub - db-ci (see dev branch)
+
+on:
+  workflow_call:
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Stub only; real db-ci workflow lives on the dev branch."
