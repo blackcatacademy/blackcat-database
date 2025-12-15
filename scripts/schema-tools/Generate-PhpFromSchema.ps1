@@ -823,7 +823,7 @@ ConvertFrom-Yaml not available (requires PowerShell 7+ with Microsoft.PowerShell
     throw $msg
   }
   try {
-    return Get-Content -LiteralPath $Path -Raw | & $cfy
+    return Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | & $cfy
   } catch {
     throw "Failed to parse YAML '$Path' via ConvertFrom-Yaml: $($_.Exception.Message)"
   }
@@ -875,7 +875,12 @@ function ConvertTo-HashtableDeep {
   if ($InputObject -is [ValueType] -or $InputObject -is [string]) { return $InputObject }
   if ($InputObject -is [System.Collections.IDictionary]) {
     $ht = @{}
-    foreach ($k in $InputObject.Keys) { $ht[$k] = ConvertTo-HashtableDeep $InputObject[$k] }
+    # IMPORTANT: do NOT use "$InputObject.Keys" here because for hashtables PowerShell will
+    # prefer the entry with key "Keys" over the IDictionary.Keys property (breaking maps like Upsert:{Keys:...,Update:...}).
+    foreach ($entry in $InputObject.GetEnumerator()) {
+      $k = $entry.Key
+      $ht[$k] = ConvertTo-HashtableDeep $entry.Value
+    }
     return $ht
   }
   if ($InputObject -is [System.Collections.IEnumerable] -and -not ($InputObject -is [string])) {
@@ -892,7 +897,7 @@ function Get-SubmodulePathSet([string]$repoRoot) {
   $set = @{}
   $gm = Join-Path $repoRoot '.gitmodules'
   if (Test-Path -LiteralPath $gm) {
-    $txt = Get-Content -LiteralPath $gm -Raw
+    $txt = Get-Content -LiteralPath $gm -Raw -Encoding UTF8
     foreach ($m in [regex]::Matches($txt, '^\s*path\s*=\s*(.+)$', 'Multiline')) {
       $p = $m.Groups[1].Value.Trim()
       if ($p) { $set[$p] = $true }
@@ -932,9 +937,18 @@ function Get-IndexNamesFromSql([array]$IndexSqls) {
   $names = @()
   foreach ($ix in @($IndexSqls)) {
     if (-not $ix) { continue }
+    $sql = [string]$ix
+
     # PG / MySQL: CREATE [UNIQUE] INDEX [IF NOT EXISTS] idx_name ON ...
-    if ($ix -match '(?i)CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?([`"\[]?)([A-Za-z0-9_]+)\1\s+ON') {
-      $names += $matches[2]
+    foreach ($m in [regex]::Matches($sql, '(?i)CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?([`"\[]?)([A-Za-z0-9_]+)\1\s+ON')) {
+      $names += $m.Groups[2].Value
+    }
+
+    # MySQL: inline non-unique indexes inside CREATE TABLE (..., INDEX idx_name (...), KEY idx_name (...), ...)
+    foreach ($m in [regex]::Matches($sql, '(?im)^\s*(UNIQUE\s+)?(?:KEY|INDEX)\s+([`"\[]?)([A-Za-z0-9_]+)\2\s*\(')) {
+      # Keep the quick-check focused on indexes (not UNIQUE keys/constraints).
+      if ($m.Groups[1].Success) { continue }
+      $names += $m.Groups[3].Value
     }
   }
   @($names | Sort-Object -Unique)
@@ -2044,7 +2058,9 @@ foreach ($mp in $mapPaths) {
     $tokenCommon['VERSION']                 = '1.0.0'
     $tokenCommon['DIALECTS_ARRAY']          = "[ 'mysql', 'postgres' ]"
     # INDEX/FK names sourced from the schema map when available
-    $idxNames = Get-IndexNamesFromSql       @($spec.indexes)
+    # NOTE: Some MySQL tables declare indexes inline inside CREATE TABLE (schema-map-mysql.yaml),
+    # so include $createSql as a fallback source for index names.
+    $idxNames = Get-IndexNamesFromSql       @($spec.indexes + $createSql)
     $fkNames  = Get-ForeignKeyNamesFromSql  @($spec.foreign_keys)
     if (@($idxNames).Count -gt 0) {
       $tokenCommon['INDEX_NAMES_ARRAY'] = "[ " + (($idxNames | ForEach-Object { "'$_'" }) -join ', ') + " ]"

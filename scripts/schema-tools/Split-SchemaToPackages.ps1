@@ -208,7 +208,12 @@ function ConvertTo-HashtableDeep {
   if ($InputObject -is [ValueType] -or $InputObject -is [string]) { return $InputObject }
   if ($InputObject -is [System.Collections.IDictionary]) {
     $ht = @{}
-    foreach ($k in $InputObject.Keys) { $ht[$k] = ConvertTo-HashtableDeep $InputObject[$k] }
+    # IMPORTANT: do NOT use "$InputObject.Keys" here because for hashtables PowerShell will
+    # prefer the entry with key "Keys" over the IDictionary.Keys property (breaking maps like Upsert:{Keys:...,Update:...}).
+    foreach ($entry in $InputObject.GetEnumerator()) {
+      $k = $entry.Key
+      $ht[$k] = ConvertTo-HashtableDeep $entry.Value
+    }
     return $ht
   }
   if ($InputObject -is [System.Collections.IEnumerable] -and -not ($InputObject -is [string])) {
@@ -351,7 +356,7 @@ function Import-YamlFile {
       }
     }
   try {
-    return Get-Content -LiteralPath $Path -Raw | & $cfy
+    return Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | & $cfy
   } catch {
     throw "Failed to parse YAML '$Path' via ConvertFrom-Yaml: $($_.Exception.Message)"
   }

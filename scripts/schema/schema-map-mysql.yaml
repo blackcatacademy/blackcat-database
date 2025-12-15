@@ -1882,6 +1882,7 @@ Tables:
         INDEX idx_device_codes_client (client_id),
         INDEX idx_device_codes_approved (approved_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
+    foreign_keys:
     indexes:
     Upsert:
       Update:
@@ -1962,6 +1963,7 @@ Tables:
         UNIQUE KEY ux_webauthn_challenge (rp_id, challenge_hash),
         INDEX idx_webauthn_challenge_expires (expires_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
+    foreign_keys:
     indexes:
     Upsert:
       Update:

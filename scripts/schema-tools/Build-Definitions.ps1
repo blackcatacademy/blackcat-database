@@ -40,7 +40,7 @@ function Import-YamlOrDataFile {
     }
 
     try {
-        $docs = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Yaml -AllDocuments -ErrorAction Stop
+        $docs = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Yaml -AllDocuments -ErrorAction Stop
     }
     catch {
         throw "Failed to parse '$Path': $($_.Exception.Message)"
@@ -698,7 +698,7 @@ function Get-ViewList {
     }
 
     foreach ($f in $files) {
-        $text = Get-Content -LiteralPath $f.FullName -Raw
+        $text = Get-Content -LiteralPath $f.FullName -Raw -Encoding UTF8
         $engine = 'mysql'
         if ($f.Name.ToLowerInvariant() -match 'postgres') { $engine = 'postgres' }
 

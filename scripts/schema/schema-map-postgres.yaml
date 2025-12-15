@@ -1922,10 +1922,11 @@ Tables:
         approved_at TIMESTAMPTZ(6) NULL,
         expires_at TIMESTAMPTZ(6) NOT NULL,
         created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-        CONSTRAINT uq_device_codes_device_code_hash UNIQUE (device_code_hash),
-        CONSTRAINT uq_device_codes_user_code_hash UNIQUE (user_code_hash),
+        CONSTRAINT ux_device_codes_device_code_hash UNIQUE (device_code_hash),
+        CONSTRAINT ux_device_codes_user_code_hash UNIQUE (user_code_hash),
         CONSTRAINT chk_device_codes_interval CHECK (interval_sec >= 0)
       );
+    foreign_keys:
     indexes:
       - CREATE INDEX IF NOT EXISTS idx_device_codes_expires ON device_codes (expires_at)
       - CREATE INDEX IF NOT EXISTS idx_device_codes_client ON device_codes (client_id)
@@ -1948,7 +1949,7 @@ Tables:
         context JSONB NULL,
         expires_at TIMESTAMPTZ(6) NOT NULL,
         created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-        CONSTRAINT uq_magic_links_fingerprint UNIQUE (fingerprint)
+        CONSTRAINT ux_magic_links_fingerprint UNIQUE (fingerprint)
       );
     foreign_keys:
       - ALTER TABLE magic_links ADD CONSTRAINT fk_magic_links_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
@@ -1978,7 +1979,7 @@ Tables:
         created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         last_used_at TIMESTAMPTZ(6) NULL,
         sign_count BIGINT NOT NULL DEFAULT 0,
-        CONSTRAINT uq_webauthn_cred UNIQUE (rp_id, credential_id)
+        CONSTRAINT ux_webauthn_cred UNIQUE (rp_id, credential_id)
       );
     foreign_keys:
       - ALTER TABLE webauthn_credentials ADD CONSTRAINT fk_webauthn_cred_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
@@ -2006,8 +2007,9 @@ Tables:
         metadata JSONB NOT NULL,
         expires_at TIMESTAMPTZ(6) NOT NULL,
         created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-        CONSTRAINT uq_webauthn_challenge UNIQUE (rp_id, challenge_hash)
+        CONSTRAINT ux_webauthn_challenge UNIQUE (rp_id, challenge_hash)
       );
+    foreign_keys:
     indexes:
       - CREATE INDEX IF NOT EXISTS idx_webauthn_challenge_expires ON webauthn_challenges (expires_at)
     Upsert:
