@@ -35,6 +35,8 @@ namespace BlackCat\Database\Support;
 
 use BlackCat\Core\Database;
 use BlackCat\Database\Contracts\DatabaseIngressAdapterInterface;
+use BlackCat\Database\Contracts\DatabaseIngressCriteriaAdapterInterface;
+use BlackCat\Database\Crypto\IngressLocator;
 
 /**
  * Shared helpers for generated repositories (DRY).
@@ -47,9 +49,8 @@ use BlackCat\Database\Contracts\DatabaseIngressAdapterInterface;
  * - Resilient to missing methods on Definitions (hasColumn/paramAliases/softDeleteColumn/versionIsNumeric).
  * - Consistently quotes identifiers via {@see SqlIdentifier::q()}.
  * - Verifies `$this->db` exists and is an instance of {@see Database}.
- * - TODO(crypto-integrations): Teach helpers to call DatabaseIngressAdapter for column
- *   transforms (encrypt/hmac/tokenize) before building SQL so repositories never inline
- *   crypto logic.
+ * - Optional write-path crypto ingress transform (manifest-driven) via {@see IngressLocator}
+ *   or explicit injection through {@see RepositoryHelpers::setIngressAdapter()}.
  */
 trait RepositoryHelpers
 {
@@ -160,7 +161,7 @@ trait RepositoryHelpers
      */
     private function ingressTransform(array $row): array
     {
-        if ($this->cryptoIngressAdapter === null || $row === []) {
+        if ($row === []) {
             return $row;
         }
 
@@ -169,10 +170,81 @@ trait RepositoryHelpers
             return $row;
         }
 
+        if ($this->cryptoIngressAdapter === null) {
+            try {
+                $this->cryptoIngressAdapter = IngressLocator::adapter();
+            } catch (\Throwable $e) {
+                if (IngressLocator::isRequired()) {
+                    throw $e;
+                }
+                return $row;
+            }
+        }
+
+        if ($this->cryptoIngressAdapter === null) {
+            if (IngressLocator::isRequired()) {
+                // Ensure consistent error messaging when crypto is required.
+                IngressLocator::requireAdapter();
+            }
+            return $row;
+        }
+
         try {
             return $this->cryptoIngressAdapter->encrypt($table, $row);
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            if (IngressLocator::isRequired()) {
+                throw $e;
+            }
             return $row;
+        }
+    }
+
+    /**
+     * Deterministic transform for query criteria (HMAC-only).
+     *
+     * @param array<string,mixed> $criteria
+     * @return array<string,mixed>
+     */
+    private function ingressCriteriaTransform(array $criteria): array
+    {
+        if ($criteria === []) {
+            return $criteria;
+        }
+
+        $table = $this->cryptoIngressTable ?? $this->resolveIngressTable();
+        if (!\is_string($table) || $table === '') {
+            return $criteria;
+        }
+
+        if ($this->cryptoIngressAdapter === null) {
+            try {
+                $this->cryptoIngressAdapter = IngressLocator::adapter();
+            } catch (\Throwable $e) {
+                if (IngressLocator::isRequired()) {
+                    throw $e;
+                }
+                return $criteria;
+            }
+        }
+
+        if ($this->cryptoIngressAdapter === null) {
+            if (IngressLocator::isRequired()) {
+                IngressLocator::requireAdapter();
+            }
+            return $criteria;
+        }
+
+        if (!$this->cryptoIngressAdapter instanceof DatabaseIngressCriteriaAdapterInterface) {
+            return $criteria;
+        }
+
+        try {
+            return $this->cryptoIngressAdapter->criteria($table, $criteria);
+        } catch (\Throwable $e) {
+            if (IngressLocator::isRequired()) {
+                throw $e;
+            }
+            return $criteria;
         }
     }
 

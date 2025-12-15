@@ -53,13 +53,16 @@ Views:
   users:
     create: |-
       -- Contract view for [users]
-      -- Hides password_* columns. Adds hex helpers.
+      -- Adds hex helpers. Includes password_* for auth flows (do not expose externally).
       CREATE OR REPLACE VIEW vw_users AS
       SELECT
         id,
         email_hash,
         UPPER(encode(email_hash,'hex')) AS email_hash_hex,
         email_hash_key_version,
+        password_hash,
+        password_algo,
+        password_key_version,
         is_active,
         is_locked,
         failed_logins,
@@ -582,6 +585,7 @@ Views:
       SELECT
         id,
         token_hash_key_version,
+        token_hash,
         UPPER(encode(digest(token_hash,'sha256'),'hex')) AS token_hash_hex,
         token_fingerprint,
         UPPER(encode(token_fingerprint,'hex')) AS token_fingerprint_hex,
@@ -999,8 +1003,24 @@ Views:
   email_verifications:
     create: |-
       -- Contract view for [email_verifications]
-      -- Hides token_hash and validator_hash; exposes selector and timestamps.
+      -- Exposes validator_hash for verification; token_hash remains hidden.
       CREATE OR REPLACE VIEW vw_email_verifications AS
+      SELECT
+        id,
+        user_id,
+        selector,
+        validator_hash,
+        key_version,
+        expires_at,
+        created_at,
+        used_at,
+        UPPER(encode(validator_hash,'hex')) AS validator_hash_hex
+      FROM email_verifications;
+  password_resets:
+    create: |-
+      -- Contract view for [password_resets]
+      -- Exposes validator_hash for confirmation; token_hash remains hidden.
+      CREATE OR REPLACE VIEW vw_password_resets AS
       SELECT
         id,
         user_id,
@@ -1009,8 +1029,82 @@ Views:
         expires_at,
         created_at,
         used_at,
+        ip_hash,
+        UPPER(encode(ip_hash,'hex')) AS ip_hash_hex,
+        ip_hash_key_version,
+        user_agent,
+        validator_hash,
         UPPER(encode(validator_hash,'hex')) AS validator_hash_hex
-      FROM email_verifications;
+      FROM password_resets;
+  device_codes:
+    create: |-
+      -- Contract view for [device_codes]
+      -- Exposes token_payload (expected encrypted) for device-token polling; device_code remains hidden.
+      CREATE OR REPLACE VIEW vw_device_codes AS
+      SELECT
+        id,
+        device_code_hash_key_version,
+        device_code_hash,
+        UPPER(encode(device_code_hash,'hex')) AS device_code_hash_hex,
+        device_code_key_version,
+        user_code_hash_key_version,
+        user_code_hash,
+        UPPER(encode(user_code_hash,'hex')) AS user_code_hash_hex,
+        client_id,
+        scopes,
+        interval_sec,
+        approved_at,
+        expires_at,
+        created_at,
+        (token_payload IS NOT NULL) AS is_approved,
+        token_payload,
+        token_payload_key_version,
+        UPPER(encode(digest(device_code,'sha256'),'hex')) AS device_code_hex,
+        UPPER(encode(digest(token_payload,'sha256'),'hex')) AS token_payload_hex
+      FROM device_codes;
+  magic_links:
+    create: |-
+      -- Contract view for [magic_links]
+      CREATE OR REPLACE VIEW vw_magic_links AS
+      SELECT
+        id,
+        fingerprint,
+        subject,
+        user_id,
+        context,
+        expires_at,
+        created_at
+      FROM magic_links;
+  webauthn_credentials:
+    create: |-
+      -- Contract view for [webauthn_credentials]
+      CREATE OR REPLACE VIEW vw_webauthn_credentials AS
+      SELECT
+        id,
+        rp_id,
+        subject,
+        user_id,
+        credential_id,
+        public_key,
+        added_at,
+        created_at,
+        last_used_at,
+        sign_count
+      FROM webauthn_credentials;
+  webauthn_challenges:
+    create: |-
+      -- Contract view for [webauthn_challenges]
+      -- Exposes metadata for challenge validation; includes digest helper for debug/audit.
+      CREATE OR REPLACE VIEW vw_webauthn_challenges AS
+      SELECT
+        id,
+        rp_id,
+        challenge_hash,
+        metadata,
+        expires_at,
+        created_at,
+        UPPER(encode(digest(metadata::text,'sha256'),'hex')) AS metadata_hex
+      FROM webauthn_challenges;
   rewrap_jobs:
     create: |-
       -- Contract view for [rewrap_jobs]
