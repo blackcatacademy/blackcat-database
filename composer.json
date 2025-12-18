@@ -51,7 +51,7 @@
       "BlackCat\\Database\\": "src/"
     },
     "classmap": [
-      "packages/*/src"
+      "packages"
     ]
   },
   "autoload-dev": {
