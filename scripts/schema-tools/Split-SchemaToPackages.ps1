@@ -28,6 +28,38 @@ $script:TableMetaByEngine    = @{}
 $script:ObjectNamesByEngine  = @{}
 $script:ViewRequires         = @{}
 $script:OutputTargets        = @{}
+$script:EncryptionMapJsonByTable = @{}
+
+function ConvertTo-StableJson {
+  param([Parameter(Mandatory)]$Object,[int]$Depth = 20)
+  $json = $Object | ConvertTo-Json -Depth $Depth
+  # Normalize newlines to keep diffs stable across environments.
+  return ($json -replace "`r`n","`n")
+}
+
+function ConvertTo-Bool {
+  param(
+    [Parameter(Mandatory)]$Value,
+    [string]$Context = 'value'
+  )
+
+  if ($Value -is [bool]) { return [bool]$Value }
+
+  if ($Value -is [int] -or $Value -is [long] -or $Value -is [decimal]) {
+    return ([int64]$Value -ne 0)
+  }
+
+  if ($Value -is [string]) {
+    $s = $Value.Trim()
+    if ($s -eq '') { return $false }
+    $s = $s.ToLowerInvariant()
+    if ($s -in @('true','1','yes','y','on')) { return $true }
+    if ($s -in @('false','0','no','n','off')) { return $false }
+  }
+
+  throw "Invalid boolean for $Context"
+}
+
 function Get-FkTargets {
   param([string[]]$FkStatements)
   $targets = @()
@@ -566,6 +598,205 @@ function Invoke-Split {
         if ($uInline.Count -gt 0) { $script:TableMetaByEngine[$eng][$t].uniqueSets += ,(ConvertTo-NormalizedSet $uInline) }
       }
 
+      # --- per-package crypto instructions (encryption-map.json) ---
+      $encPath = Join-Path $schemaDir 'encryption-map.json'
+      Register-OutputPath -Path $encPath -Kind 'encryption-map'
+
+      $tableColumns = @($script:TableMetaByEngine[$eng][$t].columns.Keys | ForEach-Object { [string]$_ } | Where-Object { $_ -and $_ -ne '' } | Sort-Object)
+      $tableColumnsSet = @{}
+      foreach ($c in $tableColumns) { $tableColumnsSet[$c.ToLowerInvariant()] = $true }
+
+      # Optional per-table overrides in schema-map YAML:
+      # Tables:
+      #   users:
+      #     Crypto:
+      #       email_hash:
+      #         strategy: hmac
+      #         context: core.hmac.email
+      $cryptoErrors = $false
+      $cryptoSpecRaw = $null
+      if ($spec -is [hashtable] -and $spec.ContainsKey('Crypto')) { $cryptoSpecRaw = $spec.Crypto }
+      if ($cryptoSpecRaw -eq $null) {
+        Add-ErrorMessage "Table [$t] missing Crypto block in $mapLeaf."
+        $cryptoErrors = $true
+      }
+
+      $cryptoSpec = @{}
+      if (-not $cryptoErrors) {
+        $ht = ConvertTo-HashtableDeep $cryptoSpecRaw
+        if (-not ($ht -is [hashtable])) {
+          Add-ErrorMessage "Table [$t] has invalid Crypto block (expected map) in $mapLeaf."
+          $cryptoErrors = $true
+        } else {
+          foreach ($k in $ht.Keys) {
+            if (-not $k) { continue }
+            $cryptoSpec[[string]$k.ToLowerInvariant()] = $ht[$k]
+          }
+        }
+      }
+
+      # Detect unknown column entries (typos) early.
+      foreach ($k in $cryptoSpec.Keys) {
+        if (-not $tableColumnsSet.ContainsKey($k)) {
+          Add-ErrorMessage "Table [$t] has Crypto entry for unknown column [$k] in $mapLeaf."
+          $cryptoErrors = $true
+        }
+      }
+
+      $colDefs = [ordered]@{}
+      if (-not $cryptoErrors) {
+        foreach ($c in $tableColumns) {
+          $ck = $c.ToLowerInvariant()
+          if (-not $cryptoSpec.ContainsKey($ck)) {
+            Add-ErrorMessage "Table [$t] missing Crypto entry for column [$c] in $mapLeaf."
+            $cryptoErrors = $true
+            continue
+          }
+
+          $colSpecRaw = $cryptoSpec[$ck]
+          if ($colSpecRaw -is [string]) { $colSpecRaw = @{ strategy = [string]$colSpecRaw } }
+
+          $colSpec = ConvertTo-HashtableDeep $colSpecRaw
+          if (-not ($colSpec -is [hashtable])) {
+            Add-ErrorMessage "Table [$t] has invalid Crypto entry for column [$c] in $mapLeaf."
+            $cryptoErrors = $true
+            continue
+          }
+
+          if (-not $colSpec.ContainsKey('strategy') -or [string]::IsNullOrWhiteSpace([string]$colSpec['strategy'])) {
+            Add-ErrorMessage "Table [$t] missing Crypto.strategy for column [$c] in $mapLeaf."
+            $cryptoErrors = $true
+            continue
+          }
+
+          $strategy = ([string]$colSpec['strategy']).ToLowerInvariant()
+          if ($strategy -notin @('encrypt','hmac','passthrough')) {
+            Add-ErrorMessage "Table [$t] column [$c] has invalid Crypto.strategy [$strategy] in $mapLeaf."
+            $cryptoErrors = $true
+            continue
+          }
+
+	          if ($strategy -in @('encrypt','hmac')) {
+	            $ctx = $null
+	            if ($colSpec.ContainsKey('context')) { $ctx = [string]$colSpec['context'] }
+	            if ([string]::IsNullOrWhiteSpace($ctx)) {
+	              Add-ErrorMessage "Table [$t] column [$c] missing Crypto.context (strategy=$strategy) in $mapLeaf."
+	              $cryptoErrors = $true
+	              continue
+	            }
+	          }
+	
+	          # Validate references (fail fast): encrypted columns MUST have a key version column, unless explicitly disabled.
+	          # Additionally, key_version + encryption_meta columns must exist and be passthrough.
+	          $writeKv = $false
+	          if ($strategy -in @('encrypt','hmac')) { $writeKv = $true }
+	          if ($colSpec.ContainsKey('write_key_version')) {
+	            try {
+	              $writeKv = ConvertTo-Bool -Value $colSpec['write_key_version'] -Context "Crypto.write_key_version for $t.$c"
+	            } catch {
+	              Add-ErrorMessage "Table [$t] column [$c] has invalid Crypto.write_key_version (expected boolean) in $mapLeaf."
+	              $cryptoErrors = $true
+	              continue
+	            }
+	          }
+	          if ($strategy -in @('encrypt','hmac') -and -not $colSpec.ContainsKey('write_key_version')) { $colSpec['write_key_version'] = $writeKv }
+
+	          if ($writeKv) {
+	            $kvc = $null
+	            if ($colSpec.ContainsKey('key_version_column')) { $kvc = [string]$colSpec['key_version_column'] }
+	            if ([string]::IsNullOrWhiteSpace($kvc)) { $kvc = $c + '_key_version' }
+	            if (-not $colSpec.ContainsKey('key_version_column')) { $colSpec['key_version_column'] = $kvc }
+
+	            $kvcKey = $kvc.ToLowerInvariant()
+	            if (-not $tableColumnsSet.ContainsKey($kvcKey)) {
+	              Add-ErrorMessage "Table [$t] column [$c] references missing key_version_column [$kvc] in $mapLeaf."
+	              $cryptoErrors = $true
+	            } elseif (-not $cryptoSpec.ContainsKey($kvcKey)) {
+	              Add-ErrorMessage "Table [$t] column [$c] missing Crypto entry for referenced key_version_column [$kvc] in $mapLeaf."
+	              $cryptoErrors = $true
+	            } else {
+	              $kvcRaw = $cryptoSpec[$kvcKey]
+	              $kvcStrategy = $null
+	              if ($kvcRaw -is [string]) { $kvcStrategy = [string]$kvcRaw }
+	              else {
+	                $kvcHt = ConvertTo-HashtableDeep $kvcRaw
+	                if ($kvcHt -is [hashtable] -and $kvcHt.ContainsKey('strategy')) { $kvcStrategy = [string]$kvcHt['strategy'] }
+	              }
+	              if ([string]::IsNullOrWhiteSpace($kvcStrategy) -or $kvcStrategy.ToLowerInvariant() -ne 'passthrough') {
+	                Add-ErrorMessage "Table [$t] key_version_column [$kvc] must be Crypto.strategy=passthrough in $mapLeaf."
+	                $cryptoErrors = $true
+	              }
+	            }
+	          }
+	
+	          $writeMeta = $false
+	          if ($colSpec.ContainsKey('write_encryption_meta')) {
+	            try {
+	              $writeMeta = ConvertTo-Bool -Value $colSpec['write_encryption_meta'] -Context "Crypto.write_encryption_meta for $t.$c"
+	            } catch {
+	              Add-ErrorMessage "Table [$t] column [$c] has invalid Crypto.write_encryption_meta (expected boolean) in $mapLeaf."
+	              $cryptoErrors = $true
+	              continue
+	            }
+	          }
+	          if ($writeMeta) {
+	            $metaCol = $null
+	            if ($colSpec.ContainsKey('encryption_meta_column')) { $metaCol = [string]$colSpec['encryption_meta_column'] }
+	            if ([string]::IsNullOrWhiteSpace($metaCol)) { $metaCol = 'encryption_meta' }
+	            $metaKey = $metaCol.ToLowerInvariant()
+	            if (-not $tableColumnsSet.ContainsKey($metaKey)) {
+	              Add-ErrorMessage "Table [$t] column [$c] references missing encryption_meta_column [$metaCol] in $mapLeaf."
+	              $cryptoErrors = $true
+	            } elseif (-not $cryptoSpec.ContainsKey($metaKey)) {
+	              Add-ErrorMessage "Table [$t] column [$c] missing Crypto entry for referenced encryption_meta_column [$metaCol] in $mapLeaf."
+	              $cryptoErrors = $true
+	            } else {
+	              $metaRaw = $cryptoSpec[$metaKey]
+	              $metaStrategy = $null
+	              if ($metaRaw -is [string]) { $metaStrategy = [string]$metaRaw }
+	              else {
+	                $metaHt = ConvertTo-HashtableDeep $metaRaw
+	                if ($metaHt -is [hashtable] -and $metaHt.ContainsKey('strategy')) { $metaStrategy = [string]$metaHt['strategy'] }
+	              }
+	              if ([string]::IsNullOrWhiteSpace($metaStrategy) -or $metaStrategy.ToLowerInvariant() -ne 'passthrough') {
+	                Add-ErrorMessage "Table [$t] encryption_meta_column [$metaCol] must be Crypto.strategy=passthrough in $mapLeaf."
+	                $cryptoErrors = $true
+	              }
+	            }
+	          }
+
+	          # Stable key order for diff-friendly JSON.
+	          $orderedSpec = [ordered]@{}
+	          foreach ($k in @($colSpec.Keys | ForEach-Object { [string]$_ } | Sort-Object)) {
+	            $orderedSpec[$k] = $colSpec[$k]
+          }
+
+          $colDefs[$c] = $orderedSpec
+        }
+      }
+
+      if (-not $cryptoErrors) {
+        $encObj = [ordered]@{
+          tables = [ordered]@{
+            $t = [ordered]@{
+              columns = $colDefs
+            }
+          }
+        }
+        $encJson = ConvertTo-StableJson -Object $encObj -Depth 30
+
+        if (-not $script:EncryptionMapJsonByTable.ContainsKey($t)) {
+          $script:EncryptionMapJsonByTable[$t] = $encJson
+        } else {
+          $prev = [string]$script:EncryptionMapJsonByTable[$t]
+          if ($prev.Trim() -ne $encJson.Trim()) {
+            Add-ErrorMessage "Table [$t] encryption-map.json differs between engines (mysql vs postgres). Keep Crypto specs identical."
+          }
+        }
+
+        Set-Content -Path $encPath -Value $encJson -NoNewline -Encoding UTF8
+      }
+
         $header = "-- Auto-generated from $mapLeaf ($stamp)`n-- engine: $eng`n-- table:  $t`n"
       Register-OutputPath -Path $file001 -Kind "table:$eng"
       Set-Content -Path $file001 -Value ($header + "`n" + (Add-SemicolonIfMissing $create)) -NoNewline -Encoding UTF8
@@ -587,7 +818,7 @@ function Invoke-Split {
       }
 
       if ($CommitPush) {
-        git -C $pkgPath add schema/*.sql schema/**/*.sql | Out-Null
+        git -C $pkgPath add schema | Out-Null
         $branch = (git -C $pkgPath rev-parse --abbrev-ref HEAD).Trim()
         if (Test-RepoChanges -RepoPath $pkgPath) {
           git -C $pkgPath commit -m "chore(schema): update $t [$eng] (split from umbrella)" | Out-Null
@@ -649,7 +880,7 @@ function Invoke-Split {
         Write-ViewFile -FilePath $file040 -ViewSql $viewSql -Header $headerViews
 
         if ($CommitPush) {
-          git -C $pkgPath add schema/*.sql schema/**/*.sql | Out-Null
+          git -C $pkgPath add schema | Out-Null
           if (Test-RepoChanges -RepoPath $pkgPath) {
             $branch = (git -C $pkgPath rev-parse --abbrev-ref HEAD).Trim()
             git -C $pkgPath commit -m "chore(schema): update $table [$eng] (views from umbrella)" | Out-Null
@@ -779,7 +1010,7 @@ function Invoke-Split {
           Write-ViewFile -FilePath $fileTarget -ViewSql $viewSql -Header $headerFeat
 
           if ($CommitPush) {
-            git -C $pkgPath add schema/*.sql schema/**/*.sql | Out-Null
+            git -C $pkgPath add schema | Out-Null
             if (Test-RepoChanges -RepoPath $pkgPath) {
               $branch = (git -C $pkgPath rev-parse --abbrev-ref HEAD).Trim()
               git -C $pkgPath commit -m "chore(schema): update feature view $table [$eng]" | Out-Null
@@ -875,7 +1106,7 @@ function Invoke-Split {
         Write-ViewFile -FilePath $file050 -ViewSql $viewSql -Header $headerJoins
 
         if ($CommitPush) {
-          git -C $pkgPath add schema/*.sql schema/**/*.sql | Out-Null
+          git -C $pkgPath add schema | Out-Null
           if (Test-RepoChanges -RepoPath $pkgPath) {
             $branch = (git -C $pkgPath rev-parse --abbrev-ref HEAD).Trim()
             git -C $pkgPath commit -m "chore(schema): update join view $viewName [$eng]" | Out-Null

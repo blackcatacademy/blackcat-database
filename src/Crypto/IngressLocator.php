@@ -101,14 +101,19 @@ final class IngressLocator
         self::$bootFailureReason = null;
 
         $mapRaw = self::$mapPathOverride ?? (getenv('BLACKCAT_DB_ENCRYPTION_MAP') ?: null);
-        $mapPath = self::resolvePath(is_string($mapRaw) && $mapRaw !== '' ? $mapRaw : null);
-        if ($mapPath === null) {
-            self::$bootFailureReason = 'BLACKCAT_DB_ENCRYPTION_MAP is not set';
-            return;
-        }
-        if (!is_file($mapPath)) {
-            self::$bootFailureReason = 'encryption map file not found: ' . $mapPath;
-            return;
+        $mapRaw = is_string($mapRaw) ? trim($mapRaw) : null;
+        $mode = strtolower((string)($mapRaw ?? ''));
+        $usePackages = $mapRaw === null || $mapRaw === '' || in_array($mode, ['packages', 'package', 'auto'], true);
+        $mapPath = $usePackages ? null : self::resolvePath($mapRaw);
+        if (!$usePackages) {
+            if ($mapPath === null) {
+                self::$bootFailureReason = 'BLACKCAT_DB_ENCRYPTION_MAP is not set';
+                return;
+            }
+            if (!is_file($mapPath)) {
+                self::$bootFailureReason = 'encryption map file not found: ' . $mapPath;
+                return;
+            }
         }
 
         $keysDir = self::$keysDirOverride ?? (getenv('BLACKCAT_KEYS_DIR') ?: getenv('APP_KEYS_DIR'));
@@ -120,6 +125,7 @@ final class IngressLocator
         self::ensureAutoloaders();
 
         $mapClass = '\\BlackCat\\DatabaseCrypto\\Config\\EncryptionMap';
+        $packagesLoaderClass = '\\BlackCat\\DatabaseCrypto\\Config\\PackagesEncryptionMapLoader';
         $cryptoConfigClass = '\\BlackCat\\Crypto\\Config\\CryptoConfig';
         $cryptoManagerClass = '\\BlackCat\\Crypto\\CryptoManager';
         $adapterClass = '\\BlackCat\\DatabaseCrypto\\Adapter\\DatabaseCryptoAdapter';
@@ -132,20 +138,34 @@ final class IngressLocator
             !class_exists($cryptoManagerClass) ||
             !class_exists($adapterClass) ||
             !class_exists($ingressClass) ||
-            !interface_exists($gatewayInterface)
+            !interface_exists($gatewayInterface) ||
+            ($usePackages && !class_exists($packagesLoaderClass))
         ) {
             self::$bootFailureReason = 'crypto ingress dependencies missing (install blackcat-crypto + blackcat-database-crypto)';
             return;
         }
 
         try {
-            $map = $mapClass::fromFile($mapPath);
+            if ($usePackages) {
+                $map = $packagesLoaderClass::fromAutodetectedBlackcatDatabaseRoot();
+                if ($map->all() === []) {
+                    throw new \RuntimeException('no package encryption maps found (expected packages/*/schema/encryption-map.json)');
+                }
+            } else {
+                $map = $mapClass::fromFile($mapPath);
+            }
+        } catch (\Throwable $e) {
+            self::$bootFailureReason = 'failed to load encryption map: ' . $e->getMessage();
+            return;
+        }
+
+        try {
             $env = array_merge((array)getenv(), $_ENV, $_SERVER);
             $env['BLACKCAT_KEYS_DIR'] = $keysDir;
             $config = $cryptoConfigClass::fromEnv($env);
             $crypto = $cryptoManagerClass::boot($config);
         } catch (\Throwable $e) {
-            self::$bootFailureReason = 'failed to boot CryptoManager/EncryptionMap: ' . $e->getMessage();
+            self::$bootFailureReason = 'failed to boot CryptoManager: ' . $e->getMessage();
             return;
         }
 
@@ -172,7 +192,8 @@ final class IngressLocator
 
         return 'DB encryption ingress is required but not available.'
             . $reason
-            . ' Set BLACKCAT_DB_ENCRYPTION_MAP, BLACKCAT_KEYS_DIR and BLACKCAT_CRYPTO_MANIFEST (and install blackcat-crypto + blackcat-database-crypto).';
+            . ' Set BLACKCAT_KEYS_DIR and BLACKCAT_CRYPTO_MANIFEST, and either set BLACKCAT_DB_ENCRYPTION_MAP to a map file (or "packages")'
+            . ' or provide per-package packages/*/schema/encryption-map.json (and install blackcat-crypto + blackcat-database-crypto).';
     }
 
     private static function resolvePath(?string $path): ?string

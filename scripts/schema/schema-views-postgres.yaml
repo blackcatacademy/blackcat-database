@@ -782,11 +782,13 @@ Views:
       SELECT
         id,
         ip_hash,
+        ip_hash_key_version,
         UPPER(encode(ip_hash,'hex')) AS ip_hash_hex,
         attempted_at,
         success,
         user_id,
         username_hash,
+        username_hash_key_version,
         UPPER(encode(username_hash,'hex')) AS username_hash_hex,
         auth_event_id
       FROM login_attempts;

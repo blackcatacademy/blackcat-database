@@ -1,6 +1,6 @@
 # BlackCat Database – Packages
 
-> Generated from scripts/schema/schema-map-postgres.yaml (map@sha1:5221bb5c65d0fbe010594635f9efb6fc13c307b2).
+> Generated from scripts/schema/schema-map-postgres.yaml (map@sha1:260cf51de6e2c742030665b35b370cdae36de2c6).
 
 | Table | Package | README | Docs | Changelog |
 |-----:|:--------|:------:|:----:|:---------:|
@@ -24,6 +24,7 @@
 | crypto_standard_aliases | crypto-standard-aliases | [README](packages/crypto-standard-aliases/README.md) | [Docs](packages/crypto-standard-aliases/docs/definitions.md) | [Changelog](packages/crypto-standard-aliases/CHANGELOG.md) |
 | data_retention_policies | data-retention-policies | [README](packages/data-retention-policies/README.md) | [Docs](packages/data-retention-policies/docs/definitions.md) | [Changelog](packages/data-retention-policies/CHANGELOG.md) |
 | deletion_jobs | deletion-jobs | [README](packages/deletion-jobs/README.md) | [Docs](packages/deletion-jobs/docs/definitions.md) | [Changelog](packages/deletion-jobs/CHANGELOG.md) |
+| device_codes | device-codes | [README](packages/device-codes/README.md) | [Docs](packages/device-codes/docs/definitions.md) | [Changelog](packages/device-codes/CHANGELOG.md) |
 | device_fingerprints | device-fingerprints | [README](packages/device-fingerprints/README.md) | [Docs](packages/device-fingerprints/docs/definitions.md) | [Changelog](packages/device-fingerprints/CHANGELOG.md) |
 | email_verifications | email-verifications | [README](packages/email-verifications/README.md) | [Docs](packages/email-verifications/docs/definitions.md) | [Changelog](packages/email-verifications/CHANGELOG.md) |
 | encrypted_fields | encrypted-fields | [README](packages/encrypted-fields/README.md) | [Docs](packages/encrypted-fields/docs/definitions.md) | [Changelog](packages/encrypted-fields/CHANGELOG.md) |
@@ -53,6 +54,7 @@
 | kms_providers | kms-providers | [README](packages/kms-providers/README.md) | [Docs](packages/kms-providers/docs/definitions.md) | [Changelog](packages/kms-providers/CHANGELOG.md) |
 | kms_routing_policies | kms-routing-policies | [README](packages/kms-routing-policies/README.md) | [Docs](packages/kms-routing-policies/docs/definitions.md) | [Changelog](packages/kms-routing-policies/CHANGELOG.md) |
 | login_attempts | login-attempts | [README](packages/login-attempts/README.md) | [Docs](packages/login-attempts/docs/definitions.md) | [Changelog](packages/login-attempts/CHANGELOG.md) |
+| magic_links | magic-links | [README](packages/magic-links/README.md) | [Docs](packages/magic-links/docs/definitions.md) | [Changelog](packages/magic-links/CHANGELOG.md) |
 | merkle_anchors | merkle-anchors | [README](packages/merkle-anchors/README.md) | [Docs](packages/merkle-anchors/docs/definitions.md) | [Changelog](packages/merkle-anchors/CHANGELOG.md) |
 | merkle_roots | merkle-roots | [README](packages/merkle-roots/README.md) | [Docs](packages/merkle-roots/docs/definitions.md) | [Changelog](packages/merkle-roots/CHANGELOG.md) |
 | migration_events | migration-events | [README](packages/migration-events/README.md) | [Docs](packages/migration-events/docs/definitions.md) | [Changelog](packages/migration-events/CHANGELOG.md) |
@@ -61,6 +63,7 @@
 | order_item_downloads | order-item-downloads | [README](packages/order-item-downloads/README.md) | [Docs](packages/order-item-downloads/docs/definitions.md) | [Changelog](packages/order-item-downloads/CHANGELOG.md) |
 | order_items | order-items | [README](packages/order-items/README.md) | [Docs](packages/order-items/docs/definitions.md) | [Changelog](packages/order-items/CHANGELOG.md) |
 | orders | orders | [README](packages/orders/README.md) | [Docs](packages/orders/docs/definitions.md) | [Changelog](packages/orders/CHANGELOG.md) |
+| password_resets | password-resets | [README](packages/password-resets/README.md) | [Docs](packages/password-resets/docs/definitions.md) | [Changelog](packages/password-resets/CHANGELOG.md) |
 | payment_gateway_notifications | payment-gateway-notifications | [README](packages/payment-gateway-notifications/README.md) | [Docs](packages/payment-gateway-notifications/docs/definitions.md) | [Changelog](packages/payment-gateway-notifications/CHANGELOG.md) |
 | payment_logs | payment-logs | [README](packages/payment-logs/README.md) | [Docs](packages/payment-logs/docs/definitions.md) | [Changelog](packages/payment-logs/CHANGELOG.md) |
 | payment_webhooks | payment-webhooks | [README](packages/payment-webhooks/README.md) | [Docs](packages/payment-webhooks/docs/definitions.md) | [Changelog](packages/payment-webhooks/CHANGELOG.md) |
@@ -108,5 +111,7 @@
 | users | users | [README](packages/users/README.md) | [Docs](packages/users/docs/definitions.md) | [Changelog](packages/users/CHANGELOG.md) |
 | vat_validations | vat-validations | [README](packages/vat-validations/README.md) | [Docs](packages/vat-validations/docs/definitions.md) | [Changelog](packages/vat-validations/CHANGELOG.md) |
 | verify_events | verify-events | [README](packages/verify-events/README.md) | [Docs](packages/verify-events/docs/definitions.md) | [Changelog](packages/verify-events/CHANGELOG.md) |
+| webauthn_credentials | webauthn-credentials | [README](packages/webauthn-credentials/README.md) | [Docs](packages/webauthn-credentials/docs/definitions.md) | [Changelog](packages/webauthn-credentials/CHANGELOG.md) |
+| webauthn_challenges | webauthn-challenges | [README](packages/webauthn-challenges/README.md) | [Docs](packages/webauthn-challenges/docs/definitions.md) | [Changelog](packages/webauthn-challenges/CHANGELOG.md) |
 | webhook_outbox | webhook-outbox | [README](packages/webhook-outbox/README.md) | [Docs](packages/webhook-outbox/docs/definitions.md) | [Changelog](packages/webhook-outbox/CHANGELOG.md) |
 | worker_locks | worker-locks | [README](packages/worker-locks/README.md) | [Docs](packages/worker-locks/docs/definitions.md) | [Changelog](packages/worker-locks/CHANGELOG.md) |

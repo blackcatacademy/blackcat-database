@@ -59,6 +59,7 @@ erDiagram
     JSONB new_value
     TIMESTAMPTZ(6) changed_at
     BYTEA ip_bin
+    VARCHAR(64) ip_bin_key_version
     VARCHAR(1024) user_agent
     VARCHAR(100) request_id
   }
@@ -133,6 +134,7 @@ erDiagram
     BIGINT id
     BIGINT user_id
     BYTEA fingerprint_hash
+    VARCHAR(64) fingerprint_hash_key_version
     JSONB attributes
     SMALLINT risk_score
     TIMESTAMPTZ(6) first_seen
@@ -179,11 +181,13 @@ key_rotation_jobs }o--|| users : fk_key_rotation_jobs_user
 key_usage }o--|| crypto_keys : fk_key_usage_key
 login_attempts }o--|| auth_events : fk_login_attempts_auth_event
 login_attempts }o--|| users : fk_login_attempts_user
+magic_links }o--|| users : fk_magic_links_user
 newsletter_subscribers }o--|| users : fk_ns_user
 notifications }o--|| users : fk_notifications_user
 orders }o--|| users : fk_orders_user
+password_resets }o--|| users : fk_pr_user
 pq_migration_jobs }o--|| users : fk_pq_mig_user
-privacy_requests }o--|| users : fk_pr_user
+privacy_requests }o--|| users : fk_privacy_requests_user
 rbac_user_permissions }o--|| users : fk_rbac_up_grant
 rbac_user_permissions }o--|| users : fk_rbac_up_user
 rbac_user_roles }o--|| users : fk_rbac_ur_grant
@@ -200,4 +204,5 @@ user_consents }o--|| users : fk_user_consents_user
 user_identities }o--|| users : fk_user_identities_user
 user_profiles }o--|| users : fk_user_profiles_user
 verify_events }o--|| users : fk_verify_user
+webauthn_credentials }o--|| users : fk_webauthn_cred_user
 ```

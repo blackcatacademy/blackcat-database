@@ -813,11 +813,13 @@ Views:
       SELECT
         id,
         ip_hash,
+        ip_hash_key_version,
         CAST(LPAD(HEX(ip_hash), 64, '0')  AS CHAR(64)) AS ip_hash_hex,
         attempted_at,
         success,
         user_id,
         username_hash,
+        username_hash_key_version,
         CAST(LPAD(HEX(username_hash), 64, '0') AS CHAR(64)) AS username_hash_hex,
         auth_event_id
       FROM login_attempts;
