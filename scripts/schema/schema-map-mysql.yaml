@@ -308,11 +308,11 @@ Tables:
         requested_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         processed_at DATETIME(6) NULL,
         meta JSON NULL,
-        INDEX idx_pr_user        (user_id),
-        INDEX idx_pr_type_status (`type`, status)
+        INDEX idx_privacy_requests_user        (user_id),
+        INDEX idx_privacy_requests_type_status (`type`, status)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
     foreign_keys:
-      - ALTER TABLE privacy_requests ADD CONSTRAINT fk_pr_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+      - ALTER TABLE privacy_requests ADD CONSTRAINT fk_privacy_requests_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
     indexes:
     Upsert:
       Update:

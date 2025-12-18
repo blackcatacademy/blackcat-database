@@ -321,10 +321,10 @@ Tables:
         CONSTRAINT chk_pr_status CHECK (status IN ('pending','processing','done','failed','cancelled'))
       );
     foreign_keys:
-      - ALTER TABLE privacy_requests ADD CONSTRAINT fk_pr_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+      - ALTER TABLE privacy_requests ADD CONSTRAINT fk_privacy_requests_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
     indexes:
-      - CREATE INDEX IF NOT EXISTS idx_pr_user ON privacy_requests (user_id)
-      - CREATE INDEX IF NOT EXISTS idx_pr_type_status ON privacy_requests (type, status)
+      - CREATE INDEX IF NOT EXISTS idx_privacy_requests_user ON privacy_requests (user_id)
+      - CREATE INDEX IF NOT EXISTS idx_privacy_requests_type_status ON privacy_requests (type, status)
     Upsert:
       Update:
         - status

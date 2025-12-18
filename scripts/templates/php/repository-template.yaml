@@ -253,6 +253,7 @@ Content: |-
             ));
             if (!$rows) { return 0; }
   
+            /** @var list<string> $updCols */
             $updCols = [[UPSERT_UPDATE_COLUMNS_ARRAY]];
             if ($updCols && $soft && !in_array($soft, $updCols, true)) { $updCols[] = $soft; }
   

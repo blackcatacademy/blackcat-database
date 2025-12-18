@@ -8,6 +8,7 @@ use BlackCat\Database\Contracts\ContractRepository;
 use BlackCat\Database\Contracts\DatabaseIngressCriteriaAdapterInterface;
 use BlackCat\Database\Crypto\IngressLocator;
 use BlackCat\Database\Services\GenericCrudService;
+use BlackCat\Database\Services\GenericCrudRepositoryShape;
 use PHPUnit\Framework\TestCase;
 
 final class GenericCrudServiceCryptoCriteriaTest extends TestCase
@@ -22,7 +23,7 @@ final class GenericCrudServiceCryptoCriteriaTest extends TestCase
         IngressLocator::setAdapter(null);
 
         $db = Database::getInstance();
-        $repo = new class implements ContractRepository {
+        $repo = new class implements ContractRepository, GenericCrudRepositoryShape {
             public ?string $lastWhere = null;
             /** @var array<string,mixed>|null */
             public ?array $lastParams = null;
@@ -31,18 +32,26 @@ final class GenericCrudServiceCryptoCriteriaTest extends TestCase
             public function insert(array $row): void {}
             public function insertMany(array $rows): void {}
             public function upsert(array $row): void {}
+            public function upsertByKeys(array $row, array $keys, array $updateColumns = []): void {}
+            public function updateByKeys(array $keys, array $row): int { return 0; }
+            public function updateByIdOptimistic(int|string|array $id, array $row, string|int $versionCol = 'version', int|string|array|null $expectedVersion = null): int { return 0; }
+            public function updateByIdExpr(int|string|array $id, array $expr): int { return 0; }
             public function updateById(int|string|array $id, array $row): int { return 0; }
             public function deleteById(int|string|array $id): int { return 0; }
             public function restoreById(int|string|array $id): int { return 0; }
-            public function findById(int|string|array $id): ?array { return null; }
-            public function exists(string $whereSql = '1=1', array $params = []): bool {
-                $this->lastWhere = $whereSql;
+            public function findById(int|string|array $id, array $opts = []): ?array { return null; }
+            public function findByIds(array $ids, array $opts = []): array { return []; }
+            public function exists(int|string|array $whereSql = 0, array $params = []): bool {
+                $this->lastWhere = is_string($whereSql) ? $whereSql : null;
                 $this->lastParams = $params;
                 return true;
             }
             public function count(string $whereSql = '1=1', array $params = []): int { return 0; }
-            public function paginate(object $criteria): array { return ['items' => [], 'total' => 0, 'page' => 1, 'perPage' => 10]; }
+            /** @param array<string,mixed>|object $criteria */
+            public function paginate(mixed $criteria): array { return ['items' => [], 'total' => 0, 'page' => 1, 'perPage' => 10]; }
             public function lockById(int|string|array $id, string $mode = 'wait', string $strength = 'update'): ?array { return null; }
+            public function setIngressAdapter(?object $adapter = null, ?string $table = null): void {}
+            public function table(): string { return 'users'; }
         };
 
         $criteriaAdapter = new class implements DatabaseIngressCriteriaAdapterInterface {
@@ -75,7 +84,7 @@ final class GenericCrudServiceCryptoCriteriaTest extends TestCase
         IngressLocator::setAdapter(null);
 
         $db = Database::getInstance();
-        $repo = new class implements ContractRepository {
+        $repo = new class implements ContractRepository, GenericCrudRepositoryShape {
             /** @var array<string,mixed>|null */
             public ?array $lastKeys = null;
             public ?bool $lastAsDto = null;
@@ -84,13 +93,19 @@ final class GenericCrudServiceCryptoCriteriaTest extends TestCase
             public function insert(array $row): void {}
             public function insertMany(array $rows): void {}
             public function upsert(array $row): void {}
+            public function upsertByKeys(array $row, array $keys, array $updateColumns = []): void {}
+            public function updateByKeys(array $keys, array $row): int { return 0; }
+            public function updateByIdOptimistic(int|string|array $id, array $row, string|int $versionCol = 'version', int|string|array|null $expectedVersion = null): int { return 0; }
+            public function updateByIdExpr(int|string|array $id, array $expr): int { return 0; }
             public function updateById(int|string|array $id, array $row): int { return 0; }
             public function deleteById(int|string|array $id): int { return 0; }
             public function restoreById(int|string|array $id): int { return 0; }
-            public function findById(int|string|array $id): ?array { return null; }
-            public function exists(string $whereSql = '1=1', array $params = []): bool { return false; }
+            public function findById(int|string|array $id, array $opts = []): ?array { return null; }
+            public function findByIds(array $ids, array $opts = []): array { return []; }
+            public function exists(int|string|array $whereSql = 0, array $params = []): bool { return false; }
             public function count(string $whereSql = '1=1', array $params = []): int { return 0; }
-            public function paginate(object $criteria): array { return ['items' => [], 'total' => 0, 'page' => 1, 'perPage' => 10]; }
+            /** @param array<string,mixed>|object $criteria */
+            public function paginate(mixed $criteria): array { return ['items' => [], 'total' => 0, 'page' => 1, 'perPage' => 10]; }
             public function lockById(int|string|array $id, string $mode = 'wait', string $strength = 'update'): ?array { return null; }
 
             // Optional repository extension used by GenericCrudService::getByUnique()
@@ -100,6 +115,9 @@ final class GenericCrudServiceCryptoCriteriaTest extends TestCase
                 $this->lastAsDto = $asDto;
                 return null;
             }
+
+            public function setIngressAdapter(?object $adapter = null, ?string $table = null): void {}
+            public function table(): string { return 'users'; }
         };
 
         $criteriaAdapter = new class implements DatabaseIngressCriteriaAdapterInterface {
@@ -117,4 +135,3 @@ final class GenericCrudServiceCryptoCriteriaTest extends TestCase
         self::assertSame(false, $repo->lastAsDto);
     }
 }
-
