@@ -13,6 +13,10 @@
 - Connect with listed integrations to exchange data/events/config.
 - Expand tests (unit, contract, smoke) and document installer hooks.
 - Emit telemetry/metrics compatible with blackcat-observability.
+- Standardize encrypted DB write-path via `blackcat-database-crypto` ingress (`IngressLocator`) + CI gate (`db-crypto-plan --schema-source=packages`).
+- Zero‑boilerplate: repositories auto-apply ingress transforms on write-path (and fail-closed when `BLACKCAT_DB_ENCRYPTION_REQUIRED=1`).
+- Deterministic query support: services (and `getByUnique()` in generated repos) can transform lookup keys via ingress `criteria()` (HMAC-only) before `exists()`/`upsertByKeys()`.
+- Consolidate join/feature views into `views-library/` domains to avoid split sources of truth (continue pruning mixed maps from `core/`).
 
 ## Stage 3 – Advanced Capabilities
 - Deliver differentiating features promised in Primary SQL layer, repositories, migrations, CRUD events. scope.
@@ -22,6 +26,8 @@
 ## Follow-ups
 - Iterate with `ECOSYSTEM.md` updates and cross-repo RFCs.
 - Track adoption metrics through blackcat-usage + payout incentives.
+- TODO: add optional read-path decrypt helpers (explicit opt-in; never implicit decrypt-on-read).
+- TODO: add lint/validation for `views-library/` (duplicate view keys, dialect parity checks, ownership/tag rules).
 
 ## Stage 4 – Cross-Ecosystem Automation
 - Wire blackcat-database services into installer/orchestrator pipelines for push-button deployments.
@@ -32,4 +38,3 @@
 - Ship AI-ready manifests/tutorials enabling GPT installers to compose blackcat-database stacks autonomously.
 - Add self-healing + policy feedback loops leveraging blackcat-agent, blackcat-governance, and marketplace signals.
 - Feed anonymized adoption data to blackcat-usage and reward contributors via blackcat-payout.
-

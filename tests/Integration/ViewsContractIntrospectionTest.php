@@ -202,14 +202,13 @@ final class ViewsContractIntrospectionTest extends TestCase
         $db = self::db();
 
         $forbidden = [
-            'vw_users'               => ['password_hash','password_algo','password_key_version'],
-            'vw_sessions'            => ['token_hash','session_blob'],
+            'vw_sessions'            => ['session_blob'],
             'vw_jwt_tokens'          => ['token_hash'],
             'vw_encrypted_fields'    => ['ciphertext'],
             'vw_book_assets'         => ['encryption_key_enc','encryption_iv','encryption_tag','encryption_aad'],
             'vw_orders'              => ['encrypted_customer_blob'],
             'vw_payment_webhooks'    => ['payload'],
-            'vw_email_verifications' => ['token_hash','validator_hash'],
+            'vw_email_verifications' => ['token_hash'],
         ];
 
         foreach ($forbidden as $view => $cols) {

@@ -208,7 +208,12 @@ function ConvertTo-HashtableDeep {
   if ($InputObject -is [ValueType] -or $InputObject -is [string]) { return $InputObject }
   if ($InputObject -is [System.Collections.IDictionary]) {
     $ht = @{}
-    foreach ($k in $InputObject.Keys) { $ht[$k] = ConvertTo-HashtableDeep $InputObject[$k] }
+    # IMPORTANT: do NOT use "$InputObject.Keys" here because for hashtables PowerShell will
+    # prefer the entry with key "Keys" over the IDictionary.Keys property (breaking maps like Upsert:{Keys:...,Update:...}).
+    foreach ($entry in $InputObject.GetEnumerator()) {
+      $k = $entry.Key
+      $ht[$k] = ConvertTo-HashtableDeep $entry.Value
+    }
     return $ht
   }
   if ($InputObject -is [System.Collections.IEnumerable] -and -not ($InputObject -is [string])) {
@@ -351,7 +356,7 @@ function Import-YamlFile {
       }
     }
   try {
-    return Get-Content -LiteralPath $Path -Raw | & $cfy
+    return Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | & $cfy
   } catch {
     throw "Failed to parse YAML '$Path' via ConvertFrom-Yaml: $($_.Exception.Message)"
   }
@@ -803,8 +808,21 @@ function Invoke-Split {
     foreach ($joinMapFile in $joinMaps) {
       $joinsMap  = Import-MapFile -Path $joinMapFile.FullName -Engine "$eng-views-joins"
       if (-not ($joinsMap -and $joinsMap.Views)) { continue }
-      Write-Host ("[{0}] join views: {1} ({2})" -f $eng, $joinsMap.Views.Keys.Count, $joinMapFile.Name)
       $joinsLeaf  = Split-Path -Leaf $joinMapFile.FullName
+      $joinsRef = $joinsLeaf
+      if (Test-Path -LiteralPath $script:ViewsLibraryRoot) {
+        try {
+          $libFull  = (Resolve-Path -LiteralPath $script:ViewsLibraryRoot).Path
+          $fileFull = (Resolve-Path -LiteralPath $joinMapFile.FullName).Path
+          if ($libFull -and $fileFull -and $fileFull.StartsWith($libFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $rel = $fileFull.Substring($libFull.Length).TrimStart('\','/')
+            $rel = $rel.Replace('\','/')
+            if ($rel) { $joinsRef = $rel }
+          }
+        } catch {}
+      }
+
+      Write-Host ("[{0}] join views: {1} ({2})" -f $eng, $joinsMap.Views.Keys.Count, $joinsRef)
       $joinsStamp = Get-StableMapStamp -MapPath $joinMapFile.FullName
       $joinsHt = ConvertTo-HashtableDeep $joinsMap.Views
       foreach ($entry in ($joinsHt.GetEnumerator() | Sort-Object Key)) {
@@ -815,10 +833,10 @@ function Invoke-Split {
           continue
         }
         if ($seenJoinSource.ContainsKey($viewName)) {
-          Add-ErrorMessage "SKIP duplicate join view [$viewName] from $joinsLeaf (already defined in $($seenJoinSource[$viewName]))."
+          Add-ErrorMessage "SKIP duplicate join view [$viewName] from $joinsRef (already defined in $($seenJoinSource[$viewName]))."
           continue
         }
-        $seenJoinSource[$viewName] = $joinsLeaf
+        $seenJoinSource[$viewName] = $joinsRef
         $null = $script:JoinNamesByEngine[$eng].Add($viewName)
         $null = $script:ObjectNamesByEngine[$eng].Add($viewName)
         # Track requires for validation
@@ -827,7 +845,7 @@ function Invoke-Split {
           $requiresRaw = @($entry.Value['Requires']) | Where-Object { $_ -ne $null }
         }
         if ($requiresRaw.Count -gt 0) {
-          $script:ViewRequires[$eng] += @(@{ Name=$viewName; Requires=$requiresRaw; Source=$joinsLeaf })
+          $script:ViewRequires[$eng] += @(@{ Name=$viewName; Requires=$requiresRaw; Source=$joinsRef })
         }
         $pkgPath = Resolve-ViewPackagePath -PackagesDir $PackagesDir -ViewName $viewName -Mode 'detect'
         if (-not $pkgPath) { $pkgPath = Resolve-ViewPackagePath -PackagesDir $PackagesDir -ViewName $viewName -Mode $NameResolution }
@@ -852,7 +870,7 @@ function Invoke-Split {
 
         # joins are installed alongside contract/feature views -> keep 040 prefix
         $file050 = Join-Path $schemaDir ("040_views_joins.{0}.sql" -f $eng)
-        $headerJoins = "-- Auto-generated from $joinsLeaf ($joinsStamp)`n-- engine: $eng`n-- view:   $viewName`n"
+        $headerJoins = "-- Auto-generated from $joinsRef ($joinsStamp)`n-- engine: $eng`n-- view:   $viewName`n"
         Register-OutputPath -Path $file050 -Kind "joins:$eng"
         Write-ViewFile -FilePath $file050 -ViewSql $viewSql -Header $headerJoins
 

@@ -26,7 +26,7 @@ function Import-YamlWithFallback {
     }
   }
   if (-not $cfy) { throw "ConvertFrom-Yaml still not available." }
-  return Get-Content -LiteralPath $Path -Raw | & $cfy
+  return Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | & $cfy
 }
 
 function Import-MapFile {

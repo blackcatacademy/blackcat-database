@@ -35,7 +35,7 @@ $viewsResolved = if ([string]::IsNullOrWhiteSpace($ViewsLibraryRoot)) { $null } 
 if (-not (Test-Path -LiteralPath $mapPathResolved)) { throw "Map not found: $mapPathResolved" }
 if (-not (Test-Path -LiteralPath $packagesResolved)) { throw "PackagesDir not found: $packagesResolved" }
 
-$map = Get-Content -LiteralPath $mapPathResolved -Raw | ConvertFrom-Yaml
+$map = Get-Content -LiteralPath $mapPathResolved -Raw -Encoding UTF8 | ConvertFrom-Yaml
 $engine = ''
 if ($mapPathResolved -match 'postgres') { $engine = 'postgres' }
 elseif ($mapPathResolved -match 'mysql') { $engine = 'mysql' }

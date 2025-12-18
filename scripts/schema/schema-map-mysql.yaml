@@ -308,11 +308,11 @@ Tables:
         requested_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         processed_at DATETIME(6) NULL,
         meta JSON NULL,
-        INDEX idx_pr_user        (user_id),
-        INDEX idx_pr_type_status (`type`, status)
+        INDEX idx_privacy_requests_user        (user_id),
+        INDEX idx_privacy_requests_type_status (`type`, status)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
     foreign_keys:
-      - ALTER TABLE privacy_requests ADD CONSTRAINT fk_pr_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+      - ALTER TABLE privacy_requests ADD CONSTRAINT fk_privacy_requests_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
     indexes:
     Upsert:
       Update:
@@ -1818,6 +1818,160 @@ Tables:
         - used_at
       Keys:
         - selector
+  password_resets:
+    DefaultOrder: id DESC
+    create: |-
+      CREATE TABLE IF NOT EXISTS password_resets (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        user_id BIGINT UNSIGNED NOT NULL,
+        token_hash CHAR(64) NULL,
+        selector CHAR(12) NOT NULL,
+        validator_hash BINARY(32) NULL,
+        key_version VARCHAR(64) NULL,
+        expires_at DATETIME(6) NOT NULL,
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        used_at DATETIME(6) NULL,
+        ip_hash BINARY(32) NULL,
+        ip_hash_key_version VARCHAR(64) NULL,
+        user_agent VARCHAR(1024) NULL,
+        UNIQUE KEY ux_pr_selector (selector),
+        INDEX idx_pr_user (user_id),
+        INDEX idx_pr_expires (expires_at),
+        INDEX idx_pr_used (used_at),
+        INDEX idx_pr_ip_hash (ip_hash)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
+    foreign_keys:
+      - ALTER TABLE password_resets ADD CONSTRAINT fk_pr_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    indexes:
+    Upsert:
+      Update:
+        - user_id
+        - token_hash
+        - validator_hash
+        - key_version
+        - expires_at
+        - created_at
+        - used_at
+        - ip_hash
+        - ip_hash_key_version
+        - user_agent
+      Keys:
+        - selector
+  device_codes:
+    DefaultOrder: created_at DESC
+    create: |-
+      CREATE TABLE IF NOT EXISTS device_codes (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        device_code_hash BINARY(32) NOT NULL,
+        device_code_hash_key_version VARCHAR(64) NULL,
+        device_code BLOB NOT NULL,
+        device_code_key_version VARCHAR(64) NULL,
+        user_code_hash BINARY(32) NOT NULL,
+        user_code_hash_key_version VARCHAR(64) NULL,
+        client_id VARCHAR(128) NOT NULL,
+        scopes JSON NOT NULL,
+        token_payload BLOB NULL,
+        token_payload_key_version VARCHAR(64) NULL,
+        interval_sec INT UNSIGNED NOT NULL DEFAULT 5,
+        approved_at DATETIME(6) NULL,
+        expires_at DATETIME(6) NOT NULL,
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        UNIQUE KEY ux_device_codes_device_code_hash (device_code_hash),
+        UNIQUE KEY ux_device_codes_user_code_hash (user_code_hash),
+        INDEX idx_device_codes_expires (expires_at),
+        INDEX idx_device_codes_client (client_id),
+        INDEX idx_device_codes_approved (approved_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
+    foreign_keys:
+    indexes:
+    Upsert:
+      Update:
+        - token_payload
+        - token_payload_key_version
+        - approved_at
+      Keys:
+        - device_code_hash
+  magic_links:
+    DefaultOrder: created_at DESC
+    create: |-
+      CREATE TABLE IF NOT EXISTS magic_links (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        fingerprint CHAR(64) NOT NULL,
+        subject VARCHAR(128) NOT NULL,
+        user_id BIGINT UNSIGNED NULL,
+        context JSON NULL,
+        expires_at DATETIME(6) NOT NULL,
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        UNIQUE KEY ux_magic_links_fingerprint (fingerprint),
+        INDEX idx_magic_links_user (user_id),
+        INDEX idx_magic_links_subject (subject),
+        INDEX idx_magic_links_expires (expires_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
+    foreign_keys:
+      - ALTER TABLE magic_links ADD CONSTRAINT fk_magic_links_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+    indexes:
+    Upsert:
+      Update:
+        - subject
+        - user_id
+        - context
+        - expires_at
+      Keys:
+        - fingerprint
+  webauthn_credentials:
+    DefaultOrder: created_at DESC
+    create: |-
+      CREATE TABLE IF NOT EXISTS webauthn_credentials (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        rp_id VARCHAR(255) NOT NULL,
+        subject VARCHAR(128) NOT NULL,
+        user_id BIGINT UNSIGNED NULL,
+        credential_id VARCHAR(255) NOT NULL,
+        public_key TEXT NOT NULL,
+        added_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        last_used_at DATETIME(6) NULL,
+        sign_count BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        UNIQUE KEY ux_webauthn_cred (rp_id, credential_id),
+        INDEX idx_webauthn_cred_subject (rp_id, subject),
+        INDEX idx_webauthn_cred_user (user_id),
+        INDEX idx_webauthn_cred_last_used (last_used_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
+    foreign_keys:
+      - ALTER TABLE webauthn_credentials ADD CONSTRAINT fk_webauthn_cred_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+    indexes:
+    Upsert:
+      Update:
+        - subject
+        - user_id
+        - public_key
+        - added_at
+        - last_used_at
+      Keys:
+        - rp_id
+        - credential_id
+  webauthn_challenges:
+    DefaultOrder: created_at DESC
+    create: |-
+      CREATE TABLE IF NOT EXISTS webauthn_challenges (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        rp_id VARCHAR(255) NOT NULL,
+        challenge_hash CHAR(64) NOT NULL,
+        metadata JSON NOT NULL,
+        expires_at DATETIME(6) NOT NULL,
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        UNIQUE KEY ux_webauthn_challenge (rp_id, challenge_hash),
+        INDEX idx_webauthn_challenge_expires (expires_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
+    foreign_keys:
+    indexes:
+    Upsert:
+      Update:
+        - metadata
+        - expires_at
+      Keys:
+        - rp_id
+        - challenge_hash
   rewrap_jobs:
     UpdatedAt: finished_at
     DefaultOrder: created_at DESC
@@ -2722,7 +2876,7 @@ Tables:
       CREATE TABLE IF NOT EXISTS auth_events (
         id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         user_id BIGINT UNSIGNED NULL,
-        `type` ENUM('login_success','login_failure','logout','password_reset','lockout') NOT NULL,
+        `type` ENUM('login_success','login_failure','logout','password_reset','lockout','magic_link_request','magic_link_throttled','magic_link_email_queued','device_code_issue','device_code_issue_failure','device_code_activate_success','device_code_activate_failure','device_code_poll_success','device_code_poll_failure','webauthn_register_success','webauthn_register_failure','webauthn_login_success','webauthn_login_failure') NOT NULL,
         ip_hash BINARY(32) NULL,
         ip_hash_key_version VARCHAR(64) NULL,
         user_agent VARCHAR(1024) NULL,

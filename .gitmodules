@@ -532,3 +532,28 @@
 	url = https://github.com/blackcatdatabase/blackcat-view-schema.git
 	branch = dev
 	shallow = true
+[submodule "packages/device-codes"]
+	path = packages/device-codes
+	url = https://github.com/blackcatdatabase/table-device-codes
+	branch = dev
+	shallow = true
+[submodule "packages/magic-links"]
+	path = packages/magic-links
+	url = https://github.com/blackcatdatabase/table-magic-links
+	branch = dev
+	shallow = true
+[submodule "packages/password-resets"]
+	path = packages/password-resets
+	url = https://github.com/blackcatdatabase/table-password-resets
+	branch = dev
+	shallow = true
+[submodule "packages/webauthn-challenges"]
+	path = packages/webauthn-challenges
+	url = https://github.com/blackcatdatabase/table-webauthn-challenges
+	branch = dev
+	shallow = true
+[submodule "packages/webauthn-credentials"]
+	path = packages/webauthn-credentials
+	url = https://github.com/blackcatdatabase/table-webauthn-credentials
+	branch = dev
+	shallow = true

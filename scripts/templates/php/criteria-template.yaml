@@ -42,11 +42,11 @@ Content: |-
           return [[SEARCHABLE_COLUMNS_ARRAY]];
       }
   
-  /** Columns allowed in ORDER BY (falls back to filterable() when empty). */
-  protected function sortable(): array
-  {
-      return [[SORTABLE_COLUMNS_ARRAY]];
-  }
+      /** Columns allowed in ORDER BY (falls back to filterable() when empty). */
+      protected function sortable(): array
+      {
+          return [[SORTABLE_COLUMNS_ARRAY]];
+      }
   
       /**
        * Whitelist of joinable entities (for safe ->join() usage):

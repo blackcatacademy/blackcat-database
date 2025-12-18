@@ -38,6 +38,7 @@ use BlackCat\Core\Database\QueryCache;
 use BlackCat\Database\Contracts\ContractRepository as RepoContract;
 use BlackCat\Database\Services\GenericCrudRepositoryShape;
 use BlackCat\Database\Contracts\DatabaseIngressAdapterInterface;
+use BlackCat\Database\Contracts\DatabaseIngressCriteriaAdapterInterface;
 use BlackCat\Database\Crypto\IngressLocator;
 use BlackCat\Database\Telemetry\CoverageTelemetryReporter;
 use Closure;
@@ -219,17 +220,25 @@ class GenericCrudService
      */
     public function upsertByKeys(#[\SensitiveParameter] array $row, array $keys, array $updateCols = []): void
     {
-        // TODO(crypto-integrations): When manifest-driven adapters exist, call them here so
-        // deterministic encryption/HMAC for $keys happens automatically before queries.
-        $this->txn(function () use ($row, $keys, $updateCols) {
+        $keysForQuery = $keys;
+        $table = $this->ingressTable ?? $this->detectRepositoryTable();
+        if (
+            $table !== null
+            && $this->ingressAdapter instanceof DatabaseIngressCriteriaAdapterInterface
+            && $keysForQuery !== []
+        ) {
+            $keysForQuery = $this->ingressAdapter->criteria($table, $keysForQuery);
+        }
+
+        $this->txn(function () use ($row, $keys, $keysForQuery, $updateCols) {
             if (\method_exists($this->repository, 'upsertByKeys')) {
                 $this->assertKnownKeys($row);
-                $this->repository->upsertByKeys($row, $keys, $updateCols);
+                $this->repository->upsertByKeys($row, $keysForQuery, $updateCols);
                 return;
             }
 
             $where = []; $params = [];
-            foreach ($keys as $k => $v) {
+            foreach ($keysForQuery as $k => $v) {
                 $qi = Ident::qi($this->db(), (string)$k);
                 $p  = ':k_' . \preg_replace('~\W~', '_', (string)$k);
                 $where[] = "{$qi} = {$p}";
@@ -253,7 +262,7 @@ class GenericCrudService
 
                 if (!$updateCols && $update) {
                     if (\method_exists($this->repository, 'updateByKeys')) {
-                        $this->repository->updateByKeys($keys, $update);
+                        $this->repository->updateByKeys($keysForQuery, $update);
                         return;
                     }
                     $pk = $this->pkCol;
@@ -266,7 +275,7 @@ class GenericCrudService
                     $subset = \array_intersect_key($row, \array_flip($updateCols));
                     $this->assertKnownKeys($subset);
                     if (\method_exists($this->repository, 'updateByKeys')) {
-                        $this->repository->updateByKeys($keys, $subset);
+                        $this->repository->updateByKeys($keysForQuery, $subset);
                     } else {
                         $pk = $this->pkCol;
                         if (\array_key_exists($pk, $keys)) {
@@ -385,6 +394,93 @@ class GenericCrudService
             return (bool)$this->repository->exists("{$col} = :id", [':id' => $id]);
         }
         return $this->repository->findById($id) !== null;
+    }
+
+    /**
+     * Fetch a single row/DTO by unique keys.
+     *
+     * If an ingress adapter with deterministic criteria support is configured,
+     * keys are transformed before calling into the repository.
+     *
+     * @param array<string,mixed> $keys
+     * @return array<string,mixed>|object|null
+     */
+    public function getByUnique(#[\SensitiveParameter] array $keys, bool $asDto = false): array|object|null
+    {
+        if (!\method_exists($this->repository, 'getByUnique')) {
+            throw new \LogicException('Repository does not support getByUnique()');
+        }
+
+        $keysForQuery = $keys;
+        $table = $this->ingressTable ?? $this->detectRepositoryTable();
+        if (
+            $table !== null
+            && $this->ingressAdapter instanceof DatabaseIngressCriteriaAdapterInterface
+            && $keysForQuery !== []
+        ) {
+            $keysForQuery = $this->ingressAdapter->criteria($table, $keysForQuery);
+        }
+
+        try {
+            $rm = new \ReflectionMethod($this->repository, 'getByUnique');
+            $row = ($rm->getNumberOfParameters() >= 2)
+                ? $this->repository->getByUnique($keysForQuery, $asDto)
+                : $this->repository->getByUnique($keysForQuery);
+        } catch (\Throwable) {
+            /** @var mixed $row */
+            $row = $this->repository->getByUnique($keysForQuery, $asDto);
+        }
+
+        return is_array($row) || is_object($row) ? $row : null;
+    }
+
+    /**
+     * Existence check by key/value pairs (composite unique keys, business keys, etc.).
+     *
+     * When a deterministic ingress adapter is configured, the keys are transformed
+     * (e.g. HMAC) before the existence query is executed.
+     *
+     * @param array<string,mixed> $keys
+     */
+    public function existsByKeys(#[\SensitiveParameter] array $keys): bool
+    {
+        if ($keys === []) {
+            throw new \InvalidArgumentException('existsByKeys() requires non-empty keys.');
+        }
+
+        $keysForQuery = $keys;
+        $table = $this->ingressTable ?? $this->detectRepositoryTable();
+        if (
+            $table !== null
+            && $this->ingressAdapter instanceof DatabaseIngressCriteriaAdapterInterface
+            && $keysForQuery !== []
+        ) {
+            $keysForQuery = $this->ingressAdapter->criteria($table, $keysForQuery);
+        }
+
+        $where = [];
+        $params = [];
+        foreach ($keysForQuery as $k => $v) {
+            $qi = Ident::qi($this->db(), (string)$k);
+
+            if ($v === null) {
+                $where[] = "{$qi} IS NULL";
+                continue;
+            }
+
+            $p = ':k_' . \preg_replace('~\\W~', '_', (string)$k);
+            $where[] = "{$qi} = {$p}";
+            $params[$p] = $v;
+        }
+
+        $cond = \implode(' AND ', $where);
+        if ($cond === '') {
+            throw new \InvalidArgumentException('existsByKeys() produced an empty WHERE condition.');
+        }
+
+        /** @var non-empty-string $cond */
+        $cond = $cond;
+        return (bool)$this->repository->exists($cond, $params);
     }
 
     /**
