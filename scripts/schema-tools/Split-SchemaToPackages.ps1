@@ -816,6 +816,7 @@ function Invoke-Split {
           $fileFull = (Resolve-Path -LiteralPath $joinMapFile.FullName).Path
           if ($libFull -and $fileFull -and $fileFull.StartsWith($libFull, [System.StringComparison]::OrdinalIgnoreCase)) {
             $rel = $fileFull.Substring($libFull.Length).TrimStart('\','/')
+            $rel = $rel.Replace('\','/')
             if ($rel) { $joinsRef = $rel }
           }
         } catch {}
