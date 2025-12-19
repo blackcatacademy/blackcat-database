@@ -527,3 +527,23 @@
 	url = https://github.com/blackcatdatabase/table-key-wrappers
 	branch = main
 	shallow = true
+[submodule "packages/device-codes"]
+	path = packages/device-codes
+	url = https://github.com/blackcatdatabase/table-device-codes
+	branch = main
+[submodule "packages/magic-links"]
+	path = packages/magic-links
+	url = https://github.com/blackcatdatabase/table-magic-links
+	branch = main
+[submodule "packages/password-resets"]
+	path = packages/password-resets
+	url = https://github.com/blackcatdatabase/table-password-resets
+	branch = main
+[submodule "packages/webauthn-challenges"]
+	path = packages/webauthn-challenges
+	url = https://github.com/blackcatdatabase/table-webauthn-challenges
+	branch = main
+[submodule "packages/webauthn-credentials"]
+	path = packages/webauthn-credentials
+	url = https://github.com/blackcatdatabase/table-webauthn-credentials
+	branch = main

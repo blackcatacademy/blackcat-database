@@ -167,6 +167,7 @@ erDiagram
   }
   idempotency_keys {
     CHAR(64) key_hash
+    VARCHAR(64) key_hash_key_version
     BIGINT tenant_id
     BIGINT payment_id
     BIGINT order_id

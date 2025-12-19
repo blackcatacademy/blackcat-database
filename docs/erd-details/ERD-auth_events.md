@@ -17,10 +17,12 @@ erDiagram
   login_attempts {
     BIGINT id
     BYTEA ip_hash
+    VARCHAR(64) ip_hash_key_version
     TIMESTAMPTZ(6) attempted_at
     BOOLEAN success
     BIGINT user_id
     BYTEA username_hash
+    VARCHAR(64) username_hash_key_version
     BIGINT auth_event_id
   }
   users {
@@ -58,11 +60,13 @@ key_events }o--|| users : fk_key_events_actor
 key_rotation_jobs }o--|| users : fk_key_rotation_jobs_user
 login_attempts }o--|| auth_events : fk_login_attempts_auth_event
 login_attempts }o--|| users : fk_login_attempts_user
+magic_links }o--|| users : fk_magic_links_user
 newsletter_subscribers }o--|| users : fk_ns_user
 notifications }o--|| users : fk_notifications_user
 orders }o--|| users : fk_orders_user
+password_resets }o--|| users : fk_pr_user
 pq_migration_jobs }o--|| users : fk_pq_mig_user
-privacy_requests }o--|| users : fk_pr_user
+privacy_requests }o--|| users : fk_privacy_requests_user
 rbac_user_permissions }o--|| users : fk_rbac_up_grant
 rbac_user_permissions }o--|| users : fk_rbac_up_user
 rbac_user_roles }o--|| users : fk_rbac_ur_grant
@@ -79,4 +83,5 @@ user_consents }o--|| users : fk_user_consents_user
 user_identities }o--|| users : fk_user_identities_user
 user_profiles }o--|| users : fk_user_profiles_user
 verify_events }o--|| users : fk_verify_user
+webauthn_credentials }o--|| users : fk_webauthn_cred_user
 ```

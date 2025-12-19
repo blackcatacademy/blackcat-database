@@ -51,12 +51,12 @@
             "source": {
                 "type": "git",
                 "url": "git@github.com:blackcatacademy/blackcat-core.git",
-                "reference": "9e4aff5f7e44c6ab04f0cf3c9f6805fe124ba083"
+                "reference": "c229e794d83df9886ba9f20bbdd121c0bba61a4a"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/blackcatacademy/blackcat-core/zipball/9e4aff5f7e44c6ab04f0cf3c9f6805fe124ba083",
-                "reference": "9e4aff5f7e44c6ab04f0cf3c9f6805fe124ba083",
+                "url": "https://api.github.com/repos/blackcatacademy/blackcat-core/zipball/c229e794d83df9886ba9f20bbdd121c0bba61a4a",
+                "reference": "c229e794d83df9886ba9f20bbdd121c0bba61a4a",
                 "shasum": ""
             },
             "require": {
@@ -78,7 +78,8 @@
             },
             "autoload": {
                 "psr-4": {
-                    "BlackCat\\Core\\": "src/"
+                    "BlackCat\\Core\\": "src/",
+                    "BlackCat\\Database\\": "src/DatabaseCompat/"
                 }
             },
             "autoload-dev": {

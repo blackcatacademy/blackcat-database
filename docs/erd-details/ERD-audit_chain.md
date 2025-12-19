@@ -21,6 +21,7 @@ erDiagram
     JSONB new_value
     TIMESTAMPTZ(6) changed_at
     BYTEA ip_bin
+    VARCHAR(64) ip_bin_key_version
     VARCHAR(1024) user_agent
     VARCHAR(100) request_id
   }

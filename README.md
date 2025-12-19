@@ -1,3 +1,5 @@
+![BlackCat Database](./.github/blackcat-database-banner.png)
+
 # BlackCat Database · Release Channel
 
 [![DB Docs](https://github.com/blackcatacademy/blackcat-database/actions/workflows/db-docs.yml/badge.svg?branch=dev)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/db-docs.yml?query=branch%3Adev)
@@ -14,6 +16,8 @@
 Polished, ship-ready bundle of BlackCat table packages. Submodules are pinned to
 their `main` branches, docs are pre-generated, and dev-only tooling is stripped
 out. Need generators, infra, or CI harnesses? Jump to `dev`.
+
+👉 See [SALES.md](./SALES.md) for a concise value deck and differentiators.
 
 **Release highlights**
 - Ready-to-run packages with generated docs (no local codegen required).

@@ -1,4 +1,4 @@
-name: Stub - core CI (see dev branch)
+name: CI
 
 on:
   workflow_call:

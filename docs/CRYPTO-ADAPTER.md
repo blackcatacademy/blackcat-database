@@ -1,30 +1,54 @@
 # Database Crypto Adapter
 
-Pro automatické šifrování vstupů můžeš využít balíček [`blackcat-database-crypto`](../blackcat-database-crypto). Ten propojí `blackcat-crypto` (manifesty + `CryptoManager`) s libovolným gateway (`PDO`, repository, CLI akce) a zajistí, že citlivé sloupce se před zápisem samy zašifrují nebo podepíší.
+For automatic input encryption you can use [`blackcat-database-crypto`](../blackcat-database-crypto). It bridges `blackcat-crypto` (manifests + `CryptoManager`) with the `blackcat-database` write path (repositories / services / CLI actions) and ensures sensitive columns are automatically encrypted or HMAC'd before writing.
 
-## Princip
-1. V `BLACKCAT_CRYPTO_MANIFEST` definuj všechny kontexty/sloupce.
-2. Vytvoř mapu (`config/encryption.json`), která řekne, jaké strategie (`encrypt`/`hmac`/`passthrough`) mají být použity na konkrétní tabulky.
-3. Obal svůj gateway / repository pomocí `DatabaseCryptoAdapter`:
+## How it works
+1. In `BLACKCAT_CRYPTO_MANIFEST`, define all contexts/columns.
+2. Create a map (`config/encryption.json`) that specifies which strategies (`encrypt`/`hmac`/`passthrough`) apply to specific tables.
+3. Enable the ingress adapter (zero boilerplate) via `IngressLocator` and use standard repos/services:
 
 ```php
-use BlackCat\Crypto\Config\CryptoConfig;
-use BlackCat\Crypto\CryptoManager;
-use BlackCat\Database\Crypto\Config\EncryptionMap;
-use BlackCat\Database\Crypto\Gateway\PdoGateway;
-use BlackCat\Database\Crypto\Adapter\DatabaseCryptoAdapter;
+use BlackCat\Core\Database;
+use BlackCat\Database\Packages\Users\Repository\UserRepository;
+use BlackCat\Database\Services\GenericCrudService;
+use BlackCat\Database\Crypto\IngressLocator;
 
-$crypto = CryptoManager::boot(CryptoConfig::fromEnv());
-$map = EncryptionMap::fromFile(__DIR__ . '/../config/encryption.json');
-$gateway = new PdoGateway($pdo);
-$adapter = new DatabaseCryptoAdapter($crypto, $map, $gateway);
+// 1) Standard boot (DB) + env configuration:
+// - BLACKCAT_DB_ENCRYPTION_MAP=./config/encryption.json
+// - BLACKCAT_KEYS_DIR=./keys
+// - BLACKCAT_CRYPTO_MANIFEST=.../contexts/core.json
+// - (recommended) BLACKCAT_DB_ENCRYPTION_REQUIRED=1  # fail-closed
 
-$adapter->insert('users', ['id' => 1, 'ssn' => '...']);
+// 2) IngressLocator boots itself from env (when map+keys are available)
+// (GenericCrudService uses it automatically)
+IngressLocator::requireAdapter(); // fail-fast
+
+$db = Database::getInstance();
+$repo = new UserRepository($db);
+$svc  = new GenericCrudService($db, $repo, 'id');
+
+// The write path is automatically encrypted/HMAC'd according to the map (no raw PDO, no manual encrypt() calls).
+$svc->create(['id' => 1, 'ssn' => '...']);
 ```
 
-## Kem integruj
-- **CLI / Migrations** – wrapper můžeš použít i v `bin/database` příkazech, takže se ani seed data už neskládají v plaintextu.
-- **Repositories** – implementuj `DatabaseGatewayInterface` pro své repozitáře, nebo využij plánovaný middleware v `blackcat-database-crypto` Stage 3.
-- **Observabilita** – telemetrie z adapteru (počet zašifrovaných polí, chyby) můžeš napojit na `blackcat-observability` společně s DB metrikami.
+## Deterministic lookup (login/search)
 
-Aktuální roadmapa (Stage 1–12) je k dispozici v `blackcat-database-crypto/docs/ROADMAP.md`.
+For queries like “find a user by email”, store the lookup column deterministically as `hmac` (e.g. `users.email_hash`).
+Then your application code never computes HMACs manually:
+
+```php
+// 1) Repo can apply the deterministic transform automatically (HMAC-only) before WHERE:
+$user = $repo->getByUnique(['email_hash' => $email]);
+
+// 2) Or via the service:
+$exists = $svc->existsByKeys(['email_hash' => $email]);
+```
+
+Note: the deterministic transform is intentionally HMAC-only; `encrypt` (non-deterministic) is rejected for criteria to avoid false queries.
+
+## How to integrate
+- **CLI / Migrations** – use `blackcat-database-crypto/bin/db-crypto-*` (plan/schema/telemetry/keys-sync) and write to the DB through `blackcat-database` (installer/repositories).
+- **Repositories** – repos support an ingress hook (`setIngressAdapter()`), but are typically wired automatically via `IngressLocator` (zero boilerplate). `GenericCrudService` also propagates the adapter into the repo instance.
+- **Observability** – adapter telemetry (number of encrypted fields, errors) can be integrated with `blackcat-observability` alongside DB metrics.
+
+The current roadmap (Stage 1–12) is available in `blackcat-database-crypto/docs/ROADMAP.md`.

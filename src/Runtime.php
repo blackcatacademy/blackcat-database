@@ -35,9 +35,7 @@ namespace BlackCat\Database;
 
 use BlackCat\Core\Database;
 use BlackCat\Core\Database\QueryCache;
-use BlackCat\Core\Database\Observer\SyncEventObserver;
 use BlackCat\Database\Support\Observability;
-use BlackCat\DatabaseSync\Hook\HookDispatcher;
 use Psr\Log\LoggerInterface;
 
 /**

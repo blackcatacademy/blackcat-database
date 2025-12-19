@@ -1,15 +1,21 @@
 ```mermaid
 %%{init: {"theme":"forest","themeVariables":{"primaryColor":"#e5e7eb","primaryBorderColor":"#111827","primaryTextColor":"#0b1021","edgeLabelBackground":"#f8fafc","tertiaryColor":"#cbd5e1","tertiaryTextColor":"#0f172a","lineColor":"#0f172a","nodeBorder":"#111827","textColor":"#0b1021","fontSize":"14px"}} }%%
-%% Detail ERD for user_profiles (engine: postgres, neighbors: 1)
+%% Detail ERD for password_resets (engine: postgres, neighbors: 1)
 erDiagram
   direction TB
-  user_profiles {
+  password_resets {
+    BIGINT id
     BIGINT user_id
-    BYTEA profile_enc
+    CHAR(64) token_hash
+    CHAR(12) selector
+    BYTEA validator_hash
     VARCHAR(64) key_version
-    JSONB encryption_meta
-    TIMESTAMPTZ(6) updated_at
-    INTEGER version
+    TIMESTAMPTZ(6) expires_at
+    TIMESTAMPTZ(6) created_at
+    TIMESTAMPTZ(6) used_at
+    BYTEA ip_hash
+    VARCHAR(64) ip_hash_key_version
+    VARCHAR(1024) user_agent
   }
   users {
     BIGINT id

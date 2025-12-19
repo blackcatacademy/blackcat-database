@@ -5,7 +5,7 @@
 | [api_keys](https://github.com/blackcatdatabase/table-api-keys) | 25 | 2 | 2 | 4 | 0 | False | True | True | **40** |
 | [app_settings](https://github.com/blackcatdatabase/table-app-settings) | 17 | 0 | 0 | 2 | 0 | False | True | False | **20** |
 | [audit_chain](https://github.com/blackcatdatabase/table-audit-chain) | 12 | 1 | 0 | 2 | 0 | False | True | True | **30** |
-| [audit_log](https://github.com/blackcatdatabase/table-audit-log) | 21 | 3 | 0 | 2 | 0 | False | False | True | **20** |
+| [audit_log](https://github.com/blackcatdatabase/table-audit-log) | 23 | 3 | 0 | 2 | 0 | False | False | True | **20** |
 | [auth_events](https://github.com/blackcatdatabase/table-auth-events) | 17 | 0 | 0 | 2 | 0 | False | False | False | **10** |
 | [authors](https://github.com/blackcatdatabase/table-authors) | 37 | 3 | 2 | 2 | 0 | False | True | True | **40** |
 | [book_assets](https://github.com/blackcatdatabase/table-book-assets) | 39 | 3 | 2 | 6 | 0 | False | True | True | **40** |
@@ -22,7 +22,8 @@
 | [crypto_standard_aliases](https://github.com/blackcatdatabase/table-crypto-standard-aliases) | 7 | 1 | 0 | 2 | 0 | False | True | True | **30** |
 | [data_retention_policies](https://github.com/blackcatdatabase/table-data-retention-policies) | 16 | 0 | 0 | 0 | 0 | False | True | True | **20** |
 | [deletion_jobs](https://github.com/blackcatdatabase/table-deletion-jobs) | 24 | 0 | 0 | 2 | 0 | False | True | False | **20** |
-| [device_fingerprints](https://github.com/blackcatdatabase/table-device-fingerprints) | 22 | 1 | 0 | 2 | 0 | False | True | True | **30** |
+| [device_codes](https://github.com/blackcatdatabase/table-device-codes) | 31 | 0 | 0 | 0 | 0 | False | True | True | **20** |
+| [device_fingerprints](https://github.com/blackcatdatabase/table-device-fingerprints) | 24 | 1 | 0 | 2 | 0 | False | True | True | **30** |
 | [email_verifications](https://github.com/blackcatdatabase/table-email-verifications) | 18 | 0 | 0 | 2 | 0 | False | True | False | **20** |
 | [encrypted_fields](https://github.com/blackcatdatabase/table-encrypted-fields) | 16 | 1 | 0 | 0 | 0 | False | True | True | **20** |
 | [encryption_bindings](https://github.com/blackcatdatabase/table-encryption-bindings) | 15 | 1 | 0 | 2 | 0 | False | True | True | **30** |
@@ -36,7 +37,7 @@
 | [field_hash_policies](https://github.com/blackcatdatabase/table-field-hash-policies) | 16 | 1 | 0 | 2 | 0 | False | True | True | **30** |
 | [global_id_registry](https://github.com/blackcatdatabase/table-global-id-registry) | 10 | 0 | 0 | 0 | 0 | False | True | True | **20** |
 | [hash_profiles](https://github.com/blackcatdatabase/table-hash-profiles) | 13 | 1 | 0 | 2 | 0 | False | True | True | **30** |
-| [idempotency_keys](https://github.com/blackcatdatabase/table-idempotency-keys) | 15 | 0 | 0 | 6 | 0 | False | True | False | **20** |
+| [idempotency_keys](https://github.com/blackcatdatabase/table-idempotency-keys) | 17 | 0 | 0 | 6 | 0 | False | True | False | **20** |
 | [inventory_reservations](https://github.com/blackcatdatabase/table-inventory-reservations) | 17 | 3 | 0 | 6 | 0 | False | True | True | **30** |
 | [invoice_items](https://github.com/blackcatdatabase/table-invoice-items) | 26 | 0 | 0 | 2 | 0 | False | True | False | **20** |
 | [invoices](https://github.com/blackcatdatabase/table-invoices) | 29 | 0 | 0 | 4 | 0 | False | True | False | **20** |
@@ -50,7 +51,8 @@
 | [kms_keys](https://github.com/blackcatdatabase/table-kms-keys) | 13 | 1 | 1 | 2 | 0 | False | True | True | **40** |
 | [kms_providers](https://github.com/blackcatdatabase/table-kms-providers) | 13 | 1 | 1 | 0 | 0 | False | True | True | **30** |
 | [kms_routing_policies](https://github.com/blackcatdatabase/table-kms-routing-policies) | 16 | 0 | 0 | 0 | 0 | False | True | True | **20** |
-| [login_attempts](https://github.com/blackcatdatabase/table-login-attempts) | 13 | 0 | 0 | 4 | 0 | False | False | False | **10** |
+| [login_attempts](https://github.com/blackcatdatabase/table-login-attempts) | 17 | 0 | 0 | 4 | 0 | False | False | False | **10** |
+| [magic_links](https://github.com/blackcatdatabase/table-magic-links) | 14 | 0 | 0 | 2 | 0 | False | True | False | **20** |
 | [merkle_anchors](https://github.com/blackcatdatabase/table-merkle-anchors) | 12 | 0 | 0 | 2 | 0 | False | False | False | **10** |
 | [merkle_roots](https://github.com/blackcatdatabase/table-merkle-roots) | 18 | 0 | 0 | 0 | 0 | False | True | True | **20** |
 | [migration_events](https://github.com/blackcatdatabase/table-migration-events) | 17 | 0 | 0 | 0 | 0 | False | False | True | **10** |
@@ -59,6 +61,7 @@
 | [order_item_downloads](https://github.com/blackcatdatabase/table-order-item-downloads) | 29 | 4 | 2 | 8 | 0 | False | False | True | **30** |
 | [order_items](https://github.com/blackcatdatabase/table-order-items) | 25 | 1 | 1 | 6 | 0 | False | True | True | **40** |
 | [orders](https://github.com/blackcatdatabase/table-orders) | 43 | 3 | 0 | 4 | 0 | False | True | True | **30** |
+| [password_resets](https://github.com/blackcatdatabase/table-password-resets) | 24 | 0 | 0 | 2 | 0 | False | True | False | **20** |
 | [payment_gateway_notifications](https://github.com/blackcatdatabase/table-payment-gateway-notifications) | 20 | 0 | 0 | 4 | 0 | False | False | False | **10** |
 | [payment_logs](https://github.com/blackcatdatabase/table-payment-logs) | 7 | 1 | 0 | 2 | 0 | False | False | True | **20** |
 | [payment_webhooks](https://github.com/blackcatdatabase/table-payment-webhooks) | 13 | 1 | 1 | 2 | 0 | False | True | True | **40** |
@@ -88,27 +91,29 @@
 | [sessions](https://github.com/blackcatdatabase/table-sessions) | 34 | 8 | 0 | 2 | 0 | False | True | True | **30** |
 | [schema_registry](https://github.com/blackcatdatabase/table-schema-registry) | 14 | 0 | 0 | 0 | 0 | False | False | True | **10** |
 | [signatures](https://github.com/blackcatdatabase/table-signatures) | 20 | 1 | 0 | 6 | 0 | False | True | True | **30** |
-| [signing_keys](https://github.com/blackcatdatabase/table-signing-keys) | 28 | 1 | 0 | 6 | 0 | False | True | True | **30** |
+| [signing_keys](https://github.com/blackcatdatabase/table-signing-keys) | 30 | 1 | 0 | 6 | 0 | False | True | True | **30** |
 | [slo_status](https://github.com/blackcatdatabase/table-slo-status) | 14 | 0 | 0 | 2 | 0 | False | False | False | **10** |
 | [slo_windows](https://github.com/blackcatdatabase/table-slo-windows) | 11 | 0 | 0 | 0 | 0 | False | True | True | **20** |
 | [sync_batch_items](https://github.com/blackcatdatabase/table-sync-batch-items) | 12 | 0 | 0 | 2 | 0 | False | True | False | **20** |
 | [sync_batches](https://github.com/blackcatdatabase/table-sync-batches) | 23 | 0 | 0 | 4 | 0 | False | True | False | **20** |
 | [sync_errors](https://github.com/blackcatdatabase/table-sync-errors) | 11 | 0 | 0 | 2 | 0 | False | True | False | **20** |
-| [system_errors](https://github.com/blackcatdatabase/table-system-errors) | 50 | 1 | 0 | 4 | 0 | False | True | True | **30** |
+| [system_errors](https://github.com/blackcatdatabase/table-system-errors) | 46 | 1 | 0 | 4 | 0 | False | True | True | **30** |
 | [system_jobs](https://github.com/blackcatdatabase/table-system-jobs) | 31 | 0 | 0 | 0 | 0 | False | True | True | **20** |
 | [tax_rates](https://github.com/blackcatdatabase/table-tax-rates) | 15 | 1 | 1 | 2 | 0 | False | True | True | **40** |
 | [tenant_domains](https://github.com/blackcatdatabase/table-tenant-domains) | 11 | 1 | 0 | 2 | 0 | False | True | True | **30** |
 | [tenants](https://github.com/blackcatdatabase/table-tenants) | 19 | 1 | 1 | 0 | 0 | False | True | True | **30** |
-| [two_factor](https://github.com/blackcatdatabase/table-two-factor) | 17 | 0 | 0 | 2 | 0 | True | True | False | **60** |
+| [two_factor](https://github.com/blackcatdatabase/table-two-factor) | 21 | 0 | 0 | 2 | 0 | True | True | False | **60** |
 | [user_consents](https://github.com/blackcatdatabase/table-user-consents) | 15 | 2 | 1 | 2 | 0 | False | False | True | **30** |
 | [user_identities](https://github.com/blackcatdatabase/table-user-identities) | 12 | 0 | 0 | 2 | 0 | False | True | False | **20** |
 | [user_profiles](https://github.com/blackcatdatabase/table-user-profiles) | 11 | 0 | 0 | 2 | 0 | False | True | False | **20** |
 | [users](https://github.com/blackcatdatabase/table-users) | 36 | 4 | 0 | 0 | 0 | False | True | True | **20** |
 | [vat_validations](https://github.com/blackcatdatabase/table-vat-validations) | 11 | 0 | 0 | 2 | 0 | False | False | False | **10** |
 | [verify_events](https://github.com/blackcatdatabase/table-verify-events) | 15 | 0 | 0 | 2 | 0 | False | False | False | **10** |
+| [webauthn_credentials](https://github.com/blackcatdatabase/table-webauthn-credentials) | 20 | 0 | 0 | 2 | 0 | False | True | False | **20** |
+| [webauthn_challenges](https://github.com/blackcatdatabase/table-webauthn-challenges) | 12 | 0 | 0 | 0 | 0 | False | True | True | **20** |
 | [webhook_outbox](https://github.com/blackcatdatabase/table-webhook-outbox) | 17 | 0 | 0 | 0 | 0 | False | True | True | **20** |
 | [worker_locks](https://github.com/blackcatdatabase/table-worker-locks) | 7 | 0 | 0 | 0 | 0 | False | True | True | **20** |
 
-**Totals:** packages=106, tables=106, indexes=135, FKs=276, views=0, withPK=7, withTime=81, withUnique=19
+**Totals:** packages=111, tables=111, indexes=135, FKs=282, views=0, withPK=7, withTime=86, withUnique=19
 
 > Score formula: PK(40) + Time(10) + UniqueIdx(10) + FK(10) + FKIndexed(10) + Views(10)

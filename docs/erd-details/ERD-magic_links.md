@@ -1,15 +1,16 @@
 ```mermaid
 %%{init: {"theme":"forest","themeVariables":{"primaryColor":"#e5e7eb","primaryBorderColor":"#111827","primaryTextColor":"#0b1021","edgeLabelBackground":"#f8fafc","tertiaryColor":"#cbd5e1","tertiaryTextColor":"#0f172a","lineColor":"#0f172a","nodeBorder":"#111827","textColor":"#0b1021","fontSize":"14px"}} }%%
-%% Detail ERD for user_profiles (engine: postgres, neighbors: 1)
+%% Detail ERD for magic_links (engine: postgres, neighbors: 1)
 erDiagram
   direction TB
-  user_profiles {
+  magic_links {
+    BIGINT id
+    CHAR(64) fingerprint
+    VARCHAR(128) subject
     BIGINT user_id
-    BYTEA profile_enc
-    VARCHAR(64) key_version
-    JSONB encryption_meta
-    TIMESTAMPTZ(6) updated_at
-    INTEGER version
+    JSONB context
+    TIMESTAMPTZ(6) expires_at
+    TIMESTAMPTZ(6) created_at
   }
   users {
     BIGINT id

@@ -1,4 +1,4 @@
-name: Stub - db-docs (see dev branch)
+name: DB Docs CI
 
 on:
   workflow_call:
