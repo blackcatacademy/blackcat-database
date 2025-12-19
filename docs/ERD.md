@@ -47,6 +47,7 @@ erDiagram
     JSONB new_value
     TIMESTAMPTZ(6) changed_at
     BYTEA ip_bin
+    VARCHAR(64) ip_bin_key_version
     VARCHAR(1024) user_agent
     VARCHAR(100) request_id
   }
@@ -274,10 +275,28 @@ erDiagram
     BIGINT created_by
     TIMESTAMPTZ(6) created_at
   }
+  device_codes {
+    BIGINT id
+    BYTEA device_code_hash
+    VARCHAR(64) device_code_hash_key_version
+    BYTEA device_code
+    VARCHAR(64) device_code_key_version
+    BYTEA user_code_hash
+    VARCHAR(64) user_code_hash_key_version
+    VARCHAR(128) client_id
+    JSONB scopes
+    BYTEA token_payload
+    VARCHAR(64) token_payload_key_version
+    INTEGER interval_sec
+    TIMESTAMPTZ(6) approved_at
+    TIMESTAMPTZ(6) expires_at
+    TIMESTAMPTZ(6) created_at
+  }
   device_fingerprints {
     BIGINT id
     BIGINT user_id
     BYTEA fingerprint_hash
+    VARCHAR(64) fingerprint_hash_key_version
     JSONB attributes
     SMALLINT risk_score
     TIMESTAMPTZ(6) first_seen
@@ -423,6 +442,7 @@ erDiagram
   }
   idempotency_keys {
     CHAR(64) key_hash
+    VARCHAR(64) key_hash_key_version
     BIGINT tenant_id
     BIGINT payment_id
     BIGINT order_id
@@ -591,11 +611,22 @@ erDiagram
   login_attempts {
     BIGINT id
     BYTEA ip_hash
+    VARCHAR(64) ip_hash_key_version
     TIMESTAMPTZ(6) attempted_at
     BOOLEAN success
     BIGINT user_id
     BYTEA username_hash
+    VARCHAR(64) username_hash_key_version
     BIGINT auth_event_id
+  }
+  magic_links {
+    BIGINT id
+    CHAR(64) fingerprint
+    VARCHAR(128) subject
+    BIGINT user_id
+    JSONB context
+    TIMESTAMPTZ(6) expires_at
+    TIMESTAMPTZ(6) created_at
   }
   merkle_anchors {
     BIGINT id
@@ -726,6 +757,20 @@ erDiagram
     TIMESTAMPTZ(6) created_at
     TIMESTAMPTZ(6) updated_at
     INTEGER version
+  }
+  password_resets {
+    BIGINT id
+    BIGINT user_id
+    CHAR(64) token_hash
+    CHAR(12) selector
+    BYTEA validator_hash
+    VARCHAR(64) key_version
+    TIMESTAMPTZ(6) expires_at
+    TIMESTAMPTZ(6) created_at
+    TIMESTAMPTZ(6) used_at
+    BYTEA ip_hash
+    VARCHAR(64) ip_hash_key_version
+    VARCHAR(1024) user_agent
   }
   payment_gateway_notifications {
     BIGINT id
@@ -1034,6 +1079,7 @@ erDiagram
     VARCHAR(120) name
     BYTEA public_key
     BYTEA private_key_enc
+    VARCHAR(64) private_key_enc_key_version
     BIGINT kms_key_id
     TEXT origin
     TEXT status
@@ -1106,8 +1152,6 @@ erDiagram
     BIGINT user_id
     BYTEA ip_hash
     VARCHAR(64) ip_hash_key_version
-    VARCHAR(45) ip_text
-    BYTEA ip_bin
     VARCHAR(1024) user_agent
     VARCHAR(2048) url
     VARCHAR(10) method
@@ -1170,7 +1214,9 @@ erDiagram
     BIGINT user_id
     VARCHAR(50) method
     BYTEA secret
+    VARCHAR(64) secret_key_version
     BYTEA recovery_codes_enc
+    VARCHAR(64) recovery_codes_enc_key_version
     BIGINT hotp_counter
     BOOLEAN enabled
     TIMESTAMPTZ(6) created_at
@@ -1240,6 +1286,26 @@ erDiagram
     VARCHAR(1024) user_agent
     TIMESTAMPTZ(6) occurred_at
     JSONB meta
+  }
+  webauthn_credentials {
+    BIGINT id
+    VARCHAR(255) rp_id
+    VARCHAR(128) subject
+    BIGINT user_id
+    VARCHAR(255) credential_id
+    TEXT public_key
+    TIMESTAMPTZ(6) added_at
+    TIMESTAMPTZ(6) created_at
+    TIMESTAMPTZ(6) last_used_at
+    BIGINT sign_count
+  }
+  webauthn_challenges {
+    BIGINT id
+    VARCHAR(255) rp_id
+    CHAR(64) challenge_hash
+    JSONB metadata
+    TIMESTAMPTZ(6) expires_at
+    TIMESTAMPTZ(6) created_at
   }
   webhook_outbox {
     BIGINT id
@@ -1320,6 +1386,7 @@ kms_health_checks }o--|| kms_providers : fk_kms_hc_provider
 kms_keys }o--|| kms_providers : fk_kms_keys_provider
 login_attempts }o--|| auth_events : fk_login_attempts_auth_event
 login_attempts }o--|| users : fk_login_attempts_user
+magic_links }o--|| users : fk_magic_links_user
 merkle_anchors }o--|| merkle_roots : fk_merkle_anchor_root
 newsletter_subscribers }o--|| tenants : fk_ns_tenant
 newsletter_subscribers }o--|| users : fk_ns_user
@@ -1334,6 +1401,7 @@ order_items }o--|| orders : fk_order_items_order
 order_items }o--|| tenants : fk_order_items_tenant
 orders }o--|| tenants : fk_orders_tenant
 orders }o--|| users : fk_orders_user
+password_resets }o--|| users : fk_pr_user
 payment_gateway_notifications }o--|| payments : fk_pg_notify_payment
 payment_gateway_notifications }o--|| tenants : fk_pg_notify_tenant
 payment_logs }o--|| payments : fk_payment_logs_payment
@@ -1347,7 +1415,7 @@ policy_kms_keys }o--|| kms_keys : fk_policy_kms_keys_key
 pq_migration_jobs }o--|| crypto_algorithms : fk_pq_mig_algo
 pq_migration_jobs }o--|| encryption_policies : fk_pq_mig_policy
 pq_migration_jobs }o--|| users : fk_pq_mig_user
-privacy_requests }o--|| users : fk_pr_user
+privacy_requests }o--|| users : fk_privacy_requests_user
 rbac_repo_snapshots }o--|| rbac_repositories : fk_rbac_snap_repo
 rbac_repositories }o--|| signing_keys : fk_rbac_repos_sign_key
 rbac_role_permissions }o--|| permissions : fk_rbac_rp_perm
@@ -1396,6 +1464,7 @@ user_identities }o--|| users : fk_user_identities_user
 user_profiles }o--|| users : fk_user_profiles_user
 vat_validations }o--|| countries : fk_vat_validations_country
 verify_events }o--|| users : fk_verify_user
+webauthn_credentials }o--|| users : fk_webauthn_cred_user
   %% styling
   classDef linked fill:#0b1021,stroke:#38bdf8,stroke-width:2px,color:#e2e8f0
   classDef orphan fill:#111827,stroke:#94a3b8,stroke-width:1px,color:#cbd5e1
@@ -1443,12 +1512,14 @@ verify_events }o--|| users : fk_verify_user
   class kms_health_checks linked
   class kms_providers linked
   class login_attempts linked
+  class magic_links linked
   class merkle_anchors linked
   class merkle_roots linked
   class newsletter_subscribers linked
   class notifications linked
   class order_item_downloads hub
   class order_items hub
+  class password_resets linked
   class payment_gateway_notifications linked
   class payment_logs linked
   class payment_webhooks linked
@@ -1491,6 +1562,8 @@ verify_events }o--|| users : fk_verify_user
   class user_profiles linked
   class vat_validations linked
   class verify_events linked
+  class webauthn_credentials linked
+  class device_codes orphan
   class encrypted_fields orphan
   class encryption_events orphan
   class entity_external_ids orphan
@@ -1504,28 +1577,29 @@ verify_events }o--|| users : fk_verify_user
   class rate_limits orphan
   class schema_registry orphan
   class system_jobs orphan
+  class webauthn_challenges orphan
   class webhook_outbox orphan
   class worker_locks orphan
-  %% Summary: tables=106, edges=138, linked=58, orphans=15, hubs=33, generated=2025-12-09T13:47:36+01:00
+  %% Summary: tables=111, edges=141, linked=61, orphans=17, hubs=33, generated=2025-12-19T01:02:16+01:00
 ```
 
 > Legend: linked = tables with FK edges; orphan = no FK in/out; hub = degree >= 5.
 
 | Metric | Value |
 | --- | ---: |
-| Tables | 106 |
-| Edges | 138 |
-| Linked | 58 |
-| Orphans | 15 |
+| Tables | 111 |
+| Edges | 141 |
+| Linked | 61 |
+| Orphans | 17 |
 | Hubs (≥5) | 33 |
 | Engine | postgres |
-| Generated | 2025-12-09T13:47:36+01:00 |
+| Generated | 2025-12-19T01:02:16+01:00 |
 | Direction | TB |
 
 **Quick navigation (hubs)**
 | Table | Degree | Package |
 | --- | ---: | --- |
-| [users](erd-details/ERD-users.md) | 70 | [users](../packages/users) |
+| [users](erd-details/ERD-users.md) | 76 | [users](../packages/users) |
 | [tenants](erd-details/ERD-tenants.md) | 48 | [tenants](../packages/tenants) |
 | [books](erd-details/ERD-books.md) | 20 | [books](../packages/books) |
 | [orders](erd-details/ERD-orders.md) | 18 | [orders](../packages/orders) |
@@ -1579,6 +1653,7 @@ verify_events }o--|| users : fk_verify_user
 | [auth_events](erd-details/ERD-auth_events.md) | 4 | [auth-events](../packages/auth-events) |
 | [audit_log](erd-details/ERD-audit_log.md) | 4 | [audit-log](../packages/audit-log) |
 | [api_keys](erd-details/ERD-api_keys.md) | 4 | [api-keys](../packages/api-keys) |
+| [webauthn_credentials](erd-details/ERD-webauthn_credentials.md) | 2 | [webauthn-credentials](../packages/webauthn-credentials) |
 | [verify_events](erd-details/ERD-verify_events.md) | 2 | [verify-events](../packages/verify-events) |
 | [vat_validations](erd-details/ERD-vat_validations.md) | 2 | [vat-validations](../packages/vat-validations) |
 | [user_profiles](erd-details/ERD-user_profiles.md) | 2 | [user-profiles](../packages/user-profiles) |
@@ -1601,8 +1676,10 @@ verify_events }o--|| users : fk_verify_user
 | [privacy_requests](erd-details/ERD-privacy_requests.md) | 2 | [privacy-requests](../packages/privacy-requests) |
 | [payment_webhooks](erd-details/ERD-payment_webhooks.md) | 2 | [payment-webhooks](../packages/payment-webhooks) |
 | [payment_logs](erd-details/ERD-payment_logs.md) | 2 | [payment-logs](../packages/payment-logs) |
+| [password_resets](erd-details/ERD-password_resets.md) | 2 | [password-resets](../packages/password-resets) |
 | [merkle_roots](erd-details/ERD-merkle_roots.md) | 2 | [merkle-roots](../packages/merkle-roots) |
 | [merkle_anchors](erd-details/ERD-merkle_anchors.md) | 2 | [merkle-anchors](../packages/merkle-anchors) |
+| [magic_links](erd-details/ERD-magic_links.md) | 2 | [magic-links](../packages/magic-links) |
 | [key_usage](erd-details/ERD-key_usage.md) | 2 | [key-usage](../packages/key-usage) |
 | [key_rotation_jobs](erd-details/ERD-key_rotation_jobs.md) | 2 | [key-rotation-jobs](../packages/key-rotation-jobs) |
 | [invoice_items](erd-details/ERD-invoice_items.md) | 2 | [invoice-items](../packages/invoice-items) |

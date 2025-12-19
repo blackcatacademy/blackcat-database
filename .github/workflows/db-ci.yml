@@ -1,4 +1,4 @@
-name: Stub - db-ci (see dev branch)
+name: CI (DB)
 
 on:
   workflow_call:

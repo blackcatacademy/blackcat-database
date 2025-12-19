@@ -78,6 +78,40 @@ final class SchemaIntrospector
         return (int)($db->fetchOne($sql, $params) ?? 0) > 0;
     }
 
+    /**
+     * List BASE TABLE names for the current database / search_path.
+     *
+     * Notes:
+     * - MySQL/MariaDB: defaults to DATABASE().
+     * - PostgreSQL: defaults to current_schemas(false) (no implicit pg_catalog).
+     *
+     * @return list<string>
+     */
+    public static function listTables(Database $db, SqlDialect $d, ?string $schema = null): array
+    {
+        if ($d->isMysql()) {
+            $sql = "SELECT TABLE_NAME AS t
+                      FROM information_schema.TABLES
+                     WHERE " . ($schema ? "LOWER(TABLE_SCHEMA) = LOWER(:s)" : "TABLE_SCHEMA = DATABASE()") . "
+                       AND TABLE_TYPE = 'BASE TABLE'
+                     ORDER BY TABLE_NAME";
+            $params = $schema ? [':s' => $schema] : [];
+            $rows = (array)$db->fetchAll($sql, $params);
+            return array_values(array_map(static fn($r) => (string)$r['t'], $rows));
+        }
+
+        $sql = "SELECT table_name AS t
+                  FROM information_schema.tables
+                 WHERE " . ($schema
+                    ? "LOWER(table_schema) = LOWER(:s)"
+                    : "table_schema = ANY (current_schemas(false))") . "
+                   AND table_type = 'BASE TABLE'
+                 ORDER BY table_name";
+        $params = $schema ? [':s' => $schema] : [];
+        $rows = (array)$db->fetchAll($sql, $params);
+        return array_values(array_map(static fn($r) => (string)$r['t'], $rows));
+    }
+
     public static function hasView(Database $db, SqlDialect $d, string $view): bool
     {
         [$schema, $name] = self::splitQualified($view);

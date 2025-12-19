@@ -1,15 +1,19 @@
 ```mermaid
 %%{init: {"theme":"forest","themeVariables":{"primaryColor":"#e5e7eb","primaryBorderColor":"#111827","primaryTextColor":"#0b1021","edgeLabelBackground":"#f8fafc","tertiaryColor":"#cbd5e1","tertiaryTextColor":"#0f172a","lineColor":"#0f172a","nodeBorder":"#111827","textColor":"#0b1021","fontSize":"14px"}} }%%
-%% Detail ERD for user_profiles (engine: postgres, neighbors: 1)
+%% Detail ERD for webauthn_credentials (engine: postgres, neighbors: 1)
 erDiagram
   direction TB
-  user_profiles {
+  webauthn_credentials {
+    BIGINT id
+    VARCHAR(255) rp_id
+    VARCHAR(128) subject
     BIGINT user_id
-    BYTEA profile_enc
-    VARCHAR(64) key_version
-    JSONB encryption_meta
-    TIMESTAMPTZ(6) updated_at
-    INTEGER version
+    VARCHAR(255) credential_id
+    TEXT public_key
+    TIMESTAMPTZ(6) added_at
+    TIMESTAMPTZ(6) created_at
+    TIMESTAMPTZ(6) last_used_at
+    BIGINT sign_count
   }
   users {
     BIGINT id

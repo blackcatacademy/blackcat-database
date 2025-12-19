@@ -1,4 +1,4 @@
-name: Stub - lint PHP (see dev branch)
+name: Lint (SQL)
 
 on:
   workflow_call:

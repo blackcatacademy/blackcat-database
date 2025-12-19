@@ -120,6 +120,24 @@ trait ServiceHelpers
 
     /** ---------- Transactions ---------- */
 
+    private function callServiceFn(callable $fn): mixed
+    {
+        try {
+            $ref = new \ReflectionFunction(\Closure::fromCallable($fn));
+            $required = $ref->getNumberOfRequiredParameters();
+            if ($required === 0) {
+                return $fn();
+            }
+            if ($required === 1) {
+                return $fn($this);
+            }
+        } catch (\Throwable) {
+            // fallthrough
+        }
+
+        return $fn();
+    }
+
     /**
      * @template T
      * @param callable(self):T $fn
@@ -127,7 +145,7 @@ trait ServiceHelpers
      */
     protected function txn(callable $fn): mixed
     {
-        return $this->db()->transaction(fn () => $fn($this));
+        return $this->db()->transaction(fn () => $this->callServiceFn($fn));
     }
 
     /**
@@ -139,7 +157,7 @@ trait ServiceHelpers
      */
     protected function txnRO(callable $fn): mixed
     {
-        return $this->db()->transactionReadOnly(fn () => $fn($this));
+        return $this->db()->transactionReadOnly(fn () => $this->callServiceFn($fn));
     }
 
     /**
@@ -209,7 +227,7 @@ trait ServiceHelpers
         if ($db->isPg()) {
             try {
                 return Retry::runAdvanced(
-                    fn() => $db->withAdvisoryLock($key, 0, fn () => $fn($this)),
+                    fn() => $db->withAdvisoryLock($key, 0, fn () => $this->callServiceFn($fn)),
                     attempts:   100_000,                 // rely on deadline rather than fixed count
                     initialMs:  25,
                     factor:     2.0,
@@ -240,7 +258,7 @@ trait ServiceHelpers
         }
 
         // MySQL/MariaDB → native blocking GET_LOCK with timeout
-        return $db->withAdvisoryLock($key, $timeoutSec, fn () => $fn($this));
+        return $db->withAdvisoryLock($key, $timeoutSec, fn () => $this->callServiceFn($fn));
     }
 
     /** Non-blocking variant – try to acquire the lock; if busy return ['acquired'=>false]. */
@@ -249,7 +267,7 @@ trait ServiceHelpers
         $db = $this->db();
         $key = $this->buildLockKey($name);
         try {
-            $res = $db->withAdvisoryLock($key, 0, fn () => $fn($this));
+            $res = $db->withAdvisoryLock($key, 0, fn () => $this->callServiceFn($fn));
             return ['acquired' => true, 'result' => $res];
         } catch (\Throwable $e) {
             // assume driver signals "busy" via exception; do not rethrow, just mark as not acquired
@@ -266,7 +284,7 @@ trait ServiceHelpers
      */
     protected function withTimeout(int $ms, callable $fn): mixed
     {
-        return $this->db()->withStatementTimeout($ms, fn () => $fn($this));
+        return $this->db()->withStatementTimeout($ms, fn () => $this->callServiceFn($fn));
     }
 
     /**
@@ -278,7 +296,7 @@ trait ServiceHelpers
      */
     protected function withIsolation(string $level, callable $fn): mixed
     {
-        return $this->db()->withIsolationLevel($level, fn () => $fn($this));
+        return $this->db()->withIsolationLevel($level, fn () => $this->callServiceFn($fn));
     }
 
     /** ---------- Retry primitive ---------- */
@@ -298,7 +316,7 @@ trait ServiceHelpers
 
         return Retry::runAdvanced(
             // Preserve original callback signature: fn(self):T
-            fn() => $fn($this),
+            fn() => $this->callServiceFn($fn),
             attempts:   $attempts,
             initialMs:  $initialMs,
             factor:     2.0,
@@ -463,7 +481,7 @@ trait ServiceHelpers
      */
     protected function txWithMeta(array $meta, callable $fn, array $opts = []): mixed
     {
-        return $this->db()->txWithMeta(fn () => $fn($this), $meta, $opts);
+        return $this->db()->txWithMeta(fn () => $this->callServiceFn($fn), $meta, $opts);
     }
 
     /**
@@ -478,7 +496,7 @@ trait ServiceHelpers
     protected function txRoWithMeta(array $meta, callable $fn, array $opts = []): mixed
     {
         $opts['readOnly'] = true;
-        return $this->db()->txWithMeta(fn () => $fn($this), $meta, $opts);
+        return $this->db()->txWithMeta(fn () => $this->callServiceFn($fn), $meta, $opts);
     }
 }
 

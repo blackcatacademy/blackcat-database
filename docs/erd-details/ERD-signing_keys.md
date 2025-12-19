@@ -9,6 +9,7 @@ erDiagram
     VARCHAR(120) name
     BYTEA public_key
     BYTEA private_key_enc
+    VARCHAR(64) private_key_enc_key_version
     BIGINT kms_key_id
     TEXT origin
     TEXT status
@@ -103,14 +104,16 @@ key_wrappers }o--|| kms_keys : fk_kw_kms2
 kms_health_checks }o--|| kms_keys : fk_kms_hc_key
 kms_keys }o--|| kms_providers : fk_kms_keys_provider
 login_attempts }o--|| users : fk_login_attempts_user
+magic_links }o--|| users : fk_magic_links_user
 newsletter_subscribers }o--|| users : fk_ns_user
 notifications }o--|| users : fk_notifications_user
 orders }o--|| users : fk_orders_user
+password_resets }o--|| users : fk_pr_user
 policy_algorithms }o--|| crypto_algorithms : fk_pa_algo
 policy_kms_keys }o--|| kms_keys : fk_policy_kms_keys_key
 pq_migration_jobs }o--|| crypto_algorithms : fk_pq_mig_algo
 pq_migration_jobs }o--|| users : fk_pq_mig_user
-privacy_requests }o--|| users : fk_pr_user
+privacy_requests }o--|| users : fk_privacy_requests_user
 rbac_repo_snapshots }o--|| rbac_repositories : fk_rbac_snap_repo
 rbac_repositories }o--|| signing_keys : fk_rbac_repos_sign_key
 rbac_roles }o--|| rbac_repositories : fk_rbac_roles_repo
@@ -138,4 +141,5 @@ user_consents }o--|| users : fk_user_consents_user
 user_identities }o--|| users : fk_user_identities_user
 user_profiles }o--|| users : fk_user_profiles_user
 verify_events }o--|| users : fk_verify_user
+webauthn_credentials }o--|| users : fk_webauthn_cred_user
 ```

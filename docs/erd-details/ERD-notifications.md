@@ -83,6 +83,7 @@ jwt_tokens }o--|| users : fk_jwt_tokens_user
 key_events }o--|| users : fk_key_events_actor
 key_rotation_jobs }o--|| users : fk_key_rotation_jobs_user
 login_attempts }o--|| users : fk_login_attempts_user
+magic_links }o--|| users : fk_magic_links_user
 newsletter_subscribers }o--|| tenants : fk_ns_tenant
 newsletter_subscribers }o--|| users : fk_ns_user
 notifications }o--|| tenants : fk_notifications_tenant
@@ -91,10 +92,11 @@ order_item_downloads }o--|| tenants : fk_oid_tenant
 order_items }o--|| tenants : fk_order_items_tenant
 orders }o--|| tenants : fk_orders_tenant
 orders }o--|| users : fk_orders_user
+password_resets }o--|| users : fk_pr_user
 payment_gateway_notifications }o--|| tenants : fk_pg_notify_tenant
 payments }o--|| tenants : fk_payments_tenant
 pq_migration_jobs }o--|| users : fk_pq_mig_user
-privacy_requests }o--|| users : fk_pr_user
+privacy_requests }o--|| users : fk_privacy_requests_user
 rbac_user_permissions }o--|| tenants : fk_rbac_up_tenant
 rbac_user_permissions }o--|| users : fk_rbac_up_grant
 rbac_user_permissions }o--|| users : fk_rbac_up_user
@@ -116,4 +118,5 @@ user_consents }o--|| users : fk_user_consents_user
 user_identities }o--|| users : fk_user_identities_user
 user_profiles }o--|| users : fk_user_profiles_user
 verify_events }o--|| users : fk_verify_user
+webauthn_credentials }o--|| users : fk_webauthn_cred_user
 ```
