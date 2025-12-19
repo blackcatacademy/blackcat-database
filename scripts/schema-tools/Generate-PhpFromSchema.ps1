@@ -999,6 +999,102 @@ function Get-ProjectionColumnsFromViewSql([string]$viewSql) {
   @($out | Select-Object -Unique)
 }
 
+function Get-ReferencedColumnsFromViewSql {
+  param(
+    [Parameter(Mandatory)][string]$ViewSql,
+    [string[]]$AllowedQualifiers = @(),
+    [switch]$IncludeUnqualified
+  )
+
+  if (-not $ViewSql) { return @() }
+
+  $m = [regex]::Match($ViewSql, '(?is)\bSELECT\b\s+(?:DISTINCT(?:\s+ON\s*\([^)]+\))?\s+)?(.*?)\bFROM\b')
+  if (-not $m.Success) { return @() }
+
+  $segment = $m.Groups[1].Value
+  $segment = ($segment -replace '(?s)/\*.*?\*/','' -replace '--[^\r\n]*','') -replace '\s+',' '
+
+  # mask SQL string literals to avoid treating their content as identifiers
+  $segment = [regex]::Replace($segment, "(?s)'(?:''|[^'])*'", "''")
+  $segment = [regex]::Replace($segment, '(?s)\$\$.*?\$\$', '$$')
+
+  $skip = @{
+    'as' = $true
+    'null' = $true
+    'true' = $true
+    'false' = $true
+    'case' = $true
+    'when' = $true
+    'then' = $true
+    'else' = $true
+    'end' = $true
+    'distinct' = $true
+    'on' = $true
+    'and' = $true
+    'or' = $true
+    'not' = $true
+    'is' = $true
+    'in' = $true
+    'like' = $true
+    'ilike' = $true
+    # MySQL interval units / keywords that may appear in SELECT expressions
+    'interval' = $true
+    'microsecond' = $true
+    'second' = $true
+    'minute' = $true
+    'hour' = $true
+    'day' = $true
+    'week' = $true
+    'month' = $true
+    'quarter' = $true
+    'year' = $true
+  }
+
+  $refs = New-Object System.Collections.Generic.List[string]
+  foreach ($piece in (Split-ByCommaOutsideParens $segment)) {
+    $expr = $piece.Trim()
+    if ($expr -eq '') { continue }
+
+    # Strip trailing alias ("AS alias") so we only examine the expression side.
+    $expr = [regex]::Replace($expr, '(?i)\s+AS\s+[`"]?[A-Za-z0-9_]+[`"]?\s*$', '')
+    $expr = $expr -replace '[`"]',''
+
+    foreach ($m2 in [regex]::Matches($expr, '(?i)\b([a-z_][a-z0-9_]*)\s*\.\s*([a-z_][a-z0-9_]*)\b')) {
+      $qual = $m2.Groups[1].Value.ToLower()
+      $col  = $m2.Groups[2].Value.ToLower()
+      if (@($AllowedQualifiers).Count -eq 0 -or $AllowedQualifiers -contains $qual) {
+        $refs.Add($col)
+      }
+    }
+
+    if (-not $IncludeUnqualified) { continue }
+
+    foreach ($m3 in [regex]::Matches($expr, '(?i)\b[a-z_][a-z0-9_]*\b')) {
+      $id = $m3.Value.ToLower()
+      if ($skip.ContainsKey($id)) { continue }
+
+      $afterIdx = $m3.Index + $m3.Length
+      $after = if ($afterIdx -lt $expr.Length) { $expr.Substring($afterIdx) } else { '' }
+
+      $before = if ($m3.Index -gt 0) { $expr.Substring(0, $m3.Index) } else { '' }
+
+      # Skip qualifiers (t. col) and function names (fn(...))
+      if ($after -match '^\s*\.' -or $after -match '^\s*\(') { continue }
+      # Postgres named-argument labels (e.g., make_interval(secs => ttl_seconds))
+      if ($after -match '^\s*=>') { continue }
+      # CAST/CONVERT type tokens (e.g., CAST(x AS UNSIGNED), CAST(x AS CHAR(64)))
+      if ($before -match '(?i)\bAS\s*$') { continue }
+
+      # Skip type cast targets (e.g., ip_hash::text -> ignore "text")
+      if ($m3.Index -ge 2 -and $expr.Substring($m3.Index - 2, 2) -eq '::') { continue }
+
+      $refs.Add($id)
+    }
+  }
+
+  @($refs | Select-Object -Unique)
+}
+
 function Assert-TableVsView {
   param(
     [Parameter(Mandatory)][string]$Table,
@@ -1049,6 +1145,23 @@ function Assert-TableVsView {
     }
     $projSet = @{}
     foreach ($c in $proj) { $projSet[$c] = $true }
+
+    # 0) Fail fast if the view references columns that don't exist on the base table.
+    $from = [regex]::Match($viewSql, '(?is)\bFROM\b\s+[`"]?([a-z0-9_]+)[`"]?(?:\s+(?:AS\s+)?([a-z0-9_]+))?')
+    $fromTable = if ($from.Success) { $from.Groups[1].Value.ToLower() } else { '' }
+    $fromAlias = if ($from.Success) { $from.Groups[2].Value.ToLower() } else { '' }
+
+    $allowedQuals = @()
+    if ($fromTable) { $allowedQuals += $fromTable }
+    if ($fromAlias) { $allowedQuals += $fromAlias }
+    if (@($allowedQuals).Count -eq 0) { $allowedQuals = @($Table.ToLower()) }
+
+    $includeUnqualifiedRefs = ($fromTable -eq $Table.ToLower() -and $viewSql -notmatch '(?i)\bJOIN\b')
+    foreach ($ref in @(Get-ReferencedColumnsFromViewSql -ViewSql $viewSql -AllowedQualifiers $allowedQuals -IncludeUnqualified:$includeUnqualifiedRefs)) {
+      if (-not ($TableColumns -contains $ref)) {
+        $errs.Add("$viewName references column '$ref' which does not exist on table '$Table'.")
+      }
+    }
 
     # 1) HEX helper recommendation: when the view exposes a binary/hash column, also expose <col>_hex
     if ($BinaryColumns -and $BinaryColumns.Count -gt 0) {

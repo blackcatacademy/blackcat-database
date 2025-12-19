@@ -21,8 +21,12 @@ Tables:
         Description: Lease end.
       transaction_id:
         Description: Gateway transaction id (REQUIRED, UNIQUE).
+      tenant_id:
+        Description: Owning tenant (FK tenants.id).
       last_error:
         Description: Last error message.
+      version:
+        Description: Optimistic locking version counter.
   schema_registry:
     Summary: Registry of schema versions applied to various components.
     Columns:
@@ -83,6 +87,8 @@ Tables:
         Description: Last successful login (UTC).
       email_hash_key_version:
         Description: Key version for email_hash.
+      version:
+        Description: Optimistic locking version counter.
   sync_errors:
     Summary: Errors raised while applying replication batches.
     Columns:
@@ -187,6 +193,8 @@ Tables:
     Columns:
       private_key_enc:
         Description: Encrypted private key blob.
+      private_key_enc_key_version:
+        Description: Key version for private_key_enc.
       id:
         Description: Surrogate primary key.
       scope:
@@ -245,6 +253,8 @@ Tables:
         Description: Surrogate primary key.
       updated_at:
         Description: Last update timestamp (UTC).
+      version:
+        Description: Optimistic locking version counter.
       count:
         Description: Number of hits recorded during the window.
       name:
@@ -298,6 +308,10 @@ Tables:
         Description: Tax rate %.
       country_iso2:
         Description: ISO 3166-1 alpha-2 country code.
+      created_at:
+        Description: Creation timestamp (UTC).
+      updated_at:
+        Description: Update timestamp (UTC).
   kms_keys:
     Summary: External KMS key references. UNIQUE (provider_id, external_key_ref).
     Columns:
@@ -464,6 +478,8 @@ Tables:
         Description: Attempt counter.
       id:
         Description: Surrogate primary key.
+      tenant_id:
+        Description: Owning tenant (FK tenants.id).
       sent_at:
         Description: Actual send time (UTC).
       locked_by:
@@ -502,6 +518,8 @@ Tables:
         Description: Maximum attempts.
       next_attempt_at:
         Description: Backoff until (UTC).
+      version:
+        Description: Optimistic locking version counter.
   retention_enforcement_jobs:
     Summary: Runs of data-retention enforcement tasks.
     Columns:
@@ -568,6 +586,8 @@ Tables:
       fingerprint_hash:
         PII: hashed
         Description: Stable hash of the fingerprint payload.
+      fingerprint_hash_key_version:
+        Description: Key version for fingerprint_hash.
       last_ip_hash:
         PII: hashed
         Description: Hashed last known IP.
@@ -581,6 +601,10 @@ Tables:
         Description: JSON blob with device characteristics.
       user_id:
         Description: Related user (FK users.id), nullable.
+      created_at:
+        Description: Creation timestamp (UTC).
+      updated_at:
+        Description: Update timestamp (UTC).
   kms_providers:
     Summary: Configured KMS providers. name is UNIQUE.
     Columns:
@@ -643,8 +667,14 @@ Tables:
         Description: User owner (FK users.id), optional.
       id:
         Description: Cart id (UUID textual).
+      tenant_id:
+        Description: Owning tenant (FK tenants.id).
+      note:
+        Description: Optional note attached to the cart.
       updated_at:
         Description: Update timestamp (UTC).
+      version:
+        Description: Optimistic locking version counter.
   user_profiles:
     Summary: Encrypted user profile blob (optional).
     Columns:
@@ -659,6 +689,8 @@ Tables:
         Description: Encrypted profile payload.
       key_version:
         Description: Key version for profile_enc.
+      version:
+        Description: Optimistic locking version counter.
   refunds:
     Summary: Payment refunds and their status.
     Columns:
@@ -666,6 +698,8 @@ Tables:
         Description: ISO 4217 currency code.
       id:
         Description: Surrogate primary key.
+      tenant_id:
+        Description: Owning tenant (FK tenants.id).
       created_at:
         Description: Creation timestamp (UTC).
       payment_id:
@@ -685,6 +719,8 @@ Tables:
         Description: ISO 4217 currency code.
       id:
         Description: Surrogate primary key.
+      tenant_id:
+        Description: Owning tenant (FK tenants.id).
       updated_at:
         Description: Update timestamp (UTC).
       gateway:
@@ -712,6 +748,8 @@ Tables:
         Description: Provider transaction id (unique if provided).
       amount:
         Description: Payment amount. Must be >= 0.
+      version:
+        Description: Optimistic locking version counter.
   kms_routing_policies:
     Summary: Routing directives describing how tenants map to KMS providers.
     Columns:
@@ -744,6 +782,10 @@ Tables:
         Description: Key version used for download_token_hash.
       book_id:
         Description: Book (FK books.id).
+      tenant_id:
+        Description: Owning tenant (FK tenants.id).
+      version:
+        Description: Optimistic locking version counter.
       ip_hash:
         PII: hashed
         Description: Hashed IP of last usage.
@@ -751,6 +793,8 @@ Tables:
         Description: Number of uses so far.
       max_uses:
         Description: Max allowed downloads.
+      is_active:
+        Description: Generated flag (used < max_uses).
       order_id:
         Description: Order (FK orders.id).
       expires_at:
@@ -792,6 +836,8 @@ Tables:
         Description: Backend storage path or URI.
       book_id:
         Description: Book (FK books.id).
+      tenant_id:
+        Description: Owning tenant (FK tenants.id).
       content_hash:
         Description: Optional file content hash (hex).
       encryption_iv:
@@ -845,6 +891,10 @@ Tables:
         Description: Table where the field lives.
       profile_id:
         Description: Hash profile applied (FK hash_profiles.id).
+      created_at:
+        Description: Creation timestamp (UTC).
+      updated_at:
+        Description: Update timestamp (UTC).
   rate_limits:
     Summary: Configured rate-limiting rules at the application level.
     Columns:
@@ -942,6 +992,8 @@ Tables:
         Description: Key version for token_hash.
       user_agent:
         Description: Client user agent.
+      version:
+        Description: Optimistic locking version counter.
   key_wrapper_layers:
     Summary: Individual layers that compose a key wrapper.
     Columns:
@@ -972,6 +1024,8 @@ Tables:
         Description: Quantity (> 0).
       id:
         Description: Surrogate primary key.
+      tenant_id:
+        Description: Owning tenant (FK tenants.id).
       sku_snapshot:
         Description: Captured SKU at purchase time.
       tax_rate:
@@ -988,6 +1042,10 @@ Tables:
         Description: ISO 4217 currency code.
       order_id:
         Description: Order (FK orders.id).
+      created_at:
+        Description: Creation timestamp (UTC).
+      updated_at:
+        Description: Update timestamp (UTC).
   idempotency_keys:
     Summary: Idempotency keys to deduplicate external payment/API requests.
     Columns:
@@ -996,6 +1054,10 @@ Tables:
       key_hash:
         PII: token
         Description: Key hash (natural PK).
+      key_hash_key_version:
+        Description: Key version used for key_hash.
+      tenant_id:
+        Description: Owning tenant (FK tenants.id).
       created_at:
         Description: Creation timestamp (UTC).
       payment_id:
@@ -1029,6 +1091,8 @@ Tables:
         Description: Issue date.
       id:
         Description: Surrogate primary key.
+      tenant_id:
+        Description: Owning tenant (FK tenants.id).
       currency:
         Description: ISO 4217 currency code.
       total:
@@ -1063,6 +1127,8 @@ Tables:
         Description: Creation timestamp (UTC).
       id:
         Description: Surrogate primary key.
+      tenant_id:
+        Description: Owning tenant (FK tenants.id).
       publisher:
         Description: Publisher name.
       updated_at:
@@ -1071,6 +1137,8 @@ Tables:
         Description: Publication date.
       slug:
         Description: URL-friendly unique slug.
+      slug_ci:
+        Description: Generated lowercase slug used for case-insensitive uniqueness.
       is_available:
         Description: Available for purchase/download.
       author_id:
@@ -1101,6 +1169,10 @@ Tables:
         Description: Stock keeping unit.
       pages:
         Description: Number of pages (if applicable).
+      version:
+        Description: Optimistic locking version counter.
+      is_live:
+        Description: Generated flag (deleted_at IS NULL).
   cart_items:
     Summary: Items added to shopping carts. UNIQUE (cart_id, book_id, sku) to prevent duplicate items in the cart.
     Columns:
@@ -1108,8 +1180,12 @@ Tables:
         Description: ISO 4217 currency code.
       sku:
         Description: SKU snapshot.
+      sku_norm:
+        Description: Generated normalized SKU (COALESCE(sku, '')).
       id:
         Description: Surrogate primary key.
+      tenant_id:
+        Description: Owning tenant (FK tenants.id).
       variant:
         Description: JSON with selected variant/options.
       unit_price:
@@ -1124,11 +1200,17 @@ Tables:
         Description: Cart identifier (UUID textual).
       price_snapshot:
         Description: Cached line price for integrity.
+      created_at:
+        Description: Creation timestamp (UTC).
+      updated_at:
+        Description: Update timestamp (UTC).
   orders:
     Summary: Orders lifecycle, totals, and encrypted customer blob.
     Columns:
       id:
         Description: Surrogate primary key.
+      tenant_id:
+        Description: Owning tenant (FK tenants.id).
       updated_at:
         Description: Update timestamp (UTC).
       created_at:
@@ -1171,6 +1253,8 @@ Tables:
         Description: Encrypted PII/customer details.
       uuid:
         Description: Unique external order id (UUID text).
+      version:
+        Description: Optimistic locking version counter.
   login_attempts:
     Summary: Login attempts per IP and (optional) user.
     Columns:
@@ -1183,11 +1267,15 @@ Tables:
       ip_hash:
         PII: hashed
         Description: Hashed client IP.
+      ip_hash_key_version:
+        Description: Key version for ip_hash.
       success:
         Description: Whether authentication succeeded.
       username_hash:
         PII: hashed
         Description: Hashed username/email provided.
+      username_hash_key_version:
+        Description: Key version for username_hash.
       user_id:
         Description: User (FK users.id), optional.
   deletion_jobs:
@@ -1232,6 +1320,8 @@ Tables:
         Description: Surrogate primary key.
       variant:
         Description: Optional variant descriptor (hybrid, FIPS profile, etc.).
+      variant_norm:
+        Description: Generated normalized variant (IFNULL(variant, '')).
       nist_level:
         Description: Post-quantum NIST security level, if any.
       created_at:
@@ -1260,6 +1350,8 @@ Tables:
         Description: Free-form review text.
       id:
         Description: Surrogate primary key.
+      tenant_id:
+        Description: Owning tenant (FK tenants.id).
       updated_at:
         Description: Last update (UTC), optional.
       rating:
@@ -1316,6 +1408,10 @@ Tables:
         Description: KMS key (FK kms_keys.id).
       weight:
         Description: Weight for selection algorithms.
+      created_at:
+        Description: Creation timestamp (UTC).
+      updated_at:
+        Description: Update timestamp (UTC).
   sync_batches:
     Summary: Batches of events replicated between peers.
     Columns:
@@ -1354,6 +1450,8 @@ Tables:
     Columns:
       field_name:
         Description: Encrypted column name; NULL = whole row binding.
+      field_name_norm:
+        Description: Generated normalized field name (IFNULL(field_name, '')).
       id:
         Description: Surrogate primary key.
       entity_table:
@@ -1449,6 +1547,8 @@ Tables:
         Description: Surrogate primary key.
       deleted_at:
         Description: Soft-delete timestamp.
+      is_live:
+        Description: Generated flag (deleted_at IS NULL).
       version:
         Description: Optimistic locking version counter.
       created_at:
@@ -1662,8 +1762,6 @@ Tables:
           - warning
           - error
           - critical
-      ip_bin:
-        Description: Binary IP (if captured).
       fingerprint:
         Description: Deduplication fingerprint.
       ip_hash:
@@ -1693,9 +1791,6 @@ Tables:
         Description: Most recent occurrence (UTC).
       resolved:
         Description: Resolution flag.
-      ip_text:
-        PII: plain
-        Description: Plaintext IP (if captured).
       http_status:
         Description: HTTP status code.
       occurrences:
@@ -1770,6 +1865,10 @@ Tables:
         Description: Documentation / rollout notes.
       entity_table:
         Description: Table name.
+      created_at:
+        Description: Creation timestamp (UTC).
+      updated_at:
+        Description: Update timestamp (UTC).
   book_categories:
     Summary: Many-to-many relationship between books and categories.
     Columns:
@@ -1777,6 +1876,12 @@ Tables:
         Description: Book (FK books.id).
       category_id:
         Description: Category (FK categories.id).
+      tenant_id:
+        Description: Owning tenant (FK tenants.id).
+      created_at:
+        Description: Creation timestamp (UTC).
+      updated_at:
+        Description: Update timestamp (UTC).
   key_events:
     Summary: Operational log for crypto key lifecycle and usage.
     Columns:
@@ -1858,6 +1963,8 @@ Tables:
     Columns:
       id:
         Description: Surrogate primary key.
+      tenant_id:
+        Description: Owning tenant (FK tenants.id).
       type:
         Description: Discount type.
         Enum:
@@ -1885,6 +1992,8 @@ Tables:
         Description: Validity end (date), nullable.
       code:
         Description: Unique coupon code (case-sensitive).
+      code_ci:
+        Description: Generated lowercase code used for case-insensitive uniqueness.
   migration_events:
     Summary: Records describing migrations between schema versions.
     Columns:
@@ -1949,6 +2058,8 @@ Tables:
         Description: Applied discount amount.
       id:
         Description: Surrogate primary key.
+      tenant_id:
+        Description: Owning tenant (FK tenants.id).
       coupon_id:
         Description: Coupon (FK coupons.id).
       order_id:
@@ -2027,6 +2138,8 @@ Tables:
         Description: Tax amount.
       id:
         Description: Surrogate primary key.
+      tenant_id:
+        Description: Owning tenant (FK tenants.id).
       invoice_id:
         Description: Invoice (FK invoices.id).
       description:
@@ -2041,6 +2154,10 @@ Tables:
         Description: Tax rate % (0..100).
       currency:
         Description: ISO 4217 currency code.
+      created_at:
+        Description: Creation timestamp (UTC).
+      updated_at:
+        Description: Update timestamp (UTC).
   api_keys:
     Summary: Tenant/user scoped API tokens stored only as hashed secrets.
     Columns:
@@ -2107,14 +2224,20 @@ Tables:
         Description: Average rating (derived).
       id:
         Description: Surrogate primary key.
+      tenant_id:
+        Description: Owning tenant (FK tenants.id).
       last_rating_at:
         Description: Timestamp of last rating.
       name:
         Description: Author display name.
+      name_ci:
+        Description: Generated lowercase name used for case-insensitive search/uniqueness.
       photo_url:
         Description: Profile photo URL.
       slug:
         Description: URL-friendly unique slug.
+      slug_ci:
+        Description: Generated lowercase slug used for case-insensitive uniqueness.
       created_at:
         Description: Row creation time (UTC).
       bio:
@@ -2131,23 +2254,37 @@ Tables:
         Description: Long-form story/notes.
       updated_at:
         Description: Row update time (UTC).
+      version:
+        Description: Optimistic locking version counter.
+      is_live:
+        Description: Generated flag (deleted_at IS NULL).
   categories:
     Summary: Hierarchical product categories.
     Columns:
       slug:
         Description: Unique slug.
+      slug_ci:
+        Description: Generated lowercase slug used for case-insensitive uniqueness.
       id:
         Description: Surrogate primary key.
+      tenant_id:
+        Description: Owning tenant (FK tenants.id).
       updated_at:
         Description: Update timestamp (UTC).
       created_at:
         Description: Creation timestamp (UTC).
       name:
         Description: Category name.
+      name_ci:
+        Description: Generated lowercase name used for case-insensitive search/uniqueness.
       parent_id:
         Description: Parent category (self-FK), nullable.
       deleted_at:
         Description: Soft delete timestamp.
+      version:
+        Description: Optimistic locking version counter.
+      is_live:
+        Description: Generated flag (deleted_at IS NULL).
   sync_batch_items:
     Summary: Individual entries inside sync batches.
     Columns:
@@ -2176,6 +2313,10 @@ Tables:
         Description: Lease expiration time (UTC).
       name:
         Description: Lock name (primary key).
+      created_at:
+        Description: Creation timestamp (UTC).
+      updated_at:
+        Description: Update timestamp (UTC).
   webhook_outbox:
     Summary: Outbox table for delivering webhooks.
     Columns:
@@ -2193,6 +2334,8 @@ Tables:
         Description: Creation timestamp (UTC).
       updated_at:
         Description: Update timestamp (UTC).
+      version:
+        Description: Optimistic locking version counter.
       status:
         Description: Delivery status.
         Enum:
@@ -2264,6 +2407,8 @@ Tables:
     Columns:
       id:
         Description: Surrogate primary key.
+      tenant_id:
+        Description: Owning tenant (FK tenants.id).
       origin:
         Description: Acquisition source (e.g., form, import).
       updated_at:
@@ -2307,6 +2452,8 @@ Tables:
         Description: Confirmation timestamp (UTC).
       email_hash_key_version:
         Description: Key version for email_hash.
+      version:
+        Description: Optimistic locking version counter.
   register_events:
     Summary: Registration related events (success/failure).
     Columns:
@@ -2351,6 +2498,15 @@ Tables:
         Description: Schedule time (UTC).
       finished_at:
         Description: Finish time (UTC).
+      unique_key_hash:
+        PII: token
+        Description: Deterministic hash of unique key (dedupe).
+      unique_key_version:
+        Description: Key version used for unique_key_hash.
+      locked_until:
+        Description: Lock lease expiration time (UTC).
+      locked_by:
+        Description: Lock owner/worker id.
       status:
         Description: Processing status.
         Enum:
@@ -2360,6 +2516,8 @@ Tables:
           - failed
       job_type:
         Description: Job type key.
+      version:
+        Description: Optimistic locking version counter.
   policy_algorithms:
     Summary: Weights and priorities for algorithms used within an encryption policy.
     Columns:
@@ -2378,6 +2536,10 @@ Tables:
           - sig
           - hash
           - symmetric
+      created_at:
+        Description: Creation timestamp (UTC).
+      updated_at:
+        Description: Update timestamp (UTC).
   rbac_sync_cursors:
     Summary: Per-peer replication cursors for RBAC repositories.
     Columns:
@@ -2399,17 +2561,23 @@ Tables:
       recovery_codes_enc:
         PII: encrypted
         Description: Encrypted recovery codes.
+      recovery_codes_enc_key_version:
+        Description: Key version for recovery_codes_enc.
       created_at:
         Description: Creation timestamp (UTC).
       secret:
         PII: encrypted
         Description: Shared secret (encrypted/encoded).
+      secret_key_version:
+        Description: Key version for secret.
       hotp_counter:
         Description: HOTP counter (if HOTP).
       enabled:
         Description: Whether method is enabled.
       user_id:
         Description: User (FK users.id).
+      version:
+        Description: Optimistic locking version counter.
   key_wrappers:
     Summary: Composite wrappers protecting DEKs with multiple KMS/crypto layers.
     Columns:
@@ -2470,6 +2638,10 @@ Tables:
         Description: ISO 3166-1 alpha-2 country code (upper case).
       name:
         Description: Official short name.
+      created_at:
+        Description: Creation timestamp (UTC).
+      updated_at:
+        Description: Update timestamp (UTC).
   auth_events:
     Summary: Authentication events (logins, resets, lockouts).
     Columns:
@@ -2521,6 +2693,8 @@ Tables:
       ip_bin:
         PII: plain
         Description: Client IP (binary form).
+      ip_bin_key_version:
+        Description: Key version for ip_bin.
       old_value:
         Description: JSON snapshot before change.
       new_value:
@@ -2550,7 +2724,7 @@ Tables:
         Description: Encrypt operations count.
       decrypt_count:
         Description: Decrypt operations count.
-      date:
+      usage_date:
         Description: UTC date (yyyy-mm-dd).
       last_used_at:
         Description: Last usage timestamp (UTC).
@@ -2611,6 +2785,8 @@ Tables:
         Description: Key version used for token hashing.
       jti:
         Description: JWT ID (unique).
+      version:
+        Description: Optimistic locking version counter.
   app_settings:
     Summary: Application-wide key/value configuration.
     Columns:
@@ -2636,11 +2812,13 @@ Tables:
         Description: User who changed the setting (FK users.id).
       updated_at:
         Description: Last update timestamp (UTC).
+      version:
+        Description: Optimistic locking version counter.
   session_audit:
     Summary: Low-level session lifecycle and security events.
     Columns:
       session_token_key_version:
-        Description: Key version for session_token.
+        Description: Key version for session_token_hash.
       id:
         Description: Surrogate primary key.
       ip_hash_key_version:
@@ -2659,10 +2837,13 @@ Tables:
       user_id:
         Description: User (FK users.id), optional.
       csrf_key_version:
-        Description: Key version for CSRF related data.
-      session_token:
-        PII: hashed
+        Description: Key version for csrf_token_hash.
+      session_token_hash:
+        PII: token
         Description: Hashed session token.
+      csrf_token_hash:
+        PII: token
+        Description: Hashed CSRF token.
       event:
         Description: Event code (e.g., created, rotated, revoked).
       user_agent:
@@ -2736,4 +2917,8 @@ Tables:
           - cancelled
       book_id:
         Description: Book (FK books.id).
+      tenant_id:
+        Description: Owning tenant (FK tenants.id).
+      version:
+        Description: Optimistic locking version counter.
 FormatVersion: 1.1

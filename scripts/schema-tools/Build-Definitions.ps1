@@ -21,6 +21,7 @@ Param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $script:EngineDiffWarnings = New-Object System.Collections.Generic.List[string]
+$script:MissingColumnDescriptions = New-Object System.Collections.Generic.List[object]
 
 $RegexIgnore = [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
 
@@ -77,6 +78,156 @@ function Merge-Defs {
         }
     }
     return $result
+}
+
+function ConvertTo-HashtableShallow {
+    param([object]$Value)
+
+    if ($null -eq $Value) { return @{} }
+    if ($Value -is [hashtable]) { return $Value }
+
+    $result = @{}
+
+    if ($Value -is [System.Collections.IDictionary]) {
+        foreach ($kv in $Value.GetEnumerator()) {
+            if ($null -eq $kv.Key) { continue }
+            $result[[string]$kv.Key] = $kv.Value
+        }
+        return $result
+    }
+
+    if ($Value.PSObject) {
+        foreach ($p in $Value.PSObject.Properties) {
+            if (-not $p.Name) { continue }
+            $result[[string]$p.Name] = $p.Value
+        }
+        return $result
+    }
+
+    return $result
+}
+
+function ConvertTo-Bool {
+    param(
+        [Parameter(Mandatory = $true)]$Value,
+        [string]$Context = 'value'
+    )
+
+    if ($Value -is [bool]) { return [bool]$Value }
+    if ($Value -is [int] -or $Value -is [long] -or $Value -is [decimal]) { return ([int64]$Value -ne 0) }
+
+    if ($Value -is [string]) {
+        $s = $Value.Trim()
+        if ($s -eq '') { return $false }
+        $s = $s.ToLowerInvariant()
+        if ($s -in @('true','1','yes','y','on')) { return $true }
+        if ($s -in @('false','0','no','n','off')) { return $false }
+    }
+
+    throw "Invalid boolean for $Context"
+}
+
+function Get-CryptoSpec {
+    param([object]$EngineMap)
+
+    if ($null -eq $EngineMap) { return @{} }
+
+    $map = ConvertTo-HashtableShallow -Value $EngineMap
+    if ($map.ContainsKey('Crypto') -and $map['Crypto']) {
+        return (ConvertTo-HashtableShallow -Value $map['Crypto'])
+    }
+
+    return @{}
+}
+
+function Get-CryptoCellText {
+    param(
+        [string]$TableName,
+        [string]$ColumnName,
+        [hashtable]$CryptoSpec,
+        [hashtable]$KeyVersionOwners,
+        [hashtable]$MetaOwners
+    )
+
+    if ($null -eq $CryptoSpec -or $CryptoSpec.Count -eq 0) { return '' }
+    if (-not $CryptoSpec.ContainsKey($ColumnName)) { return '' }
+
+    $raw = $CryptoSpec[$ColumnName]
+    if ($raw -is [string]) { $raw = @{ strategy = [string]$raw } }
+    $spec = ConvertTo-HashtableShallow -Value $raw
+
+    $strategy = ''
+    if ($spec.ContainsKey('strategy')) { $strategy = [string]$spec['strategy'] }
+    $strategy = $strategy.Trim()
+    if ([string]::IsNullOrWhiteSpace($strategy)) { return '' }
+    $strategy = $strategy.ToLowerInvariant()
+
+    if ($strategy -eq 'passthrough') {
+        $lines = New-Object 'System.Collections.Generic.List[string]'
+        if ($KeyVersionOwners -and $KeyVersionOwners.ContainsKey($ColumnName)) {
+            $owners = @($KeyVersionOwners[$ColumnName] | Sort-Object -Unique)
+            if ($owners.Count -gt 0) {
+                $fmt = ($owners | ForEach-Object { '`{0}`' -f $_ }) -join ', '
+                $lines.Add(("key version for: {0}" -f $fmt)) | Out-Null
+            }
+        }
+
+        if ($MetaOwners -and $MetaOwners.ContainsKey($ColumnName)) {
+            $owners = @($MetaOwners[$ColumnName] | Sort-Object -Unique)
+            if ($owners.Count -gt 0) {
+                $fmt = ($owners | ForEach-Object { '`{0}`' -f $_ }) -join ', '
+                $lines.Add(("meta for: {0}" -f $fmt)) | Out-Null
+            }
+        }
+
+        if ($lines.Count -eq 0) { return '' }
+        return ($lines -join '<br/>')
+    }
+
+	    if ($strategy -notin @('encrypt','hmac')) { return ('`{0}`' -f $strategy) }
+
+	    $lines = New-Object 'System.Collections.Generic.List[string]'
+	    $lines.Add(('`{0}`' -f $strategy)) | Out-Null
+
+    $ctx = $null
+	    if ($spec.ContainsKey('context')) { $ctx = [string]$spec['context'] }
+	    if (-not [string]::IsNullOrWhiteSpace($ctx)) {
+	        $lines.Add(('ctx: `{0}`' -f $ctx.Trim())) | Out-Null
+	    } else {
+	        $lines.Add("ctx: _(missing)_") | Out-Null
+	    }
+
+	    $enc = $null
+	    if ($spec.ContainsKey('encoding')) { $enc = [string]$spec['encoding'] }
+	    if (-not [string]::IsNullOrWhiteSpace($enc)) {
+	        $lines.Add(('encoding: `{0}`' -f $enc.Trim())) | Out-Null
+	    }
+
+    $writeKv = $true
+    if ($spec.ContainsKey('write_key_version')) {
+        $writeKv = ConvertTo-Bool -Value $spec['write_key_version'] -Context "Crypto.write_key_version ($TableName.$ColumnName)"
+    }
+	    if ($writeKv) {
+	        $kvc = $null
+	        if ($spec.ContainsKey('key_version_column')) { $kvc = [string]$spec['key_version_column'] }
+	        if ([string]::IsNullOrWhiteSpace($kvc)) { $kvc = $ColumnName + '_key_version' }
+	        $lines.Add(('kv: `{0}`' -f $kvc.Trim())) | Out-Null
+	    } else {
+	        $lines.Add("kv: off") | Out-Null
+	    }
+
+    $writeMeta = $false
+    if ($spec.ContainsKey('write_encryption_meta')) {
+        $writeMeta = ConvertTo-Bool -Value $spec['write_encryption_meta'] -Context "Crypto.write_encryption_meta ($TableName.$ColumnName)"
+    }
+	    if ($writeMeta) {
+	        $metaCol = $null
+	        if ($spec.ContainsKey('encryption_meta_column')) { $metaCol = [string]$spec['encryption_meta_column'] }
+	        if ([string]::IsNullOrWhiteSpace($metaCol)) { $metaCol = 'encryption_meta' }
+	        $lines.Add(('meta: `{0}`' -f $metaCol.Trim())) | Out-Null
+	    }
+
+    return ($lines -join '<br/>')
 }
 
 function Get-Maps {
@@ -793,56 +944,113 @@ function Write-DefinitionFile {
     $pkgRelForLinks = if ($docDir) { [IO.Path]::GetRelativePath($docDir, $PackagePath) } else { '.' }
     $pkgRelForLinks = ($pkgRelForLinks -replace '\\','/')
 
-    if ($DefEntry -and $DefEntry.Columns) {
-        $lines.Add('')
-        $lines.Add('## Columns')
-        $lines.Add('| Column | Type | Null | Default | Description |')
-        $lines.Add('| --- | --- | --- | --- | --- |')
+	    if ($DefEntry -and $DefEntry.Columns) {
+	        $lines.Add('')
+	        $lines.Add('## Columns')
+	        $lines.Add('| Column | Type | Null | Default | Description | Crypto |')
+	        $lines.Add('| --- | --- | --- | --- | --- | --- |')
 
         # collect column metadata per engine (type, nullable, default)
         $colMetaPerEngine = @{}
         foreach ($engKey in $EngineMaps.Keys) {
             $engMap = $EngineMaps[$engKey]
             $colMetaPerEngine[$engKey] = Convert-CreateColumns -CreateText $engMap.create
-        }
-        $colMetaSample = $null
-        foreach ($engKey in ($colMetaPerEngine.Keys | Sort-Object)) {
-            $colMetaSample = $colMetaPerEngine[$engKey]
-            break
-        }
+	        }
+	        $colMetaSample = $null
+	        foreach ($engKey in ($colMetaPerEngine.Keys | Sort-Object)) {
+	            $colMetaSample = $colMetaPerEngine[$engKey]
+	            break
+	        }
 
-        $missingDesc = 0
-        # Prefer column order from CREATE statement to avoid churn; append any extra columns deterministically
-        $colOrder = New-Object 'System.Collections.Generic.List[string]'
-        $colSeen = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
-        if ($colMetaSample) {
-            foreach ($k in $colMetaSample.Keys) {
-                if ($DefEntry.Columns.ContainsKey($k) -and $colSeen.Add($k)) { $null = $colOrder.Add($k) }
-            }
-        }
-        foreach ($c in ($DefEntry.Columns.Keys | Sort-Object -Stable)) {
-            if ($colSeen.Add($c)) { $null = $colOrder.Add($c) }
-        }
+	        # Crypto instructions are defined in schema-map YAML (Crypto block).
+	        # They should be identical across engines (mysql/postgres), but we render them once (from the first engine that has them).
+	        $cryptoSample = @{}
+	        foreach ($engKey in ($EngineMaps.Keys | Sort-Object)) {
+	            $spec = Get-CryptoSpec -EngineMap $EngineMaps[$engKey]
+	            if ($spec.Count -gt 0) { $cryptoSample = $spec; break }
+	        }
 
-        foreach ($colName in $colOrder) {
-            $col = $DefEntry.Columns[$colName]
-            $desc = $col.Description
-            if (-not $desc) { $desc = '' }
-            if ([string]::IsNullOrWhiteSpace($desc)) { $missingDesc++ }
+	        # Reverse-map key-version + encryption-meta columns (to make docs easier to understand).
+	        $kvOwners = @{}
+	        $metaOwners = @{}
+	        foreach ($kv in $cryptoSample.GetEnumerator()) {
+	            $colName = [string]$kv.Key
+	            $raw = $kv.Value
+	            if ($raw -is [string]) { $raw = @{ strategy = [string]$raw } }
+	            $spec = ConvertTo-HashtableShallow -Value $raw
 
-            $suffix = ''
-            $hasEnum = $false
-            $enumValues = $null
-            if ($col) {
-                if ($col -is [hashtable] -and $col.ContainsKey('Enum')) {
-                    $hasEnum = $true
-                    $enumValues = $col['Enum']
-                }
-                elseif ($col.PSObject -and $col.PSObject.Properties.Match('Enum').Count -gt 0) {
-                    $hasEnum = $true
-                    $enumValues = $col.Enum
-                }
-            }
+	            $st = $null
+	            if ($spec.ContainsKey('strategy')) { $st = [string]$spec['strategy'] }
+	            if ([string]::IsNullOrWhiteSpace($st)) { continue }
+	            $st = $st.ToLowerInvariant()
+	            if ($st -notin @('encrypt','hmac')) { continue }
+
+	            $writeKv = $true
+	            if ($spec.ContainsKey('write_key_version')) {
+	                $writeKv = ConvertTo-Bool -Value $spec['write_key_version'] -Context "Crypto.write_key_version ($TableName.$colName)"
+	            }
+	            if ($writeKv) {
+	                $kvc = $null
+	                if ($spec.ContainsKey('key_version_column')) { $kvc = [string]$spec['key_version_column'] }
+	                if ([string]::IsNullOrWhiteSpace($kvc)) { $kvc = $colName + '_key_version' }
+	                if (-not $kvOwners.ContainsKey($kvc)) { $kvOwners[$kvc] = @() }
+	                $kvOwners[$kvc] += $colName
+	            }
+
+	            $writeMeta = $false
+	            if ($spec.ContainsKey('write_encryption_meta')) {
+	                $writeMeta = ConvertTo-Bool -Value $spec['write_encryption_meta'] -Context "Crypto.write_encryption_meta ($TableName.$colName)"
+	            }
+	            if ($writeMeta) {
+	                $metaCol = $null
+	                if ($spec.ContainsKey('encryption_meta_column')) { $metaCol = [string]$spec['encryption_meta_column'] }
+	                if ([string]::IsNullOrWhiteSpace($metaCol)) { $metaCol = 'encryption_meta' }
+	                if (-not $metaOwners.ContainsKey($metaCol)) { $metaOwners[$metaCol] = @() }
+	                $metaOwners[$metaCol] += $colName
+	            }
+	        }
+
+	        $missingDesc = 0
+	        $missingCols = New-Object 'System.Collections.Generic.List[string]'
+	        # Prefer column order from CREATE statement to avoid churn; append any extra columns deterministically
+	        $colOrder = New-Object 'System.Collections.Generic.List[string]'
+	        $colSeen = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+	        if ($colMetaSample) {
+	            foreach ($k in $colMetaSample.Keys) {
+	                if ($colSeen.Add($k)) { $null = $colOrder.Add($k) }
+	            }
+	        }
+
+	        foreach ($engKey in ($colMetaPerEngine.Keys | Sort-Object)) {
+	            $engCols = $colMetaPerEngine[$engKey]
+	            if (-not $engCols) { continue }
+	            foreach ($k in $engCols.Keys) {
+	                if ($colSeen.Add($k)) { $null = $colOrder.Add($k) }
+	            }
+	        }
+
+	        foreach ($c in ($DefEntry.Columns.Keys | Sort-Object -Stable)) {
+	            if ($colSeen.Add($c)) { $null = $colOrder.Add($c) }
+	        }
+
+	        foreach ($colName in $colOrder) {
+	            $col = $null
+	            if ($DefEntry.Columns.ContainsKey($colName)) { $col = $DefEntry.Columns[$colName] }
+	            $colSpec = ConvertTo-HashtableShallow -Value $col
+	            $desc = ''
+	            if ($colSpec.ContainsKey('Description') -and $colSpec['Description']) { $desc = [string]$colSpec['Description'] }
+	            if ([string]::IsNullOrWhiteSpace($desc)) {
+	                $missingDesc++
+	                $missingCols.Add($colName) | Out-Null
+	            }
+
+	            $suffix = ''
+	            $hasEnum = $false
+	            $enumValues = $null
+	            if ($colSpec.ContainsKey('Enum')) {
+	                $hasEnum = $true
+	                $enumValues = $colSpec['Enum']
+	            }
             if ($hasEnum) {
                 $suffix = ' (enum: ' + (($enumValues | ForEach-Object { $_ }) -join ', ') + ')'
             }
@@ -858,24 +1066,37 @@ function Write-DefinitionFile {
                     $typeParts += @{ Engine = $engKey; Type = $type }
                 }
             }
-            $colType = ''
-            if ($typeParts.Count -gt 0) {
-                if ($typeSet.Count -eq 1) {
-                    $colType = $typeParts[0].Type
-                } else {
-                    $colType = ($typeParts | ForEach-Object { "{0}: {1}" -f $_.Engine, $_.Type }) -join ' / '
-                }
-            }
+	            $colType = ''
+	            if ($typeParts.Count -gt 0) {
+	                if ($typeSet.Count -eq 1 -and $typeParts.Count -eq $colMetaPerEngine.Keys.Count) {
+	                    $colType = $typeParts[0].Type
+	                } else {
+	                    $colType = ($typeParts | ForEach-Object { "{0}: {1}" -f $_.Engine, $_.Type }) -join ' / '
+	                }
+	            }
 
-            # null/default from sample engine
-            $meta = $null
-            if ($colMetaSample -and $colMetaSample.Contains($colName)) { $meta = $colMetaSample[$colName] }
+	            # nullability per engine (like types/defaults)
+	            $nullParts = @()
+	            $nullSet   = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+	            foreach ($engKey in ($colMetaPerEngine.Keys | Sort-Object)) {
+	                $engCols = $colMetaPerEngine[$engKey]
+	                if ($engCols -and $engCols.Contains($colName)) {
+	                    $flag = 'YES'
+	                    if (-not $engCols[$colName].Nullable) { $flag = 'NO' }
+	                    if (-not $nullSet.Contains($flag)) { $null = $nullSet.Add($flag) }
+	                    $nullParts += @{ Engine = $engKey; Flag = $flag }
+	                }
+	            }
 
-            $colNull = 'YES'
-            $colDef  = ''
-            if ($meta) {
-                if (-not $meta.Nullable) { $colNull = 'NO' }
-            }
+	            $colNull = 'YES'
+	            $colDef  = ''
+	            if ($nullParts.Count -gt 0) {
+	                if ($nullSet.Count -eq 1 -and $nullParts.Count -eq $colMetaPerEngine.Keys.Count) {
+	                    $colNull = $nullParts[0].Flag
+	                } else {
+	                    $colNull = ($nullParts | ForEach-Object { "{0}: {1}" -f $_.Engine, $_.Flag }) -join ' / '
+	                }
+	            }
             # defaults per engine
             $defParts = @()
             $defSet   = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
@@ -889,23 +1110,40 @@ function Write-DefinitionFile {
                         $defParts += @{ Engine = $engKey; Value = $txt }
                     }
                 }
-            }
-            if ($defParts.Count -gt 0) {
-                if ($defSet.Count -eq 1) {
-                    $colDef = $defParts[0].Value
-                } else {
-                    $colDef = ($defParts | ForEach-Object { "{0}: {1}" -f $_.Engine, $_.Value }) -join ' / '
-                }
-            }
+	            }
+	            if ($defParts.Count -gt 0) {
+	                if ($defSet.Count -eq 1 -and $defParts.Count -eq $colMetaPerEngine.Keys.Count) {
+	                    $colDef = $defParts[0].Value
+	                } else {
+	                    $colDef = ($defParts | ForEach-Object { "{0}: {1}" -f $_.Engine, $_.Value }) -join ' / '
+	                }
+	            }
 
-            $lines.Add( ("| {0} | {1} | {2} | {3} | {4}{5} |" -f $colName, $colType, $colNull, $colDef, ($desc -replace '\r?\n', '<br/>'), $suffix) )
-        }
+	            $cryptoCell = ''
+	            try {
+	                $cryptoCell = Get-CryptoCellText -TableName $TableName -ColumnName $colName -CryptoSpec $cryptoSample -KeyVersionOwners $kvOwners -MetaOwners $metaOwners
+	            }
+	            catch {
+	                $cryptoCell = "_error_"
+	            }
 
-        if ($missingDesc -gt 0) {
-            $lines.Add('')
-            $lines.Add( ("> Note: {0} column descriptions are missing in definitions; consider filling them in." -f $missingDesc) )
-        }
-    }
+	            $lines.Add( ("| {0} | {1} | {2} | {3} | {4}{5} | {6} |" -f $colName, $colType, $colNull, $colDef, ($desc -replace '\r?\n', '<br/>'), $suffix, $cryptoCell) )
+	        }
+
+	        if ($missingDesc -gt 0) {
+	            $preview = @($missingCols | Select-Object -First 8)
+	            $previewText = ($preview -join ', ')
+	            $more = ''
+	            if ($missingCols.Count -gt $preview.Count) { $more = " (+{0} more)" -f ($missingCols.Count - $preview.Count) }
+
+	            Write-Warning ("{0}: missing {1} column descriptions: {2}{3}" -f $TableName, $missingDesc, $previewText, $more)
+	            $script:MissingColumnDescriptions.Add([PSCustomObject]@{
+	                Table   = $TableName
+	                Missing = $missingDesc
+	                Columns = $missingCols.ToArray()
+	            }) | Out-Null
+	        }
+	    }
     else {
         $lines.Add('')
         $lines.Add('> Definitions: missing for this table (no entry in defs files).')
@@ -1431,4 +1669,19 @@ if ($EngineDiffWarnings.Count -gt 0) {
     foreach ($w in ($EngineDiffWarnings | Sort-Object)) {
         Write-Host (" - {0}" -f $w)
     }
+}
+
+if ($MissingColumnDescriptions.Count -gt 0) {
+    Write-Host ""
+    Write-Host "Missing column descriptions summary:"
+    foreach ($e in ($MissingColumnDescriptions | Sort-Object Table)) {
+        $cols = @($e.Columns)
+        $preview = @($cols | Select-Object -First 8)
+        $previewText = ($preview -join ', ')
+        $more = ''
+        if ($cols.Count -gt $preview.Count) { $more = " (+{0} more)" -f ($cols.Count - $preview.Count) }
+        Write-Host (" - {0}: {1} missing ({2}{3})" -f $e.Table, $e.Missing, $previewText, $more)
+    }
+    $total = ($MissingColumnDescriptions | Measure-Object -Property Missing -Sum).Sum
+    Write-Host ("Total missing descriptions: {0}" -f $total)
 }

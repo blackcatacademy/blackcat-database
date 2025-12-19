@@ -1,3 +1,5 @@
+![BlackCat Database](./.github/blackcat-database-banner.png)
+
 # BlackCat Database (Umbrella)
 
 [![DB Docs](https://github.com/blackcatacademy/blackcat-database/actions/workflows/db-docs.yml/badge.svg?branch=dev)](https://github.com/blackcatacademy/blackcat-database/actions/workflows/db-docs.yml?query=branch%3Adev)
@@ -124,7 +126,7 @@ See [docs/usage.md](./docs/usage.md) for DB bootstrapping and runtime wiring.
   - [`src/Services/GenericCrudService.php`](./src/Services/GenericCrudService.php)
   - [`src/Support/Criteria.php`](./src/Support/Criteria.php)
   - Example: [`examples/UserRegisterService.php`](./examples/UserRegisterService.php)
-- **Field-level encryption** – viz [docs/CRYPTO-ADAPTER.md](./docs/CRYPTO-ADAPTER.md) pro napojení na `blackcat-crypto` a automatické šifrování/HMAC při zápisu.
+- **Field-level encryption** – see [docs/CRYPTO-ADAPTER.md](./docs/CRYPTO-ADAPTER.md) for wiring into `blackcat-crypto` and automatic encrypt/HMAC on writes.
 
 ---
 
@@ -168,7 +170,7 @@ newline) to keep diffs clean across OSes.
 - **Operational CLIs** (`bin/`, see [bin/README.md](./bin/README.md)):
 - `dbctl.php` – ping/explain/route/wait/trace helper for live databases.
 - `dbdoctor.php` – quick health snapshot (driver, server, replica info).
-- `sync-check.php` – CLI pro porovnání počítů řádků mezi dvěma DSN (MySQL/Postgres), používá `sink/sync` helpery.
+- `sync-check.php` – CLI for comparing row counts between two DSNs (MySQL/Postgres), using `sink/sync` helpers.
   - `dbtrace.php` – dumps the last executed statements from
     `Database::getLastQueries()`.
   - `outbox-worker.php` – long-running outbox dispatcher with webhook/stdout

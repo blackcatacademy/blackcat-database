@@ -43,6 +43,7 @@ erDiagram
     VARCHAR(120) name
     BYTEA public_key
     BYTEA private_key_enc
+    VARCHAR(64) private_key_enc_key_version
     BIGINT kms_key_id
     TEXT origin
     TEXT status

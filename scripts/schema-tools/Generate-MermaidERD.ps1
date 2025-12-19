@@ -279,7 +279,6 @@ $hubList = @(
     Where-Object { $_.Value -gt 0 } |
     Sort-Object -Property Value, Key -Descending
 )
-$detailLinks = @()
 if ($hubList.Count -gt 0) {
   if ($detailDir) { New-Item -ItemType Directory -Force -Path $detailDir | Out-Null }
   $md.Add("") | Out-Null
