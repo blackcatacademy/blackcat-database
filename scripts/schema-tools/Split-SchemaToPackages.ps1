@@ -30,6 +30,19 @@ $script:ViewRequires         = @{}
 $script:OutputTargets        = @{}
 $script:EncryptionMapJsonByTable = @{}
 
+function Get-StringsSortedOrdinal {
+  param([string[]]$Values)
+  $list = New-Object 'System.Collections.Generic.List[string]'
+  foreach ($v in @($Values)) {
+    if ($null -eq $v) { continue }
+    $s = [string]$v
+    if ($s -eq '') { continue }
+    $null = $list.Add($s)
+  }
+  $list.Sort([System.StringComparer]::Ordinal)
+  return ,$list.ToArray()
+}
+
 function ConvertTo-StableJson {
   param([Parameter(Mandatory)]$Object,[int]$Depth = 20)
   $json = $Object | ConvertTo-Json -Depth $Depth
@@ -602,7 +615,8 @@ function Invoke-Split {
       $encPath = Join-Path $schemaDir 'encryption-map.json'
       Register-OutputPath -Path $encPath -Kind 'encryption-map'
 
-      $tableColumns = @($script:TableMetaByEngine[$eng][$t].columns.Keys | ForEach-Object { [string]$_ } | Where-Object { $_ -and $_ -ne '' } | Sort-Object)
+      # IMPORTANT: use ordinal sorting (culture-invariant) to keep order stable across Windows/Linux locales (e.g. cs-CZ treats "ch" as a single letter).
+      $tableColumns = Get-StringsSortedOrdinal @($script:TableMetaByEngine[$eng][$t].columns.Keys | ForEach-Object { [string]$_ } | Where-Object { $_ -and $_ -ne '' })
       $tableColumnsSet = @{}
       foreach ($c in $tableColumns) { $tableColumnsSet[$c.ToLowerInvariant()] = $true }
 
@@ -616,7 +630,7 @@ function Invoke-Split {
       $cryptoErrors = $false
       $cryptoSpecRaw = $null
       if ($spec -is [hashtable] -and $spec.ContainsKey('Crypto')) { $cryptoSpecRaw = $spec.Crypto }
-      if ($cryptoSpecRaw -eq $null) {
+      if ($null -eq $cryptoSpecRaw) {
         Add-ErrorMessage "Table [$t] missing Crypto block in $mapLeaf."
         $cryptoErrors = $true
       }
@@ -767,9 +781,9 @@ function Invoke-Split {
 
 	          # Stable key order for diff-friendly JSON.
 	          $orderedSpec = [ordered]@{}
-	          foreach ($k in @($colSpec.Keys | ForEach-Object { [string]$_ } | Sort-Object)) {
+	          foreach ($k in (Get-StringsSortedOrdinal @($colSpec.Keys | ForEach-Object { [string]$_ }))) {
 	            $orderedSpec[$k] = $colSpec[$k]
-          }
+	          }
 
           $colDefs[$c] = $orderedSpec
         }

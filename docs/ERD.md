@@ -1580,7 +1580,7 @@ webauthn_credentials }o--|| users : fk_webauthn_cred_user
   class webauthn_challenges orphan
   class webhook_outbox orphan
   class worker_locks orphan
-  %% Summary: tables=111, edges=141, linked=61, orphans=17, hubs=33, generated=2025-12-18T22:47:38+01:00
+  %% Summary: tables=111, edges=141, linked=61, orphans=17, hubs=33, generated=2025-12-19T01:02:16+01:00
 ```
 
 > Legend: linked = tables with FK edges; orphan = no FK in/out; hub = degree >= 5.
@@ -1593,7 +1593,7 @@ webauthn_credentials }o--|| users : fk_webauthn_cred_user
 | Orphans | 17 |
 | Hubs (≥5) | 33 |
 | Engine | postgres |
-| Generated | 2025-12-18T22:47:38+01:00 |
+| Generated | 2025-12-19T01:02:16+01:00 |
 | Direction | TB |
 
 **Quick navigation (hubs)**

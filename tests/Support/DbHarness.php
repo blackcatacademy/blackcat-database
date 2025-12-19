@@ -1715,7 +1715,7 @@ final class DbHarness
                     'vw_coupons'              => ['is_current'],
                     'vw_idempotency_keys'     => ['is_expired'],
                     'vw_order_item_downloads' => ['uses_left','is_valid'],
-                    'vw_system_errors'        => ['ip_bin_hex','ip_pretty'],
+                    'vw_system_errors'        => ['ip_hash_hex'],
                     'vw_users'                => ['email_hash_hex','last_login_ip_hash_hex'],
                 ];
                 foreach ($expect as $view => $cols) {

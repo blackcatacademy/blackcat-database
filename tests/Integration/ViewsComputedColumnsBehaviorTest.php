@@ -168,21 +168,21 @@ final class ViewsComputedColumnsBehaviorTest extends TestCase
         $this->assertSame(1, (int)$row['is_valid']);
     }
 
-    public function test_system_errors_ip_helpers(): void
+    public function test_system_errors_ip_hash_hex_helper(): void
     {
         $db = self::db();
+        $hex = str_repeat('0', 62) . '01'; // 32 bytes -> 64 hex chars
+
         if ($db->isPg()) {
-            // IPv4-mapped value stored in 16 bytes -> hex length 32, pretty prints as 127.0.0.1
-            $db->exec("INSERT INTO system_errors (level,message,ip_bin)
-                    VALUES ('notice','x', decode('00000000000000000000ffff7f000001','hex'))");
+            $db->exec("INSERT INTO system_errors (level,message,ip_hash)
+                    VALUES ('notice','x', decode('$hex','hex'))");
         } else {
-            $db->exec("INSERT INTO system_errors (level,message,ip_bin)
-                    VALUES ('notice','x', INET6_ATON('127.0.0.1'))");
+            $db->exec("INSERT INTO system_errors (level,message,ip_hash)
+                    VALUES ('notice','x', UNHEX('$hex'))");
         }
 
-        $row = $db->fetchAll("SELECT ip_bin_hex, ip_pretty FROM vw_system_errors ORDER BY id DESC LIMIT 1")[0] ?? null;
+        $row = $db->fetchAll("SELECT ip_hash_hex FROM vw_system_errors ORDER BY id DESC LIMIT 1")[0] ?? null;
         $this->assertNotNull($row);
-        $this->assertSame(32, strlen((string)$row['ip_bin_hex']));
-        $this->assertSame('127.0.0.1', (string)$row['ip_pretty']);
+        $this->assertSame(strtoupper($hex), (string)$row['ip_hash_hex']);
     }
 }

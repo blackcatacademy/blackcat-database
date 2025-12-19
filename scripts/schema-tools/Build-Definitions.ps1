@@ -957,10 +957,8 @@ function Write-DefinitionFile {
             $colMetaPerEngine[$engKey] = Convert-CreateColumns -CreateText $engMap.create
 	        }
 	        $colMetaSample = $null
-	        $sampleEngineKey = $null
 	        foreach ($engKey in ($colMetaPerEngine.Keys | Sort-Object)) {
 	            $colMetaSample = $colMetaPerEngine[$engKey]
-	            $sampleEngineKey = $engKey
 	            break
 	        }
 

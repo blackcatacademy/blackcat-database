@@ -1130,7 +1130,7 @@ Views:
   system_errors:
     create: |-
       -- Contract view for [system_errors]
-      -- Hides stack_trace/token; adds hex helpers and ip_pretty (from inet).
+      -- Hides stack_trace/token; adds ip_hash_hex helper.
       CREATE OR REPLACE VIEW vw_system_errors AS
       SELECT
         id,
@@ -1146,10 +1146,6 @@ Views:
         ip_hash,
         UPPER(encode(ip_hash,'hex')) AS ip_hash_hex,
         ip_hash_key_version,
-        ip_text,
-        COALESCE(NULLIF(ip_text,''), bc_compat.inet6_ntoa(ip_bin))::varchar(39) AS ip_pretty,
-        ip_bin,
-        UPPER(encode(ip_bin,'hex')) AS ip_bin_hex,
         user_agent,
         url,
         method,

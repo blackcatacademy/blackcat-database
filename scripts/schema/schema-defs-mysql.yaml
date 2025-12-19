@@ -1762,8 +1762,6 @@ Tables:
           - warning
           - error
           - critical
-      ip_bin:
-        Description: Binary IP (if captured).
       fingerprint:
         Description: Deduplication fingerprint.
       ip_hash:
@@ -1793,9 +1791,6 @@ Tables:
         Description: Most recent occurrence (UTC).
       resolved:
         Description: Resolution flag.
-      ip_text:
-        PII: plain
-        Description: Plaintext IP (if captured).
       http_status:
         Description: HTTP status code.
       occurrences:
