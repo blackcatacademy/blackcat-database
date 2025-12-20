@@ -12,12 +12,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/blackcatacademy/blackcat-crypto.git",
-                "reference": "ce1bb41955ca222c76981d4d33b81c0558a2127d"
+                "reference": "382410d474897346ee8439ce6bdf3d348fc1cac8"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/blackcatacademy/blackcat-crypto/zipball/ce1bb41955ca222c76981d4d33b81c0558a2127d",
-                "reference": "ce1bb41955ca222c76981d4d33b81c0558a2127d",
+                "url": "https://api.github.com/repos/blackcatacademy/blackcat-crypto/zipball/382410d474897346ee8439ce6bdf3d348fc1cac8",
+                "reference": "382410d474897346ee8439ce6bdf3d348fc1cac8",
                 "shasum": ""
             },
             "require": {
@@ -185,12 +185,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/blackcatacademy/blackcat-database-crypto.git",
-                "reference": "58eb2d801c4b6c154bdfa0017a1c8a066c0dad8d"
+                "reference": "765a63fa50238864584ea054c79f87a5769958a2"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/blackcatacademy/blackcat-database-crypto/zipball/58eb2d801c4b6c154bdfa0017a1c8a066c0dad8d",
-                "reference": "58eb2d801c4b6c154bdfa0017a1c8a066c0dad8d",
+                "url": "https://api.github.com/repos/blackcatacademy/blackcat-database-crypto/zipball/765a63fa50238864584ea054c79f87a5769958a2",
+                "reference": "765a63fa50238864584ea054c79f87a5769958a2",
                 "shasum": ""
             },
             "require": {
@@ -209,7 +209,9 @@
                 "bin/db-crypto-plan",
                 "bin/db-crypto-schema",
                 "bin/db-crypto-keys-sync",
-                "bin/db-crypto-telemetry"
+                "bin/db-crypto-telemetry",
+                "bin/db-crypto-stress",
+                "bin/db-crypto-health"
             ],
             "type": "library",
             "autoload": {
