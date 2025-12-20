@@ -159,7 +159,7 @@ final class IngressLocator
 
         return 'DB crypto ingress is not available.'
             . $reason
-            . ' Set BLACKCAT_KEYS_DIR and BLACKCAT_CRYPTO_MANIFEST, ensure packages/*/schema/encryption-map.json are available,'
+            . ' Set BLACKCAT_KEYS_DIR, ensure packages/*/schema/encryption-map.json are available,'
             . ' and install blackcat-crypto + blackcat-database-crypto.';
     }
 
