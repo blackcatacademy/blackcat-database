@@ -93,12 +93,9 @@ class GenericCrudService
         }
 
         CoverageTelemetryReporter::register();
-        $autoIngress = IngressLocator::adapter();
-        if ($autoIngress !== null) {
-            $this->ingressAdapter = $autoIngress;
-            $this->ingressTable = $this->detectRepositoryTable();
-            $this->propagateIngressAdapter();
-        }
+        $this->ingressAdapter = IngressLocator::adapter();
+        $this->ingressTable = $this->detectRepositoryTable();
+        $this->propagateIngressAdapter();
     }
 
     // ----------------------- Public API -----------------------

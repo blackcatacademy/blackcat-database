@@ -21,17 +21,21 @@ final class IngressLocator
     private static $coverageReporter = null;
     /** @var callable|null */
     private static $telemetryCallback = null;
-    private static ?string $mapPathOverride = null;
     private static ?string $keysDirOverride = null;
     /** @var callable|null */
     private static $gatewayFactory = null;
 
-    public static function adapter(): ?DatabaseIngressAdapterInterface
+    /**
+     * Get the ingress adapter (fail-closed).
+     *
+     * This is the security core: if crypto ingress cannot boot, throw.
+     */
+    public static function adapter(): DatabaseIngressAdapterInterface
     {
         if (!self::$bootAttempted) {
             self::boot();
         }
-        if (self::isRequired() && self::$adapter === null) {
+        if (self::$adapter === null) {
             throw new \RuntimeException(self::requiredErrorMessage());
         }
         return self::$adapter;
@@ -42,23 +46,7 @@ final class IngressLocator
      */
     public static function requireAdapter(): DatabaseIngressAdapterInterface
     {
-        $adapter = self::adapter();
-        if ($adapter === null) {
-            throw new \RuntimeException(self::requiredErrorMessage());
-        }
-        return $adapter;
-    }
-
-    /**
-     * When enabled, `adapter()` throws instead of returning null if crypto ingress is not configured.
-     */
-    public static function isRequired(): bool
-    {
-        $v = getenv('BLACKCAT_DB_ENCRYPTION_REQUIRED');
-        if ($v === false || $v === '') {
-            $v = getenv('BLACKCAT_DB_CRYPTO_REQUIRED');
-        }
-        return $v === '1';
+        return self::adapter();
     }
 
     public static function setAdapter(?DatabaseIngressAdapterInterface $adapter): void
@@ -70,7 +58,7 @@ final class IngressLocator
 
     public static function configure(?string $mapPath = null, ?string $keysDir = null): void
     {
-        self::$mapPathOverride = $mapPath;
+        // Map source is intentionally hardcoded to blackcat-database packages.
         self::$keysDirOverride = $keysDir;
         self::$bootAttempted = false;
         self::$adapter = null;
@@ -100,22 +88,6 @@ final class IngressLocator
         self::$bootAttempted = true;
         self::$bootFailureReason = null;
 
-        $mapRaw = self::$mapPathOverride ?? (getenv('BLACKCAT_DB_ENCRYPTION_MAP') ?: null);
-        $mapRaw = is_string($mapRaw) ? trim($mapRaw) : null;
-        $mode = strtolower((string)($mapRaw ?? ''));
-        $usePackages = $mapRaw === null || $mapRaw === '' || in_array($mode, ['packages', 'package', 'auto'], true);
-        $mapPath = $usePackages ? null : self::resolvePath($mapRaw);
-        if (!$usePackages) {
-            if ($mapPath === null) {
-                self::$bootFailureReason = 'BLACKCAT_DB_ENCRYPTION_MAP is not set';
-                return;
-            }
-            if (!is_file($mapPath)) {
-                self::$bootFailureReason = 'encryption map file not found: ' . $mapPath;
-                return;
-            }
-        }
-
         $keysDir = self::$keysDirOverride ?? (getenv('BLACKCAT_KEYS_DIR') ?: getenv('APP_KEYS_DIR'));
         if (empty($keysDir)) {
             self::$bootFailureReason = 'BLACKCAT_KEYS_DIR is not set';
@@ -133,26 +105,23 @@ final class IngressLocator
         $gatewayInterface = '\\BlackCat\\DatabaseCrypto\\Gateway\\DatabaseGatewayInterface';
 
         if (
+            !class_exists($packagesLoaderClass) ||
             !class_exists($mapClass) ||
             !class_exists($cryptoConfigClass) ||
             !class_exists($cryptoManagerClass) ||
             !class_exists($adapterClass) ||
             !class_exists($ingressClass) ||
-            !interface_exists($gatewayInterface) ||
-            ($usePackages && !class_exists($packagesLoaderClass))
+            !interface_exists($gatewayInterface)
         ) {
             self::$bootFailureReason = 'crypto ingress dependencies missing (install blackcat-crypto + blackcat-database-crypto)';
             return;
         }
 
         try {
-            if ($usePackages) {
-                $map = $packagesLoaderClass::fromAutodetectedBlackcatDatabaseRoot();
-                if ($map->all() === []) {
-                    throw new \RuntimeException('no package encryption maps found (expected packages/*/schema/encryption-map.json)');
-                }
-            } else {
-                $map = $mapClass::fromFile($mapPath);
+            // Single source of truth: blackcat-database packages/*/schema/encryption-map.json.
+            $map = $packagesLoaderClass::fromAutodetectedBlackcatDatabaseRoot();
+            if ($map->all() === []) {
+                throw new \RuntimeException('no package encryption maps found (expected packages/*/schema/encryption-map.json)');
             }
         } catch (\Throwable $e) {
             self::$bootFailureReason = 'failed to load encryption map: ' . $e->getMessage();
@@ -190,24 +159,10 @@ final class IngressLocator
     {
         $reason = self::$bootFailureReason ? (' Reason: ' . self::$bootFailureReason . '.') : '';
 
-        return 'DB encryption ingress is required but not available.'
+        return 'DB crypto ingress is not available.'
             . $reason
-            . ' Set BLACKCAT_KEYS_DIR and BLACKCAT_CRYPTO_MANIFEST, and either set BLACKCAT_DB_ENCRYPTION_MAP to a map file (or "packages")'
-            . ' or provide per-package packages/*/schema/encryption-map.json (and install blackcat-crypto + blackcat-database-crypto).';
-    }
-
-    private static function resolvePath(?string $path): ?string
-    {
-        if ($path === null || $path === '') {
-            return null;
-        }
-        if ($path[0] === '/' || preg_match('/^[A-Za-z]:\\\\/', $path) === 1) {
-            return $path;
-        }
-        $base = dirname(__DIR__, 2);
-        $candidate = $base . '/' . ltrim($path, '/');
-        $real = realpath($candidate);
-        return $real !== false ? $real : $candidate;
+            . ' Set BLACKCAT_KEYS_DIR and BLACKCAT_CRYPTO_MANIFEST, ensure packages/*/schema/encryption-map.json are available,'
+            . ' and install blackcat-crypto + blackcat-database-crypto.';
     }
 
     private static function wrapTelemetry(callable $reporter): callable

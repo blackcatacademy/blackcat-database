@@ -4,7 +4,7 @@ For automatic input encryption you can use [`blackcat-database-crypto`](../black
 
 ## How it works
 1. In `BLACKCAT_CRYPTO_MANIFEST`, define all contexts/columns.
-2. Create a map (`config/encryption.json`) that specifies which strategies (`encrypt`/`hmac`/`passthrough`) apply to specific tables.
+2. Define per-package encryption maps in `packages/*/schema/encryption-map.json` (single source of truth).
 3. Enable the ingress adapter (zero boilerplate) via `IngressLocator` and use standard repos/services:
 
 ```php
@@ -14,12 +14,10 @@ use BlackCat\Database\Services\GenericCrudService;
 use BlackCat\Database\Crypto\IngressLocator;
 
 // 1) Standard boot (DB) + env configuration:
-// - BLACKCAT_DB_ENCRYPTION_MAP=./config/encryption.json
 // - BLACKCAT_KEYS_DIR=./keys
 // - BLACKCAT_CRYPTO_MANIFEST=.../contexts/core.json
-// - (recommended) BLACKCAT_DB_ENCRYPTION_REQUIRED=1  # fail-closed
 
-// 2) IngressLocator boots itself from env (when map+keys are available)
+// 2) IngressLocator boots itself from packages + keys (hardcoded map source)
 // (GenericCrudService uses it automatically)
 IngressLocator::requireAdapter(); // fail-fast
 

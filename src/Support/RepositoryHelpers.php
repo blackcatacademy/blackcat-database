@@ -171,32 +171,10 @@ trait RepositoryHelpers
         }
 
         if ($this->cryptoIngressAdapter === null) {
-            try {
-                $this->cryptoIngressAdapter = IngressLocator::adapter();
-            } catch (\Throwable $e) {
-                if (IngressLocator::isRequired()) {
-                    throw $e;
-                }
-                return $row;
-            }
+            $this->cryptoIngressAdapter = IngressLocator::adapter();
         }
 
-        if ($this->cryptoIngressAdapter === null) {
-            if (IngressLocator::isRequired()) {
-                // Ensure consistent error messaging when crypto is required.
-                IngressLocator::requireAdapter();
-            }
-            return $row;
-        }
-
-        try {
-            return $this->cryptoIngressAdapter->encrypt($table, $row);
-        } catch (\Throwable $e) {
-            if (IngressLocator::isRequired()) {
-                throw $e;
-            }
-            return $row;
-        }
+        return $this->cryptoIngressAdapter->encrypt($table, $row);
     }
 
     /**
@@ -217,35 +195,14 @@ trait RepositoryHelpers
         }
 
         if ($this->cryptoIngressAdapter === null) {
-            try {
-                $this->cryptoIngressAdapter = IngressLocator::adapter();
-            } catch (\Throwable $e) {
-                if (IngressLocator::isRequired()) {
-                    throw $e;
-                }
-                return $criteria;
-            }
-        }
-
-        if ($this->cryptoIngressAdapter === null) {
-            if (IngressLocator::isRequired()) {
-                IngressLocator::requireAdapter();
-            }
-            return $criteria;
+            $this->cryptoIngressAdapter = IngressLocator::adapter();
         }
 
         if (!$this->cryptoIngressAdapter instanceof DatabaseIngressCriteriaAdapterInterface) {
             return $criteria;
         }
 
-        try {
-            return $this->cryptoIngressAdapter->criteria($table, $criteria);
-        } catch (\Throwable $e) {
-            if (IngressLocator::isRequired()) {
-                throw $e;
-            }
-            return $criteria;
-        }
+        return $this->cryptoIngressAdapter->criteria($table, $criteria);
     }
 
     private function resolveIngressTable(): ?string
