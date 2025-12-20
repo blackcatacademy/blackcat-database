@@ -12,6 +12,90 @@ if (!extension_loaded('pcov') && !extension_loaded('xdebug')) {
 }
 
 /**
+ * 0) Crypto ingress test bootstrap (fail-closed default).
+ *
+ * CI/unit tests must be able to boot DB crypto ingress without relying on developer/prod key material.
+ * We generate deterministic per-context keys from the per-package encryption maps when BLACKCAT_KEYS_DIR is unset.
+ */
+$bootstrapCrypto = static function (): void {
+    $keysDir = (string)(getenv('BLACKCAT_KEYS_DIR') ?: '');
+    if ($keysDir !== '') {
+        return; // respect explicit keys dir (do not touch real keys)
+    }
+
+    $keysDir = rtrim(sys_get_temp_dir(), '/\\') . '/blackcat-db-keys-' . bin2hex(random_bytes(6));
+    if (!is_dir($keysDir) && !mkdir($keysDir, 0770, true) && !is_dir($keysDir)) {
+        throw new RuntimeException('phpunit bootstrap: cannot create BLACKCAT_KEYS_DIR: ' . $keysDir);
+    }
+
+    putenv('BLACKCAT_KEYS_DIR=' . $keysDir);
+    $_ENV['BLACKCAT_KEYS_DIR'] = $keysDir;
+    $_SERVER['BLACKCAT_KEYS_DIR'] = $keysDir;
+
+    $packagesDir = realpath(__DIR__ . '/../packages');
+    if ($packagesDir === false || !is_dir($packagesDir)) {
+        throw new RuntimeException('phpunit bootstrap: packages directory not found.');
+    }
+
+    $mapPaths = glob($packagesDir . '/*/schema/encryption-map.json') ?: [];
+    sort($mapPaths, SORT_STRING);
+
+    $contexts = [];
+    foreach ($mapPaths as $path) {
+        if (!is_file($path)) {
+            continue;
+        }
+        $json = file_get_contents($path);
+        if ($json === false) {
+            continue;
+        }
+        $data = json_decode($json, true);
+        if (!is_array($data)) {
+            continue;
+        }
+        $tables = $data['tables'] ?? null;
+        if (!is_array($tables)) {
+            continue;
+        }
+        foreach ($tables as $tdef) {
+            if (!is_array($tdef)) {
+                continue;
+            }
+            $cols = $tdef['columns'] ?? null;
+            if (!is_array($cols)) {
+                continue;
+            }
+            foreach ($cols as $spec) {
+                if (!is_array($spec)) {
+                    continue;
+                }
+                $strategy = strtolower((string)($spec['strategy'] ?? ''));
+                if ($strategy !== 'encrypt' && $strategy !== 'hmac') {
+                    continue;
+                }
+                $ctx = trim((string)($spec['context'] ?? ''));
+                if ($ctx === '') {
+                    continue;
+                }
+                $contexts[$ctx] = true;
+            }
+        }
+    }
+
+    $contexts = array_keys($contexts);
+    sort($contexts, SORT_STRING);
+
+    foreach ($contexts as $context) {
+        $base = strtolower(str_replace('.', '_', $context));
+        $base = preg_replace('~[^a-z0-9_.-]+~', '_', $base) ?: 'key';
+        $hex = bin2hex(hash('sha256', $context . '|v1', true));
+        file_put_contents($keysDir . '/' . $base . '_v1.hex', $hex . PHP_EOL);
+    }
+};
+
+$bootstrapCrypto();
+
+/**
  * 1) Deterministically choose the target backend.
  *    - respect BC_DB (normalize it)
  *    - otherwise infer from the presence of a single DSN

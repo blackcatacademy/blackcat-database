@@ -31,7 +31,8 @@ final class IngressLocatorTest extends TestCase
     public function testAdapterThrowsWhenNotConfigured(): void
     {
         try {
-            IngressLocator::configure(null, null);
+            // Force "not configured" even if the test bootstrap sets BLACKCAT_KEYS_DIR.
+            IngressLocator::configure(null, '');
             $this->expectException(\RuntimeException::class);
             IngressLocator::adapter();
         } finally {
