@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "00cdd3becf9a4b73a04eafb91aaefe94",
+    "content-hash": "bdd12c423415fb2d59acb76dcc8e4a49",
     "packages": [
         {
             "name": "blackcat/crypto",
@@ -73,6 +73,61 @@
                 "issues": "https://github.com/blackcatacademy/blackcat-crypto/issues"
             },
             "time": "2025-12-15T09:03:59+00:00"
+        },
+        {
+            "name": "blackcatacademy/blackcat-config",
+            "version": "dev-dev",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/blackcatacademy/blackcat-config.git",
+                "reference": "d4e3d633d39c84cb1e1f6b6995a046b8ffb367ce"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/blackcatacademy/blackcat-config/zipball/d4e3d633d39c84cb1e1f6b6995a046b8ffb367ce",
+                "reference": "d4e3d633d39c84cb1e1f6b6995a046b8ffb367ce",
+                "shasum": ""
+            },
+            "require": {
+                "ext-json": "*",
+                "php": "^8.3"
+            },
+            "require-dev": {
+                "phpstan/phpstan": "^1.11",
+                "phpstan/phpstan-phpunit": "^1.4",
+                "phpunit/phpunit": "^11.0"
+            },
+            "bin": [
+                "bin/config"
+            ],
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "BlackCat\\Config\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "BlackCat\\Config\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "vendor/bin/phpunit --colors=always"
+                ],
+                "stan": [
+                    "vendor/bin/phpstan analyse --configuration=phpstan.neon"
+                ]
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "Secure configuration hub/layer for the BlackCat ecosystem (profiles, hardening checks, compatible config sources).",
+            "support": {
+                "source": "https://github.com/blackcatacademy/blackcat-config/tree/dev",
+                "issues": "https://github.com/blackcatacademy/blackcat-config/issues"
+            },
+            "time": "2025-12-21T16:03:21+00:00"
         },
         {
             "name": "blackcatacademy/blackcat-core",
@@ -2222,6 +2277,7 @@
     "minimum-stability": "dev",
     "stability-flags": {
         "blackcat/crypto": 20,
+        "blackcatacademy/blackcat-config": 20,
         "blackcatacademy/blackcat-core": 20,
         "blackcatacademy/blackcat-database-crypto": 20
     },

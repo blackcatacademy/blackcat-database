@@ -31,7 +31,7 @@ final class IngressLocatorTest extends TestCase
     public function testAdapterThrowsWhenNotConfigured(): void
     {
         try {
-            // Force "not configured" even if the test bootstrap sets BLACKCAT_KEYS_DIR.
+            // Force "not configured" even if the test bootstrap initializes runtime crypto config.
             IngressLocator::configure(null, '');
             $this->expectException(\RuntimeException::class);
             IngressLocator::adapter();

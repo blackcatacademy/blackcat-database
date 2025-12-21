@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace BlackCat\Database\Crypto;
 
+use BlackCat\Config\Runtime\Config as RuntimeConfig;
+use BlackCat\Config\Runtime\RuntimeConfigValidator;
 use BlackCat\Database\Contracts\DatabaseIngressAdapterInterface;
 
 /**
@@ -89,16 +91,22 @@ final class IngressLocator
         $keysDir = self::$keysDirOverride;
         if ($keysDir === '') {
             // Explicit override to "disable" keys dir discovery (used by tests and controlled bootstraps).
-            self::$bootFailureReason = 'BLACKCAT_KEYS_DIR is not set';
+            self::$bootFailureReason = 'crypto.keys_dir is not configured';
             return;
         }
 
-        // Prefer runtime config (if installed + initialized) over env.
+        // Prefer centralized runtime config (fail-closed default).
         if ($keysDir === null) {
-            $configClass = '\\BlackCat\\Config\\Runtime\\Config';
-            if (\class_exists($configClass) && $configClass::isInitialized()) {
+            try {
+                RuntimeConfig::tryInitFromFirstAvailableJsonFile();
+            } catch (\Throwable $e) {
+                self::$bootFailureReason = 'runtime config init failed: ' . $e->getMessage();
+                return;
+            }
+
+            if (RuntimeConfig::isInitialized()) {
                 try {
-                    $v = $configClass::get('crypto.keys_dir');
+                    $v = RuntimeConfig::get('crypto.keys_dir');
                     if (is_string($v) && trim($v) !== '') {
                         $keysDir = $v;
                     }
@@ -107,13 +115,22 @@ final class IngressLocator
             }
         }
 
-        if ($keysDir === null) {
-            $keysDir = self::envGet('BLACKCAT_KEYS_DIR') ?? self::envGet('APP_KEYS_DIR');
-        }
-        if (empty($keysDir)) {
-            self::$bootFailureReason = 'BLACKCAT_KEYS_DIR is not set';
+        if ($keysDir === null || trim((string)$keysDir) === '') {
+            self::$bootFailureReason = 'crypto.keys_dir is not configured';
             return;
         }
+
+        // Validate crypto-critical config (permissions, symlinks, ...).
+        if (RuntimeConfig::isInitialized()) {
+            try {
+                RuntimeConfigValidator::assertCryptoConfig(RuntimeConfig::repo());
+            } catch (\Throwable $e) {
+                self::$bootFailureReason = 'invalid runtime crypto config: ' . $e->getMessage();
+                return;
+            }
+        }
+
+        $keysDir = trim((string)$keysDir);
 
         $mapClass = '\\BlackCat\\DatabaseCrypto\\Config\\EncryptionMap';
         $mapLoaderClass = '\\BlackCat\\DatabaseCrypto\\Config\\PackagesEncryptionMapLoader';
@@ -153,10 +170,9 @@ final class IngressLocator
             $env['BLACKCAT_KEYS_DIR'] = $keysDir;
 
             // Optional: manifest via runtime config (keeps slot metadata consistent across repos).
-            $configClass = '\\BlackCat\\Config\\Runtime\\Config';
-            if (\class_exists($configClass) && $configClass::isInitialized()) {
+            if (RuntimeConfig::isInitialized()) {
                 try {
-                    $manifest = $configClass::get('crypto.manifest');
+                    $manifest = RuntimeConfig::get('crypto.manifest');
                     if (is_string($manifest) && trim($manifest) !== '') {
                         $env['BLACKCAT_CRYPTO_MANIFEST'] = $manifest;
                     }
@@ -194,7 +210,7 @@ final class IngressLocator
 
         return 'DB crypto ingress is not available.'
             . $reason
-            . ' Set BLACKCAT_KEYS_DIR, ensure packages/*/schema/encryption-map.json are available,'
+            . ' Provide runtime config key "crypto.keys_dir", ensure packages/*/schema/encryption-map.json are available,'
             . ' and install blackcat-crypto + blackcat-database-crypto.';
     }
 
@@ -253,24 +269,6 @@ final class IngressLocator
                 return $payload;
             }
         };
-    }
-
-    private static function envGet(string $key): ?string
-    {
-        $v = $_ENV[$key] ?? $_SERVER[$key] ?? null;
-        if ($v !== null && $v !== false && (string)$v !== '') {
-            return (string)$v;
-        }
-
-        try {
-            $v = getenv($key);
-            if ($v === false || $v === '') {
-                return null;
-            }
-            return (string)$v;
-        } catch (\Throwable) {
-            return null;
-        }
     }
 
     /**

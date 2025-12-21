@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 use BlackCat\Core\Database;
+use BlackCat\Config\Runtime\Config as RuntimeConfig;
 use BlackCat\Database\Support\PgCompat;
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -15,22 +16,39 @@ if (!extension_loaded('pcov') && !extension_loaded('xdebug')) {
  * 0) Crypto ingress test bootstrap (fail-closed default).
  *
  * CI/unit tests must be able to boot DB crypto ingress without relying on developer/prod key material.
- * We generate deterministic per-context keys from the per-package encryption maps when BLACKCAT_KEYS_DIR is unset.
+ * We generate deterministic per-context keys from the per-package encryption maps and bootstrap
+ * blackcat-config runtime config (crypto.keys_dir) when not already configured.
  */
 $bootstrapCrypto = static function (): void {
-    $keysDir = (string)(getenv('BLACKCAT_KEYS_DIR') ?: '');
-    if ($keysDir !== '') {
-        return; // respect explicit keys dir (do not touch real keys)
+    if (RuntimeConfig::isInitialized()) {
+        $keysDir = RuntimeConfig::get('crypto.keys_dir');
+        if (is_string($keysDir) && trim($keysDir) !== '') {
+            return; // respect explicit runtime config (do not touch real keys)
+        }
+
+        throw new RuntimeException('phpunit bootstrap: runtime config is initialized but crypto.keys_dir is missing/empty.');
+    }
+
+    $runtimeConfigPath = rtrim(sys_get_temp_dir(), '/\\') . '/blackcat-db-runtime-config.json';
+
+    // Reuse an existing test config (needed for child processes spawned via proc_open()).
+    if (is_file($runtimeConfigPath) && is_readable($runtimeConfigPath)) {
+        $raw = file_get_contents($runtimeConfigPath);
+        if ($raw !== false) {
+            $cfg = json_decode($raw, true);
+            $existingKeysDir = is_array($cfg) ? ($cfg['crypto']['keys_dir'] ?? null) : null;
+            if (is_string($existingKeysDir) && trim($existingKeysDir) !== '' && is_dir($existingKeysDir) && is_readable($existingKeysDir)) {
+                RuntimeConfig::initFromJsonFileIfNeeded($runtimeConfigPath);
+                return;
+            }
+        }
     }
 
     $keysDir = rtrim(sys_get_temp_dir(), '/\\') . '/blackcat-db-keys-' . bin2hex(random_bytes(6));
-    if (!is_dir($keysDir) && !mkdir($keysDir, 0770, true) && !is_dir($keysDir)) {
-        throw new RuntimeException('phpunit bootstrap: cannot create BLACKCAT_KEYS_DIR: ' . $keysDir);
+    if (!is_dir($keysDir) && !mkdir($keysDir, 0700, true) && !is_dir($keysDir)) {
+        throw new RuntimeException('phpunit bootstrap: cannot create crypto.keys_dir: ' . $keysDir);
     }
-
-    putenv('BLACKCAT_KEYS_DIR=' . $keysDir);
-    $_ENV['BLACKCAT_KEYS_DIR'] = $keysDir;
-    $_SERVER['BLACKCAT_KEYS_DIR'] = $keysDir;
+    @chmod($keysDir, 0700);
 
     $packagesDir = realpath(__DIR__ . '/../packages');
     if ($packagesDir === false || !is_dir($packagesDir)) {
@@ -89,8 +107,23 @@ $bootstrapCrypto = static function (): void {
         $base = strtolower(str_replace('.', '_', $context));
         $base = preg_replace('~[^a-z0-9_.-]+~', '_', $base) ?: 'key';
         $hex = bin2hex(hash('sha256', $context . '|v1', true));
-        file_put_contents($keysDir . '/' . $base . '_v1.hex', $hex . PHP_EOL);
+        $keyPath = $keysDir . '/' . $base . '_v1.hex';
+        file_put_contents($keyPath, $hex . PHP_EOL);
+        @chmod($keyPath, 0600);
     }
+
+    // Write a stable runtime config file so worker subprocesses can re-use the same keys_dir.
+    $tmpCfg = $runtimeConfigPath . '.tmp.' . bin2hex(random_bytes(4));
+    file_put_contents($tmpCfg, json_encode([
+        'crypto' => [
+            'keys_dir' => $keysDir,
+        ],
+    ], JSON_UNESCAPED_SLASHES));
+    @chmod($tmpCfg, 0600);
+    @rename($tmpCfg, $runtimeConfigPath);
+    @chmod($runtimeConfigPath, 0600);
+
+    RuntimeConfig::initFromJsonFileIfNeeded($runtimeConfigPath);
 };
 
 $bootstrapCrypto();
