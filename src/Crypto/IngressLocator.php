@@ -86,7 +86,30 @@ final class IngressLocator
         self::$bootAttempted = true;
         self::$bootFailureReason = null;
 
-        $keysDir = self::$keysDirOverride ?? (getenv('BLACKCAT_KEYS_DIR') ?: getenv('APP_KEYS_DIR'));
+        $keysDir = self::$keysDirOverride;
+        if ($keysDir === '') {
+            // Explicit override to "disable" keys dir discovery (used by tests and controlled bootstraps).
+            self::$bootFailureReason = 'BLACKCAT_KEYS_DIR is not set';
+            return;
+        }
+
+        // Prefer runtime config (if installed + initialized) over env.
+        if ($keysDir === null) {
+            $configClass = '\\BlackCat\\Config\\Runtime\\Config';
+            if (\class_exists($configClass) && $configClass::isInitialized()) {
+                try {
+                    $v = $configClass::get('crypto.keys_dir');
+                    if (is_string($v) && trim($v) !== '') {
+                        $keysDir = $v;
+                    }
+                } catch (\Throwable) {
+                }
+            }
+        }
+
+        if ($keysDir === null) {
+            $keysDir = self::envGet('BLACKCAT_KEYS_DIR') ?? self::envGet('APP_KEYS_DIR');
+        }
         if (empty($keysDir)) {
             self::$bootFailureReason = 'BLACKCAT_KEYS_DIR is not set';
             return;
@@ -126,8 +149,21 @@ final class IngressLocator
         }
 
         try {
-            $env = array_merge((array)getenv(), $_ENV, $_SERVER);
+            $env = self::envAll();
             $env['BLACKCAT_KEYS_DIR'] = $keysDir;
+
+            // Optional: manifest via runtime config (keeps slot metadata consistent across repos).
+            $configClass = '\\BlackCat\\Config\\Runtime\\Config';
+            if (\class_exists($configClass) && $configClass::isInitialized()) {
+                try {
+                    $manifest = $configClass::get('crypto.manifest');
+                    if (is_string($manifest) && trim($manifest) !== '') {
+                        $env['BLACKCAT_CRYPTO_MANIFEST'] = $manifest;
+                    }
+                } catch (\Throwable) {
+                }
+            }
+
             $config = $cryptoConfigClass::fromEnv($env);
             $crypto = $cryptoManagerClass::boot($config);
         } catch (\Throwable $e) {
@@ -217,5 +253,58 @@ final class IngressLocator
                 return $payload;
             }
         };
+    }
+
+    private static function envGet(string $key): ?string
+    {
+        $v = $_ENV[$key] ?? $_SERVER[$key] ?? null;
+        if ($v !== null && $v !== false && (string)$v !== '') {
+            return (string)$v;
+        }
+
+        try {
+            $v = getenv($key);
+            if ($v === false || $v === '') {
+                return null;
+            }
+            return (string)$v;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * @return array<string,string>
+     */
+    private static function envAll(): array
+    {
+        $env = [];
+
+        $add = static function (array $src) use (&$env): void {
+            foreach ($src as $k => $v) {
+                if (!is_string($k) || $k === '' || $v === null || $v === false) {
+                    continue;
+                }
+                if (!is_scalar($v)) {
+                    continue;
+                }
+                $env[$k] = (string)$v;
+            }
+        };
+
+        $add($_ENV);
+        $add($_SERVER);
+
+        // Best effort for environments that still support getenv().
+        try {
+            /** @var array<string,string>|string|false $g */
+            $g = getenv();
+            if (is_array($g)) {
+                $add($g);
+            }
+        } catch (\Throwable) {
+        }
+
+        return $env;
     }
 }
