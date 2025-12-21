@@ -239,10 +239,10 @@ if (Database::isInitialized()) {
         }
 
         // Rewrite localhost -> container-reachable host for dockerized phpunit runs.
-        $dsn = $rewriteDsnHost($dsn, ['host.docker.internal', 'mysql']);
+        $dsn = $rewriteDsnHost($dsn, ['mysql', 'bc-mysql-test', 'host.docker.internal']);
         putenv("MYSQL_DSN={$dsn}");
         if (getenv('BC_REPLICA_DSN')) {
-            $replica = $rewriteDsnHost((string)getenv('BC_REPLICA_DSN'), ['host.docker.internal', 'mysql']);
+            $replica = $rewriteDsnHost((string)getenv('BC_REPLICA_DSN'), ['mysql', 'bc-mysql-test', 'host.docker.internal']);
             putenv("BC_REPLICA_DSN={$replica}");
         }
 
