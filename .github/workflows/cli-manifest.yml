@@ -1,0 +1,32 @@
+name: CLI Manifest
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Checkout blackcat-cli-spec
+        uses: actions/checkout@v4
+        with:
+          repository: blackcatdatabase/blackcat-cli-spec
+          path: cli-spec
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: composer
+
+      - name: Install cli-spec dependencies
+        working-directory: cli-spec
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Validate blackcat-cli.json
+        run: php cli-spec/bin/validate-manifest blackcat-cli.json
+
