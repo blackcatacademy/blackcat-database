@@ -1200,8 +1200,9 @@ function Build-DocsMenu {
 
   # Infrastructure
   $infraGroups = [ordered]@{}
+  $infraRoot = Join-Path $WorkspaceRoot 'blackcat-monitoring'
   foreach ($infra in @('infra','k8s','provisioning','monitoring')) {
-    $path = Join-Path $RepoRoot $infra
+    $path = Join-Path $infraRoot $infra
     if (-not (Test-Path -LiteralPath $path)) { continue }
     $list = New-Object System.Collections.Generic.List[pscustomobject]
     foreach ($file in Get-MarkdownFiles -Path $path -Recurse) {
