@@ -3,7 +3,7 @@
 For automatic input encryption you can use [`blackcat-database-crypto`](../blackcat-database-crypto). It bridges `blackcat-crypto` (manifests + `CryptoManager`) with the `blackcat-database` write path (repositories / services / CLI actions) and ensures sensitive columns are automatically encrypted or HMAC'd before writing.
 
 ## How it works
-1. In `BLACKCAT_CRYPTO_MANIFEST`, define all contexts/columns.
+1. In runtime config (`blackcat-config`) define crypto slots/contexts (recommended: `crypto.manifest`).
 2. Define per-package encryption maps in `packages/*/schema/encryption-map.json` (single source of truth).
 3. Enable the ingress adapter (zero boilerplate) via `IngressLocator` and use standard repos/services:
 
@@ -14,8 +14,7 @@ use BlackCat\Database\Services\GenericCrudService;
 use BlackCat\Database\Crypto\IngressLocator;
 
 // 1) Standard boot (DB) + env configuration:
-// - BLACKCAT_KEYS_DIR=./keys
-// - BLACKCAT_CRYPTO_MANIFEST=.../contexts/core.json
+// - runtime config: crypto.keys_dir=/path/to/keys, crypto.manifest=/path/to/contexts/core.json
 
 // 2) IngressLocator boots itself from packages + keys (hardcoded map source)
 // (GenericCrudService uses it automatically)
@@ -45,7 +44,7 @@ $exists = $svc->existsByKeys(['email_hash' => $email]);
 Note: the deterministic transform is intentionally HMAC-only; `encrypt` (non-deterministic) is rejected for criteria to avoid false queries.
 
 ## How to integrate
-- **CLI / Migrations** – use `blackcat-database-crypto/bin/db-crypto-*` (plan/schema/telemetry/keys-sync) and write to the DB through `blackcat-database` (installer/repositories).
+- **CLI / Migrations** – centralized in `blackcat-cli` (optional): `blackcat db-crypto plan|schema|telemetry|keys-sync`.
 - **Repositories** – repos support an ingress hook (`setIngressAdapter()`), but are typically wired automatically via `IngressLocator` (zero boilerplate). `GenericCrudService` also propagates the adapter into the repo instance.
 - **Observability** – adapter telemetry (number of encrypted fields, errors) can be integrated with `blackcat-observability` alongside DB metrics.
 

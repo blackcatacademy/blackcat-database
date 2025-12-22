@@ -13,7 +13,7 @@
 - Connect with listed integrations to exchange data/events/config.
 - Expand tests (unit, contract, smoke) and document installer hooks.
 - Emit telemetry/metrics compatible with blackcat-observability.
-- Standardize encrypted DB write-path via `blackcat-database-crypto` ingress (`IngressLocator`) + CI gate (`db-crypto-plan --schema-source=packages`).
+- Standardize encrypted DB write-path via `blackcat-database-crypto` ingress (`IngressLocator`) + CI gate (`blackcat db-crypto plan --schema-source=packages`).
 - Zero‑boilerplate: repositories auto-apply ingress transforms on write-path (fail‑closed by default).
 - Deterministic query support: services (and `getByUnique()` in generated repos) can transform lookup keys via ingress `criteria()` (HMAC-only) before `exists()`/`upsertByKeys()`.
 - Consolidate join/feature views into `views-library/` domains to avoid split sources of truth (continue pruning mixed maps from `core/`).
