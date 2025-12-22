@@ -167,14 +167,11 @@ newline) to keep diffs clean across OSes.
 
 ## CLI utilities & scaffolding
 
-- **Operational CLIs** (`bin/`, see [bin/README.md](./bin/README.md)):
-- `dbctl.php` – ping/explain/route/wait/trace helper for live databases.
-- `dbdoctor.php` – quick health snapshot (driver, server, replica info).
-- `sync-check.php` – CLI for comparing row counts between two DSNs (MySQL/Postgres), using `sink/sync` helpers.
-  - `dbtrace.php` – dumps the last executed statements from
-    `Database::getLastQueries()`.
-  - `outbox-worker.php` – long-running outbox dispatcher with webhook/stdout
-    backends, PID/health files, and graceful signal handling.
+- **Operational CLI**: centralized in `blackcat-cli` (optional).
+  - `blackcat db ...` – ping/explain/route/wait/trace helpers for live databases.
+  - `blackcat db doctor` – quick DB snapshot (driver, server, replica info).
+  - `blackcat db outbox-worker` – long-running outbox dispatcher (stdout/webhook),
+    PID/health files, and graceful signal handling.
 
 - **Scaffolding** (`tools/scaffold.php`, documented in
   [tools/README.md](./tools/README.md)):

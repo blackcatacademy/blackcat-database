@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "component": {
+    "id": "blackcat-database",
+    "name": "BlackCat Database",
+    "description": "Umbrella repo for modular database (packages as submodules) with PHP codegen + installer.",
+    "homepage": "https://github.com/blackcatacademy/blackcat-database",
+    "composer_package": "blackcatacademy/blackcat-database"
+  },
+  "cli": {
+    "entrypoints": [
+      {
+        "id": "db",
+        "command": "db",
+        "summary": "Database tooling (ping, explain, replica checks, outbox worker).",
+        "type": "builtin"
+      }
+    ]
+  }
+}
