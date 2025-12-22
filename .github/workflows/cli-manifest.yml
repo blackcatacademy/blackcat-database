@@ -16,6 +16,7 @@ jobs:
         with:
           repository: blackcatdatabase/blackcat-cli-spec
           path: cli-spec
+          token: ${{ secrets.BLACKCAT_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -29,4 +30,3 @@ jobs:
 
       - name: Validate blackcat-cli.json
         run: php cli-spec/bin/validate-manifest blackcat-cli.json
-
