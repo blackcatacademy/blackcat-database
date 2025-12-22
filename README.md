@@ -30,10 +30,9 @@ and “push-to-green” for every database we support.
   provides a guided UI to split schemas, regenerate PHP/README/CHANGELOGs,
   run PHPUnit/DB suites, and launch services locally without memorizing the
   command matrix.
-- Observability stack included: Terraform for Loki/Grafana/Elasticsearch
-  ([infra/](./infra/README.md)), Kubernetes manifests and Prometheus rules
-  ([k8s/](./k8s/README.md)), plus dashboards/config in
-  [monitoring/](./monitoring/README.md) and [provisioning/](./provisioning/README.md).
+- Observability/ops assets live in
+  [`blackcat-monitoring`](https://github.com/blackcatacademy/blackcat-monitoring)
+  (Terraform/Kubernetes manifests, Prometheus rules, dashboards, dev stack).
 
 ---
 
@@ -61,13 +60,9 @@ and “push-to-green” for every database we support.
 | [`docs/`](./docs) | Human docs: [usage.md](./docs/usage.md), [overview.md](./docs/overview.md), [CI-COMMANDS.md](./docs/CI-COMMANDS.md), [generators.md](./docs/generators.md), bench dashboards, how-to guides, etc. |
 | [`docs/ERD.md`](./docs/ERD.md) | Auto-rendered Mermaid ERD with FK lineage, hubs/linked/orphan styling, legend + stats. |
 | [`docs/AUDIT.md`](./docs/AUDIT.md) | Package health snapshot (PK/IDX/FK coverage, views, scores) with links to each package. |
-| [`bin/`](./bin/README.md) | Operational CLI tools (ping/explain/trace, outbox worker). See [bin/README.md](./bin/README.md). |
+| [`blackcat-cli.json`](./blackcat-cli.json) | Component manifest consumed by `blackcat-cli` (exposes builtin `blackcat db ...`). |
 | [`examples/`](./examples/README.md) | Service-level samples showing how to compose repositories (see [examples/README.md](./examples/README.md)). |
 | [`tools/`](./tools/README.md) | Developer tooling such as the scaffold CLI. Details in [tools/README.md](./tools/README.md). |
-| [`infra/`](./infra/README.md) | Terraform stack for Loki/Grafana/Elasticsearch with datasources and dashboards. |
-| [`k8s/`](./k8s/README.md) | Kubernetes manifests (Grafana provisioning, Prometheus rules). |
-| [`monitoring/`](./monitoring/README.md) | Prometheus & Alertmanager configs for the bench SLOs. |
-| [`provisioning/`](./provisioning/README.md) | Import-ready Grafana dashboards and ancillary assets. |
 | [`templates/`](./templates) | PHP scaffolding templates consumed by `tools/scaffold.php`. |
 | [`tests/`](./tests) | Contract / integration suites for modules, installers, services, and orchestration helpers. |
 
@@ -189,18 +184,9 @@ newline) to keep diffs clean across OSes.
 
 ## Observability & infrastructure
 
-This repo also ships the assets needed to monitor and operate bench workloads:
-
-- **Terraform stack** (`infra/`, see [infra/README.md](./infra/README.md)) –
-  deploys Loki, Grafana, and optional Elasticsearch with datasources and bench
-  dashboards via Helm.
-- **Kubernetes manifests** (`k8s/`, [k8s/README.md](./k8s/README.md)) – RAW
-  ConfigMaps for Grafana provisioning and PrometheusRule resources tuned for
-  kube-prometheus-stack.
-- **Monitoring configs** (`monitoring/`, [monitoring/README.md](./monitoring/README.md)) –
-  Prometheus alert rules and Alertmanager routing ready for drop-in use.
-- **Provisioning assets** (`provisioning/`, [provisioning/README.md](./provisioning/README.md)) –
-  canonical Grafana dashboards used by both Terraform and manual imports.
+Operational and observability assets (Terraform, Kubernetes manifests, Prometheus
+rules, Grafana dashboards, dev stack) live in
+[`blackcat-monitoring`](https://github.com/blackcatacademy/blackcat-monitoring).
 
 Bench dashboards live under `docs/bench/` and can be regenerated via
 `scripts/bench/**` helpers.
@@ -234,7 +220,7 @@ For the commands executed by CI, consult [docs/CI-COMMANDS.md](./docs/CI-COMMAND
 - Keep submodules up to date; when generators say files changed, run the scripts
   listed above and commit both the umbrella and package diffs.
 - Development helpers: see [tools/README.md](./tools/README.md) and
-  [bin/README.md](./bin/README.md).
+  [`blackcat-cli`](https://github.com/blackcatacademy/blackcat-cli).
 
 ## Security
 

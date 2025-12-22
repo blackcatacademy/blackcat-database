@@ -13,6 +13,7 @@ $ErrorActionPreference = 'Stop'
 
 $ScriptsRoot = Split-Path -Parent $PSScriptRoot
 $RepoRoot    = Split-Path -Parent $ScriptsRoot
+$WorkspaceRoot = Split-Path -Parent $RepoRoot
 Set-Location -LiteralPath $RepoRoot
 
 if ($BootstrapOnly) {
@@ -1776,17 +1777,24 @@ $shortcutsMenu = New-Object System.Windows.Forms.ToolStripMenuItem('Automation')
 $obsStatusItem = New-Object System.Windows.Forms.ToolStripMenuItem('Observability status (docker compose ps)')
 $obsStatusItem.Add_Click({
   try {
-    $composePath = Join-Path $ScriptsRoot 'dev/observability-compose.yml'
-    Invoke-Executable -FilePath 'docker' -Arguments @('compose','-f',$composePath,'ps') -DisplayName 'docker compose ps (observability)'
+    $blackcatCli = Join-Path $WorkspaceRoot 'blackcat-cli/bin/blackcat'
+    if (-not (Test-Path -LiteralPath $blackcatCli)) {
+      throw "blackcat-cli not found at '$blackcatCli'."
+    }
+    Invoke-Executable -FilePath 'php' -Arguments @($blackcatCli,'monitoring','stack','status') -DisplayName 'blackcat monitoring stack status'
   } catch {
     Add-Warning("Observability status failed: $($_.Exception.Message)")
   }
 })
 $shortcutsMenu.DropDownItems.Add($obsStatusItem) | Out-Null
-$devObsItem = New-Object System.Windows.Forms.ToolStripMenuItem('Launch Dev Observability workflow')
+$devObsItem = New-Object System.Windows.Forms.ToolStripMenuItem('Launch observability stack (blackcat monitoring)')
 $devObsItem.Add_Click({
   try {
-    Invoke-PwshScript -ScriptPath (Join-Path $ScriptsRoot 'dev/Dev-Observability.ps1') -DisplayName 'Dev-Observability.ps1'
+    $blackcatCli = Join-Path $WorkspaceRoot 'blackcat-cli/bin/blackcat'
+    if (-not (Test-Path -LiteralPath $blackcatCli)) {
+      throw "blackcat-cli not found at '$blackcatCli'."
+    }
+    Invoke-Executable -FilePath 'php' -Arguments @($blackcatCli,'monitoring','stack','up') -DisplayName 'blackcat monitoring stack up'
   } catch {
     Add-Warning("Dev observability script failed: $($_.Exception.Message)")
   }
@@ -1811,8 +1819,11 @@ $opsMenu.DropDownItems.Add($grafanaItem) | Out-Null
 $startObsItem = New-Object System.Windows.Forms.ToolStripMenuItem('Start observability stack')
 $startObsItem.Add_Click({
   try {
-    $composePath = Join-Path $ScriptsRoot 'dev/observability-compose.yml'
-    Invoke-Executable -FilePath 'docker' -Arguments @('compose','-f',$composePath,'up','-d') -DisplayName 'docker compose up (observability)'
+    $blackcatCli = Join-Path $WorkspaceRoot 'blackcat-cli/bin/blackcat'
+    if (-not (Test-Path -LiteralPath $blackcatCli)) {
+      throw "blackcat-cli not found at '$blackcatCli'."
+    }
+    Invoke-Executable -FilePath 'php' -Arguments @($blackcatCli,'monitoring','stack','up') -DisplayName 'blackcat monitoring stack up'
   } catch {
     Add-Warning("Failed to start observability stack: $($_.Exception.Message)")
   }
@@ -1822,8 +1833,11 @@ $opsMenu.DropDownItems.Add($startObsItem) | Out-Null
 $stopObsItem = New-Object System.Windows.Forms.ToolStripMenuItem('Stop observability stack')
 $stopObsItem.Add_Click({
   try {
-    $composePath = Join-Path $ScriptsRoot 'dev/observability-compose.yml'
-    Invoke-Executable -FilePath 'docker' -Arguments @('compose','-f',$composePath,'down') -DisplayName 'docker compose down (observability)'
+    $blackcatCli = Join-Path $WorkspaceRoot 'blackcat-cli/bin/blackcat'
+    if (-not (Test-Path -LiteralPath $blackcatCli)) {
+      throw "blackcat-cli not found at '$blackcatCli'."
+    }
+    Invoke-Executable -FilePath 'php' -Arguments @($blackcatCli,'monitoring','stack','down') -DisplayName 'blackcat monitoring stack down'
   } catch {
     Add-Warning("Failed to stop observability stack: $($_.Exception.Message)")
   }
@@ -3388,7 +3402,7 @@ $terraformLink.Location = New-Object System.Drawing.Point(35,95)
 $terraformLink.LinkColor = [System.Drawing.Color]::DeepSkyBlue
 $terraformLink.AutoSize = $true
 $terraformLink.Add_LinkClicked({
-  $tfDoc = Join-Path $RepoRoot 'infra/terraform/README.md'
+  $tfDoc = Join-Path $WorkspaceRoot 'blackcat-monitoring/infra/terraform/README.md'
   if (Test-Path -LiteralPath $tfDoc) { Start-Process $tfDoc }
 })
 $infraGroup.Controls.Add($terraformLink)
@@ -3545,15 +3559,21 @@ $Steps = @(
     $secretsScript = Join-Path $QualityDir 'Check-Secrets.ps1'
     & pwsh -NoLogo -NoProfile -File $secretsScript -Root $RepoRoot
   } { $secretsScanCheck.Checked }),
-  (New-Step "Launch Observability Stack" "pwsh scripts/dev/Dev-Observability.ps1 -Action start" {
-    $obsScript = Join-Path $ScriptsRoot 'dev/Dev-Observability.ps1'
-    & pwsh -NoLogo -NoProfile -File $obsScript -Action start -NoBrowser:(!$grafanaLaunchCheck.Checked)
+  (New-Step "Launch Observability Stack" "blackcat monitoring stack up" {
+    $blackcatCli = Join-Path $WorkspaceRoot 'blackcat-cli/bin/blackcat'
+    if (-not (Test-Path -LiteralPath $blackcatCli)) {
+      throw "blackcat-cli not found at '$blackcatCli'."
+    }
+    Invoke-Executable -FilePath 'php' -Arguments @($blackcatCli,'monitoring','stack','up') -DisplayName 'blackcat monitoring stack up'
+    if ($grafanaLaunchCheck.Checked) {
+      Start-Process 'http://localhost:3000'
+    }
   } { $observabilityCheck.Checked }),
-  (New-Step "Terraform Observability" "terraform plan/apply inside infra/terraform" {
-    $tfDir = Join-Path $RepoRoot 'infra/terraform'
+  (New-Step "Terraform Observability" "terraform plan/apply inside blackcat-monitoring/infra/terraform" {
+    $tfDir = Join-Path $WorkspaceRoot 'blackcat-monitoring/infra/terraform'
     $mode = if ($terraformMode.SelectedItem) { $terraformMode.SelectedItem.ToString() } else { 'Plan' }
     $tfArgs = if ($mode -eq 'Apply') { @('apply','-auto-approve') } else { @('plan') }
-    Invoke-Executable -FilePath 'terraform' -Arguments $tfArgs -WorkingDirectory $tfDir -DisplayName ("terraform {0} (infra/terraform)" -f $mode)
+    Invoke-Executable -FilePath 'terraform' -Arguments $tfArgs -WorkingDirectory $tfDir -DisplayName ("terraform {0} (blackcat-monitoring/infra/terraform)" -f $mode)
   } { $terraformCheck.Checked }),
   (New-Step "Enforce LICENSE/NOTICE" "Run enforce-license.ps1 across packages" {
     & (Join-Path $QualityDir 'enforce-license.ps1') -Packages (Join-Path $RepoRoot 'packages') -Force -Push:$pushCheck.Checked
