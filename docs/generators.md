@@ -92,4 +92,4 @@ docker compose run --rm -e BC_DB=postgres app php ./tests/ci/run.php
 docker compose run --rm app composer dump-autoload -o
 ```
 
-Benchmarks (`pwsh ./scripts/bench/Run-Bench.ps1 ...`) and doc rebuilds (`/docs regenerate` slash-command) are also available once the schema/code generation succeeds.
+Benchmarks (`pwsh ../blackcat-monitoring/bench/Run-Bench.ps1 ...`) and doc rebuilds (`/docs regenerate` slash-command) are also available once the schema/code generation succeeds.

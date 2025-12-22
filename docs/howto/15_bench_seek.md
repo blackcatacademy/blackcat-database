@@ -3,7 +3,7 @@
 ## Quick start
 ```bash
 # Quick smoke (2 threads, 10s)
-pwsh ./scripts/bench/Run-Bench.ps1 -Dsn "$env:DB_DSN" -User "$env:DB_USER" -Pass "$env:DB_PASS" -Mode select -Concurrency 2 -Duration 10 -OutDir ./bench/results
+pwsh ../blackcat-monitoring/bench/Run-Bench.ps1 -Dsn "$env:DB_DSN" -User "$env:DB_USER" -Pass "$env:DB_PASS" -Mode select -Concurrency 2 -Duration 10 -OutDir ../blackcat-monitoring/bench/results
 ```
 
 ## Keyset seek preset
@@ -17,7 +17,7 @@ pwsh ./scripts/bench/Run-Bench.ps1 -Dsn "$env:DB_DSN" -User "$env:DB_USER" -Pass
 
 Run:
 ```bash
-pwsh ./scripts/bench/Run-Bench.ps1 -Dsn "$env:DB_DSN" -User "$env:DB_USER" -Pass "$env:DB_PASS" -Mode seek -Concurrency 8 -Duration 60 -OutDir ./bench/results
+pwsh ../blackcat-monitoring/bench/Run-Bench.ps1 -Dsn "$env:DB_DSN" -User "$env:DB_USER" -Pass "$env:DB_PASS" -Mode seek -Concurrency 8 -Duration 60 -OutDir ../blackcat-monitoring/bench/results
 ```
 
 ## Data generator
@@ -33,5 +33,5 @@ pwsh ./scripts/bench/Run-Bench.ps1 -Dsn "$env:DB_DSN" -User "$env:DB_USER" -Pass
 - Each worker writes a CSV `bench/results/worker_N.csv` with columns: `iter,ms,ok,rows`.
 - Use plotting script:
   ```bash
-  python3 scripts/bench/Bench-Plot.py --glob "bench/results/*.csv" --outdir bench/plots
+  python3 ../blackcat-monitoring/bench/Bench-Plot.py --glob "../blackcat-monitoring/bench/results/*.csv" --outdir ../blackcat-monitoring/bench/plots
   ```

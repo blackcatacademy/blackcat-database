@@ -151,11 +151,11 @@ bash scripts/quality/SqlLint-Diff.sh
 
 ### Local quick smoke
 ```bash
-pwsh ./scripts/bench/Run-Bench.ps1 `
+pwsh ../blackcat-monitoring/bench/Run-Bench.ps1 `
   -Dsn "$env:DB_DSN" -User "$env:DB_USER" -Pass "$env:DB_PASS" `
-  -Mode seek -Concurrency 2 -Duration 10 -OutDir ./bench/results
+  -Mode seek -Concurrency 2 -Duration 10 -OutDir ../blackcat-monitoring/bench/results
 
-python3 scripts/bench/Bench-Plot.py --glob "bench/results/*.csv" --outdir bench/plots
+python3 ../blackcat-monitoring/bench/Bench-Plot.py --glob "../blackcat-monitoring/bench/results/*.csv" --outdir ../blackcat-monitoring/bench/plots
 ```
 
 ### PR commands

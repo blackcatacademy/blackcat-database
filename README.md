@@ -189,7 +189,7 @@ rules, Grafana dashboards, dev stack) live in
 [`blackcat-monitoring`](https://github.com/blackcatacademy/blackcat-monitoring).
 
 Bench dashboards live under `docs/bench/` and can be regenerated via
-`scripts/bench/**` helpers.
+`blackcat-monitoring/bench/**` helpers.
 
 ---
 
